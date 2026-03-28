@@ -9,7 +9,7 @@
 # ssh is used to connect to the node and attach the tmux session. The
 # result is similar to an interactive shell in PBS (qsub -I)
 
-TMUX_BIN='/usr/bin/tmux'
+TMUX_BIN='/usr/local/bin/tmux'
 JOB_ID=''
 
 # Convert time shorthand (e.g. 8h, 30m, 2d, 1d12h, 1h30m) to HH:MM:SS
@@ -224,6 +224,9 @@ function main {
 
     ssh -X -t "${batchhost}" "${BASH_SOURCE[0]}" attach "sinteractive-${JOB_ID}"
 
+    # Give the batch script a moment to finish shutting down
+    sleep 3
+
     # Check if the sinteractive job is still running after SSH exits
     local post_state
     post_state=$(squeue --jobs "${JOB_ID}" --states RUNNING --noheader --Format state 2>/dev/null | xargs)
@@ -263,22 +266,31 @@ function reattach {
 function warn_timeout {
     local session_name="$1"
     local sock="sinteractive-${SLURM_JOB_ID}"
-    local msg="SESSION ENDS IN 10 MIN -- SAVE YOUR WORK"
 
-    # Read current status-format lines so we can shift them down
-    local fmt0 fmt1
-    fmt0=$($TMUX_BIN -L "$sock" show-option -v -t "$session_name" status-format[0])
-    fmt1=$($TMUX_BIN -L "$sock" show-option -v -t "$session_name" status-format[1])
+    # Get job end time (epoch seconds) for countdown
+    local end_epoch
+    end_epoch=$(squeue --jobs "${SLURM_JOB_ID}" --noheader --Format EndTime | xargs)
+    end_epoch=$(date -d "$end_epoch" +%s 2>/dev/null)
 
-    # Three-line status bar: warning banner on top, original lines shift down
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status 3
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-format[0] \
-        "#[align=centre,fg=black,bg=yellow,bold,fill=yellow] >>> $msg <<< "
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-format[1] "$fmt0"
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-format[2] "$fmt1"
+    # Warning banner at top of pane, regular status bar stays at bottom
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-status top
 
-    # Transient overlay (15 seconds)
-    $TMUX_BIN -L "$sock" display-message -t "$session_name" -d 15000 " >>> $msg <<< "
+    # Countdown loop: alternates colors every second for blink effect
+    while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
+        local remaining=$(( end_epoch - $(date +%s) ))
+        if (( remaining < 0 )); then remaining=0; fi
+        local mins=$(( remaining / 60 ))
+        local secs=$(( remaining % 60 ))
+        local msg
+        printf -v msg 'SESSION ENDS IN %d:%02d -- SAVE YOUR WORK' "$mins" "$secs"
+
+        $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-format \
+            "#[align=centre,fg=black,bg=yellow,bold,fill=yellow] >>> $msg <<< "
+        sleep 1
+        $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-format \
+            "#[align=centre,fg=yellow,bg=red,bold,fill=red] >>> $msg <<< "
+        sleep 1
+    done &
 }
 
 function start_tmux {
@@ -292,14 +304,12 @@ function start_tmux {
     # cleanup for one job does not kill the tmux server shared by others.
     $TMUX_BIN -L "$sock" -u new-session -d -s "$session_name"
 
-    # Mouse support (click panes, scroll, resize splits)
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" mouse on
     # 50k lines of scrollback (default 2000)
     $TMUX_BIN -L "$sock" set-option -t "$session_name" history-limit 50000
     # OSC 52 clipboard integration (copy works over SSH)
     $TMUX_BIN -L "$sock" set-option -t "$session_name" set-clipboard on
-    # Keep panes open if process crashes
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" remain-on-exit on
+    # Keep panes open on non-zero exit for debugging (tmux >= 3.4)
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" remain-on-exit failed
     # Highlight windows with new activity
     $TMUX_BIN -L "$sock" set-option -t "$session_name" monitor-activity on
     # Auto-rename windows to current command
