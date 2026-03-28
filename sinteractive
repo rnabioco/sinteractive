@@ -12,6 +12,51 @@
 TMUX_BIN='/usr/bin/tmux'
 JOB_ID=''
 
+# Convert time shorthand (e.g. 8h, 30m, 2d, 1d12h, 1h30m) to HH:MM:SS
+function parse_time {
+    local input="$1"
+
+    # Already in SLURM format (contains : or D-), pass through
+    if [[ "$input" =~ [:] ]] || [[ "$input" =~ ^[0-9]+-  ]]; then
+        echo "$input"
+        return
+    fi
+
+    # Pure integer = minutes (SLURM native)
+    if [[ "$input" =~ ^[0-9]+$ ]]; then
+        echo "$input"
+        return
+    fi
+
+    local days=0 hours=0 minutes=0
+    local remaining="$input"
+
+    if [[ "$remaining" =~ ^([0-9]+)d ]]; then
+        days="${BASH_REMATCH[1]}"
+        remaining="${remaining#*d}"
+    fi
+    if [[ "$remaining" =~ ^([0-9]+)h ]]; then
+        hours="${BASH_REMATCH[1]}"
+        remaining="${remaining#*h}"
+    fi
+    if [[ "$remaining" =~ ^([0-9]+)m ]]; then
+        minutes="${BASH_REMATCH[1]}"
+        remaining="${remaining#*m}"
+    fi
+
+    if [[ -n "$remaining" ]]; then
+        echo 1>&2 "Warning: unrecognized time format '$input', passing through to SLURM"
+        echo "$input"
+        return
+    fi
+
+    if (( days > 0 )); then
+        printf '%d-%02d:%02d:00\n' "$days" "$hours" "$minutes"
+    else
+        printf '%02d:%02d:00\n' "$hours" "$minutes"
+    fi
+}
+
 function usage {
     cat <<EOF
 Usage: sinteractive [OPTIONS] [-- SBATCH_ARGS...]
@@ -23,6 +68,7 @@ Options:
   --node NODE       Request a specific compute node (e.g., compute01)
   --partition PART  Slurm partition (default: normal)
   --time TIME       Wall time limit (default: 08:00:00)
+                    Supports shorthand: 8h, 30m, 2d, 1d12h, 1h30m
   --attach JOBID    Reattach to a running sinteractive session
   -h, --help        Show this help message
 
@@ -30,7 +76,7 @@ All other options are passed directly to sbatch. Examples:
 
   sinteractive                          # 8h session, default resources
   sinteractive --node compute01         # run on a specific node
-  sinteractive --time=2:00:00 -p rna    # 2h session on rna partition
+  sinteractive --time=2h -p rna          # 2h session on rna partition
   sinteractive --mem=16G --cpus-per-task=4
 
 Reconnecting after a disconnect:
@@ -79,6 +125,18 @@ function main {
             --node=*)
                 args+=(--nodelist="${1#--node=}")
                 shift
+                ;;
+            --time)
+                args+=(--time="$(parse_time "$2")")
+                shift 2
+                ;;
+            --time=*)
+                args+=(--time="$(parse_time "${1#--time=}")")
+                shift
+                ;;
+            -t)
+                args+=(-t "$(parse_time "$2")")
+                shift 2
                 ;;
             --partition)
                 args+=(--partition="$2")
