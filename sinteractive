@@ -12,6 +12,28 @@
 TMUX_BIN='/usr/bin/tmux'
 JOB_ID=''
 
+function usage {
+    cat <<EOF
+Usage: sinteractive [OPTIONS] [-- SBATCH_ARGS...]
+
+Start an interactive tmux session on a compute node via Slurm.
+
+Options:
+  --node NODE       Request a specific compute node (e.g., compute01)
+  --partition PART  Slurm partition (default: normal)
+  --time TIME       Wall time limit (default: 08:00:00)
+  -h, --help        Show this help message
+
+All other options are passed directly to sbatch. Examples:
+
+  sinteractive                          # 8h session, default resources
+  sinteractive --node compute01         # run on a specific node
+  sinteractive --time=2:00:00 -p rna    # 2h session on rna partition
+  sinteractive --mem=16G --cpus-per-task=4
+EOF
+    exit 0
+}
+
 function main {
     if [[ "$1" == 'tmux' ]]; then
         shift
@@ -19,6 +41,47 @@ function main {
     elif [[ "$1" == 'attach' ]]; then
         shift
         attach_tmux "$@"
+    fi
+
+    # Parse custom flags before passing remaining args to sbatch
+    local args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                usage
+                ;;
+            --node)
+                args+=(--nodelist="$2")
+                shift 2
+                ;;
+            --node=*)
+                args+=(--nodelist="${1#--node=}")
+                shift
+                ;;
+            --partition)
+                args+=(--partition="$2")
+                shift 2
+                ;;
+            --partition=*)
+                args+=(--partition="${1#--partition=}")
+                shift
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+    set -- "${args[@]}"
+
+    # Default to 8 hours if no --time/-t specified
+    if ! printf '%s\n' "$@" | grep -qE '^(--time|-t)'; then
+        set -- --time=08:00:00 "$@"
+    fi
+
+    # Default to normal partition if no --partition/-p specified
+    if ! printf '%s\n' "$@" | grep -qE '^(--partition|-p)'; then
+        set -- --partition=normal "$@"
     fi
 
     local output
