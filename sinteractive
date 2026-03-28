@@ -2,66 +2,58 @@
 # -*- coding: utf-8 -*-
 # Original Author: Pär Andersson (National Supercomputer Centre, Sweden)
 # Updated by: Jonathon Anderson (University of Colorado Boulder)
+# Updated by: Jay Hesselberth
 # Version: 2017-09-15
 #
-# This will submit a batch script that starts screen on a node. Then
-# ssh is used to connect to the node and attach the screen.  The
+# This will submit a batch script that starts tmux on a node. Then
+# ssh is used to connect to the node and attach the tmux session. The
 # result is similar to an interactive shell in PBS (qsub -I)
-
 
 TMUX_BIN='/usr/bin/tmux'
 JOB_ID=''
 
-
-function main
-{
-    if [[ "$1" == 'screen' ]]
-    then
+function main {
+    if [[ "$1" == 'tmux' ]]; then
         shift
-        start_screen $@
-    elif [[ "$1" == 'attach' ]]
-    then
+        start_tmux "$@"
+    elif [[ "$1" == 'attach' ]]; then
         shift
-        attach_screen $@
+        attach_tmux "$@"
     fi
 
     local output
     local sbatch_ec
-    output=$(sbatch $@ ${BASH_SOURCE[0]} screen)
+    output=$(sbatch "$@" "${BASH_SOURCE[0]}" tmux)
     sbatch_ec=$?
 
     JOB_ID=$(<<<"${output}" egrep -o -e '\b[0-9]+$')
-    if [ -z "${JOB_ID}" ]
-    then
+    if [[ -z "${JOB_ID}" ]]; then
         echo 1>&2 "$0: unable to find job id in sbatch output"
-        exit $sbatch_ec
+        exit "$sbatch_ec"
     fi
 
     echo 1>&2 "Interactive job with ID ${JOB_ID} submitted, please wait."
     local state
-    while true
-    do
+    while true; do
         sleep 5s
 
         # Check job status
-        state=$(squeue --jobs ${JOB_ID} --states PENDING,RUNNING --noheader --Format state | xargs)
-        if [ "${state}" = 'RUNNING' ]
-        then
-        break
-        elif [ "${state}" != 'PENDING' ]
-        then
-        echo 1>&2 "$0: job is neither RUNNING nor PENDING. Aborting."
-        scancel --quiet "${JOB_ID}"
-        exit 1
+        state=$(squeue --jobs "${JOB_ID}" --states PENDING,RUNNING --noheader --Format state | xargs)
+        if [[ "${state}" == 'RUNNING' ]]; then
+            break
+        elif [[ "${state}" != 'PENDING' ]]; then
+            echo 1>&2 "$0: job is neither RUNNING nor PENDING. Aborting."
+            scancel --quiet "${JOB_ID}"
+            exit 1
         fi
 
         echo 1>&2 -n '.'
     done
 
-    local batchhost=$(squeue --jobs ${JOB_ID} --noheader --Format batchhost | xargs)
+    local batchhost
+    batchhost=$(squeue --jobs "${JOB_ID}" --noheader --Format batchhost | xargs)
 
     echo 1>&2 ''
-
     echo 1>&2 'Connecting to sinteractive session, please wait...'
 
     sleep 8s
@@ -69,9 +61,7 @@ function main
     ssh -X -t "${batchhost}" "${BASH_SOURCE[0]}" attach "sinteractive-${JOB_ID}"
 }
 
-
-function start_screen
-{
+function start_tmux {
     export TERM=xterm-256color
     $TMUX_BIN -u new-session -d -s "sinteractive-${SLURM_JOB_ID}"
     $TMUX_BIN set-hook -t "sinteractive-${SLURM_JOB_ID}" session-closed \
@@ -80,32 +70,24 @@ function start_screen
     $TMUX_BIN wait-for "sinteractive-done-${SLURM_JOB_ID}"
 }
 
-
-function attach_screen
-{
+function attach_tmux {
     local SESSION=$1
 
-    if [ "$DISPLAY" != '' ]
-    then
-        $TMUX_BIN setenv -t $SESSION DISPLAY $DISPLAY
+    if [[ "$DISPLAY" != '' ]]; then
+        $TMUX_BIN setenv -t "$SESSION" DISPLAY "$DISPLAY"
     fi
 
-    exec $TMUX_BIN -u attach-session -t $SESSION
+    exec $TMUX_BIN -u attach-session -t "$SESSION"
 }
 
-
-function cleanup
-{
-    if [ -n "${JOB_ID}" ]
-    then
+function cleanup {
+    if [[ -n "${JOB_ID}" ]]; then
         scancel --quiet "${JOB_ID}"
     fi
 
     exit
 }
 
-
 trap cleanup SIGINT SIGTERM EXIT
-
 
 main "$@"
