@@ -70,7 +70,7 @@ sinteractive --partition=gpu --gpus=1 --mem=16G
 1. **Submits a batch job** — `sbatch` launches the script itself on a compute node, where it starts a tmux session.
 2. **Waits for the job to start** — polls `squeue` every 5 seconds until the job is running (you'll see dots printed while waiting).
 3. **Connects via SSH** — once running, it SSHs into the compute node with X11 forwarding (`-X`) and attaches to the tmux session.
-4. **Stays alive until you exit** — the SLURM job remains running as long as the tmux session exists. When you detach or close tmux, the job is cancelled automatically.
+4. **Stays alive until you exit** — the SLURM job remains running as long as the tmux session exists. Detaching (`Ctrl-b d`) or losing your SSH connection leaves the job running so you can reconnect. Exiting tmux (`exit`) ends the job.
 
 ```mermaid
 sequenceDiagram

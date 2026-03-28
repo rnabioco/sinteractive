@@ -49,9 +49,11 @@ function main {
     if [[ "$1" == 'tmux' ]]; then
         shift
         start_tmux "$@"
+        return
     elif [[ "$1" == 'attach' ]]; then
         shift
         attach_tmux "$@"
+        return
     fi
 
     # Parse custom flags before passing remaining args to sbatch
@@ -146,7 +148,29 @@ function main {
 
     sleep 8s
 
+    # sinteractive job is running and we're about to connect. From this
+    # point, detaching or disconnecting should NOT cancel the job.
+    trap - SIGINT SIGTERM EXIT
+
     ssh -X -t "${batchhost}" "${BASH_SOURCE[0]}" attach "sinteractive-${JOB_ID}"
+
+    # Check if the sinteractive job is still running after SSH exits
+    local post_state
+    post_state=$(squeue --jobs "${JOB_ID}" --states RUNNING --noheader --Format state 2>/dev/null | xargs)
+
+    if [[ "${post_state}" == 'RUNNING' ]]; then
+        echo 1>&2 ''
+        echo 1>&2 "Disconnected from sinteractive session."
+        echo 1>&2 "Your job ${JOB_ID} is still running on ${batchhost}."
+        echo 1>&2 ''
+        echo 1>&2 "To reconnect:"
+        echo 1>&2 "  sinteractive --attach ${JOB_ID}"
+        echo 1>&2 ''
+        echo 1>&2 "To cancel the job:"
+        echo 1>&2 "  scancel ${JOB_ID}"
+    else
+        echo 1>&2 "Session ended. Job ${JOB_ID} is no longer running."
+    fi
 }
 
 function reattach {
