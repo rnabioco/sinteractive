@@ -9,7 +9,7 @@ The `sinteractive` script launches a persistent interactive session on a compute
 | Survives SSH disconnects | No — session is lost | Yes — tmux keeps it alive |
 | Multiple terminal panes | No | Yes — tmux split/window support |
 | X11 forwarding | Manual setup | Automatic (`ssh -X`) |
-| Reconnect to session | Not possible | SSH back and reattach |
+| Reconnect to session | Not possible | `sinteractive --attach JOBID` |
 
 !!! tip "When to use which"
     Use `srun --pty bash` for quick, throwaway interactive work. Use `sinteractive` when you need a session that persists through network interruptions or when you want tmux features like split panes.
@@ -42,6 +42,7 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--node NODE` | Request a specific compute node | any available |
 | `--partition PART` | SLURM partition | `normal` |
 | `--time TIME` | Wall time limit | `08:00:00` |
+| `--attach JOBID` | Reattach to a running session | |
 | `-h`, `--help` | Show help message | |
 
 All other arguments are passed directly to `sbatch`, so you can use any `sbatch` option.
@@ -84,17 +85,16 @@ login node                    compute node
 
 ## Reconnecting after a disconnect
 
-If your SSH connection drops or you intentionally detach (`Ctrl-b d`), the tmux session **keeps running** on the compute node and your work is safe. To reconnect:
+If your SSH connection drops or you intentionally detach (`Ctrl-b d`), the tmux session **keeps running** on the compute node and your work is safe. To reconnect from the login node:
 
 ```bash
-# 1. Find which node your job is on
+# Find your job ID
 squeue --me
 #   JOBID  PARTITION  NAME          NODE       STATE
 #   12345  normal     sinteractive  compute01  RUNNING
 
-# 2. SSH to that node and reattach
-ssh -X compute01
-tmux attach -t sinteractive-12345
+# Reattach
+sinteractive --attach 12345
 ```
 
 !!! info "This is the key advantage over `srun --pty bash`"

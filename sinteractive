@@ -15,6 +15,7 @@ JOB_ID=''
 function usage {
     cat <<EOF
 Usage: sinteractive [OPTIONS] [-- SBATCH_ARGS...]
+       sinteractive --attach JOBID
 
 Start an interactive tmux session on a compute node via Slurm.
 
@@ -22,6 +23,7 @@ Options:
   --node NODE       Request a specific compute node (e.g., compute01)
   --partition PART  Slurm partition (default: normal)
   --time TIME       Wall time limit (default: 08:00:00)
+  --attach JOBID    Reattach to a running sinteractive session
   -h, --help        Show this help message
 
 All other options are passed directly to sbatch. Examples:
@@ -34,11 +36,11 @@ All other options are passed directly to sbatch. Examples:
 Reconnecting after a disconnect:
 
   If your SSH connection drops or you detach (Ctrl-b d), the tmux
-  session keeps running. To reconnect:
+  session keeps running. To reconnect from the login node:
 
-  squeue --me                           # find your job ID and node
-  ssh -X <nodename>                     # SSH to the compute node
-  tmux attach -t sinteractive-<JOBID>   # reattach to the session
+  sinteractive --attach JOBID           # reattach to the session
+
+  Use "squeue --me" to find your job ID if you don't remember it.
 EOF
     exit 0
 }
@@ -54,10 +56,19 @@ function main {
 
     # Parse custom flags before passing remaining args to sbatch
     local args=()
+    local reattach_jobid=''
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -h|--help)
                 usage
+                ;;
+            --attach)
+                reattach_jobid="$2"
+                shift 2
+                ;;
+            --attach=*)
+                reattach_jobid="${1#--attach=}"
+                shift
                 ;;
             --node)
                 args+=(--nodelist="$2")
@@ -81,6 +92,11 @@ function main {
                 ;;
         esac
     done
+
+    if [[ -n "${reattach_jobid}" ]]; then
+        reattach "${reattach_jobid}"
+    fi
+
     set -- "${args[@]}"
 
     # Default to 8 hours if no --time/-t specified
@@ -131,6 +147,22 @@ function main {
     sleep 8s
 
     ssh -X -t "${batchhost}" "${BASH_SOURCE[0]}" attach "sinteractive-${JOB_ID}"
+}
+
+function reattach {
+    local jobid=$1
+
+    # Verify the job is still running
+    local state
+    state=$(squeue --jobs "${jobid}" --states RUNNING --noheader --Format state | xargs)
+    if [[ "${state}" != 'RUNNING' ]]; then
+        echo 1>&2 "$0: job ${jobid} is not running (state: ${state:-unknown})"
+        exit 1
+    fi
+
+    echo 1>&2 "Reattaching to sinteractive session ${jobid}..."
+    exec srun --overlap --jobid="${jobid}" --pty \
+        $TMUX_BIN -u attach-session -t "sinteractive-${jobid}"
 }
 
 function start_tmux {
