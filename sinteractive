@@ -87,6 +87,11 @@ Reconnecting after a disconnect:
   sinteractive --attach JOBID           # reattach to the session
 
   Use "squeue --me" to find your job ID if you don't remember it.
+
+Timeout warning:
+
+  A warning appears in the tmux status bar 10 minutes before the time
+  limit. The bar turns yellow to alert you to save your work.
 EOF
     exit 0
 }
@@ -169,6 +174,11 @@ function main {
         set -- --partition=normal "$@"
     fi
 
+    # Send warning signal 10 minutes before time limit
+    if ! printf '%s\n' "$@" | grep -qE '^--signal'; then
+        set -- --signal=B:USR1@600 "$@"
+    fi
+
     local output
     local sbatch_ec
     output=$(sbatch "$@" "${BASH_SOURCE[0]}" tmux)
@@ -235,6 +245,7 @@ function main {
 
 function reattach {
     local jobid=$1
+    local sock="sinteractive-${jobid}"
 
     # Verify the job is still running
     local state
@@ -246,26 +257,72 @@ function reattach {
 
     echo 1>&2 "Reattaching to sinteractive session ${jobid}..."
     exec srun --overlap --jobid="${jobid}" --pty \
-        $TMUX_BIN -u attach-session -t "sinteractive-${jobid}"
+        $TMUX_BIN -L "$sock" -u attach-session -t "sinteractive-${jobid}"
+}
+
+function warn_timeout {
+    local session_name="$1"
+    local sock="sinteractive-${SLURM_JOB_ID}"
+    local msg="SESSION ENDS IN 10 MIN -- SAVE YOUR WORK"
+
+    # Add a third line: warning banner on top, existing content shifts down
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status 3
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-format[0] \
+        "#[align=centre,fg=black,bg=yellow,bold,fill=yellow] >>> $msg <<< "
+
+    # Transient overlay (15 seconds)
+    $TMUX_BIN -L "$sock" display-message -t "$session_name" -d 15000 " >>> $msg <<< "
 }
 
 function start_tmux {
     export TERM=xterm-256color
-    $TMUX_BIN -u new-session -d -s "sinteractive-${SLURM_JOB_ID}"
-    $TMUX_BIN set-hook -t "sinteractive-${SLURM_JOB_ID}" session-closed \
-        "run-shell '$TMUX_BIN wait-for -S sinteractive-done-${SLURM_JOB_ID}'"
-    # Block until the tmux session is destroyed (keeps the SLURM job alive)
-    $TMUX_BIN wait-for "sinteractive-done-${SLURM_JOB_ID}"
+
+    local session_name="sinteractive-${SLURM_JOB_ID}"
+    local wait_channel="sinteractive-done-${SLURM_JOB_ID}"
+    local sock="sinteractive-${SLURM_JOB_ID}"
+
+    # Each job gets its own tmux server socket (-L) so that SLURM cgroup
+    # cleanup for one job does not kill the tmux server shared by others.
+    $TMUX_BIN -L "$sock" -u new-session -d -s "$session_name"
+
+    # Two-line status bar: line 0 = session info, line 1 = help
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status 2
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-interval 1
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-format[0] \
+        "#[align=left,bold] ID: ${SLURM_JOB_ID} | #{pane_current_command} #[align=right,bold] Host: #{host_short} | %I:%M:%S %p "
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-format[1] \
+        "#[align=centre,fg=black,bg=colour229,bold,fill=colour229] Detach: Ctrl+b d | Reattach: sinteractive --attach ${SLURM_JOB_ID} | Docs: https://tinyurl.com/2jsd3nbe"
+
+    $TMUX_BIN -L "$sock" set-hook -t "$session_name" session-closed \
+        "run-shell '$TMUX_BIN -L $sock wait-for -S $wait_channel'"
+
+    # Trap SIGUSR1 sent by SLURM 10 minutes before time limit
+    trap 'warn_timeout "$session_name"' USR1
+
+    # Run wait-for in background; `wait` builtin (foreground) is interruptible
+    # by signals, unlike external commands which block trap delivery in bash.
+    $TMUX_BIN -L "$sock" wait-for "$wait_channel" &
+    local wait_pid=$!
+    while true; do
+        wait $wait_pid
+        # 0 or 1-128 = process exited; >128 = signal interrupted wait
+        if (( $? <= 128 )); then
+            break
+        fi
+    done
+
+    trap - USR1
 }
 
 function attach_tmux {
     local SESSION=$1
+    local sock="$SESSION"
 
     if [[ "$DISPLAY" != '' ]]; then
-        $TMUX_BIN setenv -t "$SESSION" DISPLAY "$DISPLAY"
+        $TMUX_BIN -L "$sock" setenv -t "$SESSION" DISPLAY "$DISPLAY"
     fi
 
-    exec $TMUX_BIN -u attach-session -t "$SESSION"
+    exec $TMUX_BIN -L "$sock" -u attach-session -t "$SESSION"
 }
 
 function cleanup {
