@@ -285,6 +285,19 @@ function start_tmux {
     # cleanup for one job does not kill the tmux server shared by others.
     $TMUX_BIN -L "$sock" -u new-session -d -s "$session_name"
 
+    # Mouse support (click panes, scroll, resize splits)
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" mouse on
+    # 50k lines of scrollback (default 2000)
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" history-limit 50000
+    # OSC 52 clipboard integration (copy works over SSH)
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" set-clipboard on
+    # Keep panes open if process crashes
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" remain-on-exit on
+    # Highlight windows with new activity
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" monitor-activity on
+    # Auto-rename windows to current command
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" automatic-rename on
+
     # Two-line status bar: line 0 = session info, line 1 = help
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status 2
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status-interval 1
