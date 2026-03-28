@@ -16,18 +16,17 @@ The `sinteractive` script launches a persistent interactive session on a compute
 
 ## Installation
 
-Copy or symlink the script somewhere on your `$PATH`:
-
 ```bash
-# Option 1: copy to your local bin
-cp scripts/sinteractive ~/bin/
-chmod +x ~/bin/sinteractive
-
-# Option 2: symlink
-ln -s "$(pwd)/scripts/sinteractive" ~/bin/sinteractive
+make install
 ```
 
-Make sure `~/bin` is in your `$PATH` (add `export PATH="$HOME/bin:$PATH"` to your `~/.bashrc` if needed).
+This copies the script to `~/.local/bin/`. Make sure `~/.local/bin` is in your `$PATH` (add `export PATH="$HOME/.local/bin:$PATH"` to your `~/.bashrc` if needed).
+
+To install to a different location:
+
+```bash
+make install PREFIX=~/bin
+```
 
 ## Usage
 
@@ -73,14 +72,17 @@ sinteractive --partition=gpu --gpus=1 --mem=16G
 3. **Connects via SSH** — once running, it SSHs into the compute node with X11 forwarding (`-X`) and attaches to the tmux session.
 4. **Stays alive until you exit** — the SLURM job remains running as long as the tmux session exists. When you detach or close tmux, the job is cancelled automatically.
 
-```
-login node                    compute node
-┌──────────┐    sbatch       ┌──────────────┐
-│ you run   │ ──────────────>│ tmux session  │
-│ sinteract │    ssh -X      │ starts        │
-│ ive       │ ──────────────>│               │
-│           │    attached    │ you work here │
-└──────────┘                 └──────────────┘
+```mermaid
+sequenceDiagram
+    participant L as Login Node
+    participant S as SLURM
+    participant C as Compute Node
+
+    L->>S: sbatch (submit job)
+    S->>C: start tmux session
+    L-->>L: poll squeue until RUNNING
+    L->>C: ssh -X (attach to tmux)
+    Note over C: you work here
 ```
 
 ## Reconnecting after a disconnect
