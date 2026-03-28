@@ -1,0 +1,111 @@
+#!/bin/bash
+# -*- coding: utf-8 -*-
+# Original Author: Pär Andersson (National Supercomputer Centre, Sweden)
+# Updated by: Jonathon Anderson (University of Colorado Boulder)
+# Version: 2017-09-15
+#
+# This will submit a batch script that starts screen on a node. Then
+# ssh is used to connect to the node and attach the screen.  The
+# result is similar to an interactive shell in PBS (qsub -I)
+
+
+TMUX_BIN='/usr/bin/tmux'
+JOB_ID=''
+
+
+function main
+{
+    if [[ "$1" == 'screen' ]]
+    then
+        shift
+        start_screen $@
+    elif [[ "$1" == 'attach' ]]
+    then
+        shift
+        attach_screen $@
+    fi
+
+    local output
+    local sbatch_ec
+    output=$(sbatch $@ ${BASH_SOURCE[0]} screen)
+    sbatch_ec=$?
+
+    JOB_ID=$(<<<"${output}" egrep -o -e '\b[0-9]+$')
+    if [ -z "${JOB_ID}" ]
+    then
+        echo 1>&2 "$0: unable to find job id in sbatch output"
+        exit $sbatch_ec
+    fi
+
+    echo 1>&2 "Interactive job with ID ${JOB_ID} submitted, please wait."
+    local state
+    while true
+    do
+        sleep 5s
+
+        # Check job status
+        state=$(squeue --jobs ${JOB_ID} --states PENDING,RUNNING --noheader --Format state | xargs)
+        if [ "${state}" = 'RUNNING' ]
+        then
+        break
+        elif [ "${state}" != 'PENDING' ]
+        then
+        echo 1>&2 "$0: job is neither RUNNING nor PENDING. Aborting."
+        scancel --quiet "${JOB_ID}"
+        exit 1
+        fi
+
+        echo 1>&2 -n '.'
+    done
+
+    local batchhost=$(squeue --jobs ${JOB_ID} --noheader --Format batchhost | xargs)
+
+    echo 1>&2 ''
+
+    echo 1>&2 'Connecting to sinteractive session, please wait...'
+
+    sleep 8s
+
+    ssh -X -t "${batchhost}" "${BASH_SOURCE[0]}" attach "sinteractive-${JOB_ID}"
+}
+
+
+function start_screen
+{
+    export TERM=xterm-256color
+    $TMUX_BIN -u new-session -d -s "sinteractive-${SLURM_JOB_ID}"
+    $TMUX_BIN set-hook -t "sinteractive-${SLURM_JOB_ID}" session-closed \
+        "run-shell '$TMUX_BIN wait-for -S sinteractive-done-${SLURM_JOB_ID}'"
+    # Block until the tmux session is destroyed (keeps the SLURM job alive)
+    $TMUX_BIN wait-for "sinteractive-done-${SLURM_JOB_ID}"
+}
+
+
+function attach_screen
+{
+    local SESSION=$1
+
+    if [ "$DISPLAY" != '' ]
+    then
+        $TMUX_BIN setenv -t $SESSION DISPLAY $DISPLAY
+    fi
+
+    exec $TMUX_BIN -u attach-session -t $SESSION
+}
+
+
+function cleanup
+{
+    if [ -n "${JOB_ID}" ]
+    then
+        scancel --quiet "${JOB_ID}"
+    fi
+
+    exit
+}
+
+
+trap cleanup SIGINT SIGTERM EXIT
+
+
+main "$@"
