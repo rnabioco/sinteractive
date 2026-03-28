@@ -82,20 +82,25 @@ login node                    compute node
 └──────────┘                 └──────────────┘
 ```
 
-## Tips
+## Reconnecting after a disconnect
 
-### Detaching and reattaching
-
-If your SSH connection drops, the tmux session keeps running on the compute node. To reconnect:
+If your SSH connection drops or you intentionally detach (`Ctrl-b d`), the tmux session **keeps running** on the compute node and your work is safe. To reconnect:
 
 ```bash
-# Find which node your job is on
+# 1. Find which node your job is on
 squeue --me
+#   JOBID  PARTITION  NAME          NODE       STATE
+#   12345  normal     sinteractive  compute01  RUNNING
 
-# SSH to that node and reattach
-ssh -X <nodename>
-tmux attach -t sinteractive-<JOBID>
+# 2. SSH to that node and reattach
+ssh -X compute01
+tmux attach -t sinteractive-12345
 ```
+
+!!! info "This is the key advantage over `srun --pty bash`"
+    With `srun`, a dropped SSH connection kills your session and any running processes. With `sinteractive`, you just reconnect and pick up where you left off.
+
+## Tips
 
 ### Basic tmux commands
 

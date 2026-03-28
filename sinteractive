@@ -30,6 +30,15 @@ All other options are passed directly to sbatch. Examples:
   sinteractive --node compute01         # run on a specific node
   sinteractive --time=2:00:00 -p rna    # 2h session on rna partition
   sinteractive --mem=16G --cpus-per-task=4
+
+Reconnecting after a disconnect:
+
+  If your SSH connection drops or you detach (Ctrl-b d), the tmux
+  session keeps running. To reconnect:
+
+  squeue --me                           # find your job ID and node
+  ssh -X <nodename>                     # SSH to the compute node
+  tmux attach -t sinteractive-<JOBID>   # reattach to the session
 EOF
     exit 0
 }
