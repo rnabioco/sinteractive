@@ -122,6 +122,8 @@ function main {
         exit "$sbatch_ec"
     fi
 
+    scontrol update JobId="${JOB_ID}" Comment="sinteractive-${JOB_ID}"
+
     echo 1>&2 "Interactive job with ID ${JOB_ID} submitted, please wait."
     local state
     while true; do
