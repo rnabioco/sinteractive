@@ -265,10 +265,17 @@ function warn_timeout {
     local sock="sinteractive-${SLURM_JOB_ID}"
     local msg="SESSION ENDS IN 10 MIN -- SAVE YOUR WORK"
 
-    # Add a third line: warning banner on top, existing content shifts down
+    # Read current status-format lines so we can shift them down
+    local fmt0 fmt1
+    fmt0=$($TMUX_BIN -L "$sock" show-option -v -t "$session_name" status-format[0])
+    fmt1=$($TMUX_BIN -L "$sock" show-option -v -t "$session_name" status-format[1])
+
+    # Three-line status bar: warning banner on top, original lines shift down
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status 3
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status-format[0] \
         "#[align=centre,fg=black,bg=yellow,bold,fill=yellow] >>> $msg <<< "
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-format[1] "$fmt0"
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-format[2] "$fmt1"
 
     # Transient overlay (15 seconds)
     $TMUX_BIN -L "$sock" display-message -t "$session_name" -d 15000 " >>> $msg <<< "
