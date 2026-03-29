@@ -318,8 +318,11 @@ function start_tmux {
     # Status bar: left = job info, right = help/instructions
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status-interval 1
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left \
-        "#[bold] PID: ${SLURM_JOB_ID} | #{host_short} | %I:%M:%S %p "
+        "#[bold] interactive @ #{host_short} | %I:%M:%S %p "
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left-length 50
+    # Hide the window list (0:bash*) from the center of the status bar
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-format ''
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-current-format ''
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right \
         "#[fg=black,bg=colour229,bold] Detach: Ctrl+b d | Reattach: sinteractive --attach ${SLURM_JOB_ID} | Docs: https://tinyurl.com/2jsd3nbe "
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right-length 120
