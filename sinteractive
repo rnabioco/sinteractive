@@ -494,9 +494,9 @@ function start_tmux {
     $TMUX_BIN -L "$sock" set-option -t "$session_name" automatic-rename on
 
     # Status bar: left = job info, right = help/instructions
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-interval 1
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-interval 60
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left \
-        "#[bold] interactive @ #{host_short} | %I:%M:%S %p "
+        "#[bold] interactive @ #{host_short} | %I:%M %p "
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left-length 50
     # Hide the window list (0:bash*) from the center of the status bar
     $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-format ''
