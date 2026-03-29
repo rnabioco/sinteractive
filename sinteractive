@@ -66,7 +66,7 @@ Start an interactive tmux session on a compute node via Slurm.
 
 Options:
   --node NODE       Request a specific compute node (e.g., compute01)
-  --partition PART  Slurm partition (default: normal)
+  --partition PART  Slurm partition (default: interactive)
   --time TIME       Wall time limit (default: 08:00:00)
                     Supports shorthand: 8h, 30m, 2d, 1d12h, 1h30m
   --attach JOBID    Reattach to a running sinteractive session
@@ -75,7 +75,7 @@ Options:
 
 All other options are passed directly to sbatch. Examples:
 
-  sinteractive                          # 8h session, default resources
+  sinteractive                          # 8h session, 2 CPUs, 8G memory
   sinteractive --node compute01         # run on a specific node
   sinteractive --time=2h -p rna          # 2h session on rna partition
   sinteractive --mem=16G --cpus-per-task=4
@@ -173,9 +173,19 @@ function main {
         set -- --time=08:00:00 "$@"
     fi
 
-    # Default to normal partition if no --partition/-p specified
+    # Default to interactive partition if no --partition/-p specified
     if ! printf '%s\n' "$@" | grep -qE '^(--partition|-p)'; then
-        set -- --partition=normal "$@"
+        set -- --partition=interactive "$@"
+    fi
+
+    # Default to 2 CPUs if no --cpus-per-task/-c specified
+    if ! printf '%s\n' "$@" | grep -qE '^(--cpus-per-task|-c)'; then
+        set -- --cpus-per-task=2 "$@"
+    fi
+
+    # Default to 8G memory if no --mem specified
+    if ! printf '%s\n' "$@" | grep -qE '^--mem'; then
+        set -- --mem=8G "$@"
     fi
 
     # Send warning signal 10 minutes before time limit

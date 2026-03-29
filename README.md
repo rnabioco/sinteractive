@@ -39,8 +39,10 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | Option | Description | Default |
 |---|---|---|
 | `--node NODE` | Request a specific compute node | any available |
-| `--partition PART` | SLURM partition | `normal` |
+| `--partition PART` | SLURM partition | `interactive` |
 | `--time TIME` | Wall time limit | `08:00:00` |
+| `--cpus-per-task N` | Number of CPUs | `2` |
+| `--mem SIZE` | Memory | `8G` |
 | `--attach JOBID` | Reattach to a running session | |
 | `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
@@ -50,7 +52,7 @@ All other arguments are passed directly to `sbatch`, so you can use any `sbatch`
 ### Examples
 
 ```bash
-# Default: 8-hour session on the normal partition
+# Default: 8-hour session, 2 CPUs, 8G memory
 sinteractive
 
 # Run on a specific node
@@ -59,11 +61,14 @@ sinteractive --node compute01
 # 2-hour session on the rna partition
 sinteractive --time=2:00:00 --partition=rna
 
-# Request extra memory and CPUs
+# Override default memory and CPUs
 sinteractive --mem=16G --cpus-per-task=4
 
 # GPU session
 sinteractive --partition=gpu --gpus=1 --mem=16G
+
+# Longer session on the normal partition (up to 3 days)
+sinteractive --time=1-12:00:00 --partition=normal
 ```
 
 ## How it works
@@ -124,4 +129,7 @@ scancel <JOBID>
 ```
 
 !!! warning "Wall time"
-    The default wall time is **8 hours**. If you need more, pass `--time` explicitly. The `normal` partition allows up to 7 days.
+    The default wall time is **8 hours** on the `interactive` partition, with a maximum of **1 day**. For longer sessions, switch to the `normal` partition (up to 3 days): `sinteractive --partition=normal --time=2-00:00:00`.
+
+!!! info "Job limit"
+    The `interactive` partition limits each user to **3 concurrent jobs**. If you need more simultaneous sessions, use the `normal` partition.
