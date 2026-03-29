@@ -70,6 +70,7 @@ Options:
   --time TIME       Wall time limit (default: 08:00:00)
                     Supports shorthand: 8h, 30m, 2d, 1d12h, 1h30m
   --attach JOBID    Reattach to a running sinteractive session
+  --list            List running sinteractive sessions
   -h, --help        Show this help message
 
 All other options are passed directly to sbatch. Examples:
@@ -86,7 +87,7 @@ Reconnecting after a disconnect:
 
   sinteractive --attach JOBID           # reattach to the session
 
-  Use "squeue --me" to find your job ID if you don't remember it.
+  Use "sinteractive --list" to find your running sessions.
 
 Timeout warning:
 
@@ -114,6 +115,9 @@ function main {
         case "$1" in
             -h|--help)
                 usage
+                ;;
+            --list)
+                list_sessions
                 ;;
             --attach)
                 reattach_jobid="$2"
@@ -244,6 +248,27 @@ function main {
     else
         echo 1>&2 "Session ended. Job ${JOB_ID} is no longer running."
     fi
+}
+
+function list_sessions {
+    local lines
+    lines=$(squeue --me --states RUNNING --noheader \
+        --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 \
+        | grep sinteractive)
+
+    if [[ -z "$lines" ]]; then
+        echo "No running sinteractive sessions."
+        exit 0
+    fi
+
+    printf '%-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
+    while read -r jobid comment node elapsed limit; do
+        printf '%-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
+    done <<< "$lines"
+
+    echo ''
+    echo 'To reattach:  sinteractive --attach JOBID'
+    exit 0
 }
 
 function reattach {
