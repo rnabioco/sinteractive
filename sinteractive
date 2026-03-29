@@ -108,6 +108,12 @@ function main {
         return
     fi
 
+    # Don't allow launching sinteractive from inside an existing session
+    if [[ -n "$TMUX" ]] && [[ "$TMUX" == *sinteractive* ]]; then
+        echo 1>&2 "Error: Already inside an sinteractive session. Exit this session first."
+        exit 1
+    fi
+
     # Parse custom flags before passing remaining args to sbatch
     local args=()
     local reattach_jobid=''
@@ -193,9 +199,17 @@ function main {
         set -- --signal=B:USR1@600 "$@"
     fi
 
+    # Check interactive job limit before submitting
+    local partition
+    partition=$(get_partition_from_args "$@")
+
+    if ! check_job_limit "$partition"; then
+        exit 1
+    fi
+
     local output
     local sbatch_ec
-    output=$(sbatch "$@" "${BASH_SOURCE[0]}" tmux)
+    output=$(sbatch --output=/dev/null --error=/dev/null "$@" "${BASH_SOURCE[0]}" tmux)
     sbatch_ec=$?
 
     JOB_ID=$(<<<"${output}" egrep -o -e '\b[0-9]+$')
@@ -255,8 +269,43 @@ function main {
         echo 1>&2 ''
         echo 1>&2 "To cancel the job:"
         echo 1>&2 "  scancel ${JOB_ID}"
+
+        # Show other running sinteractive sessions
+        local other_running
+        other_running=$(squeue --me --states RUNNING --noheader \
+            --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 2>/dev/null \
+            | grep sinteractive | grep -v "^${JOB_ID} ")
+
+        if [[ -n "$other_running" ]]; then
+            echo 1>&2 ''
+            echo 1>&2 'Other running sinteractive sessions:'
+            printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
+            while read -r jobid comment node elapsed limit; do
+                printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
+            done <<< "$other_running"
+        fi
     else
         echo 1>&2 "Session ended. Job ${JOB_ID} is no longer running."
+
+        # Show any remaining sinteractive sessions
+        local remaining
+        remaining=$(squeue --me --states RUNNING --noheader \
+            --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 2>/dev/null \
+            | grep sinteractive)
+
+        if [[ -n "$remaining" ]]; then
+            echo 1>&2 ''
+            echo 1>&2 'You have other sinteractive sessions still running:'
+            printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
+            while read -r jobid comment node elapsed limit; do
+                printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
+            done <<< "$remaining"
+            echo 1>&2 ''
+            echo 1>&2 'To free slots, cancel sessions you no longer need:'
+            while read -r jobid _rest; do
+                echo 1>&2 "  scancel $jobid"
+            done <<< "$remaining"
+        fi
     fi
 }
 
@@ -279,6 +328,100 @@ function list_sessions {
     echo ''
     echo 'To reattach:  sinteractive --attach JOBID'
     exit 0
+}
+
+# Extract the effective partition name from the processed argument list.
+function get_partition_from_args {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --partition=*)
+                echo "${1#--partition=}"
+                return
+                ;;
+            -p)
+                echo "$2"
+                return
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    echo "interactive"
+}
+
+# Check if submitting another job would exceed the QOS MaxJobsPerUser limit.
+# Only checks when targeting the interactive partition.
+# Falls through silently if sacctmgr or squeue are unavailable.
+function check_job_limit {
+    local partition="$1"
+
+    # Only enforce for the interactive partition
+    if [[ "$partition" != "interactive" ]]; then
+        return 0
+    fi
+
+    # Query QOS limit dynamically; fail open if sacctmgr unavailable
+    local max_jobs
+    max_jobs=$(sacctmgr show qos interactive format=MaxJobsPerUser --noheader --parsable2 2>/dev/null)
+    if [[ $? -ne 0 ]] || [[ -z "$max_jobs" ]]; then
+        return 0
+    fi
+
+    max_jobs=$(echo "$max_jobs" | xargs)
+
+    if ! [[ "$max_jobs" =~ ^[0-9]+$ ]]; then
+        return 0
+    fi
+
+    # Count current running + pending jobs on the interactive partition
+    local current_jobs
+    current_jobs=$(squeue --me --partition=interactive --states=RUNNING,PENDING --noheader 2>/dev/null | wc -l)
+    if [[ $? -ne 0 ]]; then
+        return 0
+    fi
+
+    current_jobs=$(echo "$current_jobs" | xargs)
+
+    if (( current_jobs >= max_jobs )); then
+        echo 1>&2 ""
+        echo 1>&2 "Error: You already have ${current_jobs}/${max_jobs} interactive jobs (the maximum allowed)."
+        echo 1>&2 ""
+
+        local lines
+        lines=$(squeue --me --partition=interactive --states=RUNNING,PENDING --noheader \
+            --Format=JobID:12,Name:20,NodeList:16,State:10,TimeUsed:12,TimeLimit:12 2>/dev/null)
+
+        if [[ -n "$lines" ]]; then
+            echo 1>&2 "Your current interactive jobs:"
+            echo 1>&2 ""
+            printf 1>&2 '  %-10s  %-18s  %-14s  %-9s  %-10s  %-10s\n' \
+                'JOBID' 'NAME' 'NODE' 'STATE' 'ELAPSED' 'TIMELIMIT'
+            while IFS= read -r line; do
+                read -r jobid name node state elapsed limit <<< "$line"
+                printf 1>&2 '  %-10s  %-18s  %-14s  %-9s  %-10s  %-10s\n' \
+                    "$jobid" "$name" "$node" "$state" "$elapsed" "$limit"
+            done <<< "$lines"
+            echo 1>&2 ""
+        fi
+
+        echo 1>&2 "To reattach to an existing session:"
+        local jobids
+        jobids=$(squeue --me --partition=interactive --states=RUNNING --noheader --Format=JobID 2>/dev/null | xargs)
+        for jid in $jobids; do
+            echo 1>&2 "  sinteractive --attach $jid"
+        done
+        echo 1>&2 ""
+        echo 1>&2 "To free a slot, cancel a session:"
+        jobids=$(squeue --me --partition=interactive --states=RUNNING,PENDING --noheader --Format=JobID 2>/dev/null | xargs)
+        for jid in $jobids; do
+            echo 1>&2 "  scancel $jid"
+        done
+        echo 1>&2 ""
+        return 1
+    fi
+
+    return 0
 }
 
 function reattach {
