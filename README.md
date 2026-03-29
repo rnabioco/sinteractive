@@ -1,6 +1,6 @@
 # Interactive Sessions with `sinteractive`
 
-The `sinteractive` script launches a persistent interactive session on a compute node using tmux. It's located at [`scripts/sinteractive`](https://github.com/rnabioco/bodhi-slurm-migration/blob/main/scripts/sinteractive) in this repository.
+The `sinteractive` script launches a persistent interactive session on a compute node using tmux. It's located at [`scripts/sinteractive`](https://github.com/rnabioco/bodhi-docs/blob/main/scripts/sinteractive) in this repository.
 
 ## Why use `sinteractive` instead of `srun --pty bash`?
 
