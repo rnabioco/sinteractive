@@ -315,13 +315,14 @@ function start_tmux {
     # Auto-rename windows to current command
     $TMUX_BIN -L "$sock" set-option -t "$session_name" automatic-rename on
 
-    # Two-line status bar: line 0 = session info, line 1 = help
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status 2
+    # Status bar: left = job info, right = help/instructions
     $TMUX_BIN -L "$sock" set-option -t "$session_name" status-interval 1
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-format[0] \
-        "#[align=left,bold] ID: ${SLURM_JOB_ID} | #{pane_current_command} #[align=right,bold] Host: #{host_short} | %I:%M:%S %p "
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-format[1] \
-        "#[align=centre,fg=black,bg=colour229,bold,fill=colour229] Detach: Ctrl+b d | Reattach: sinteractive --attach ${SLURM_JOB_ID} | Docs: https://tinyurl.com/2jsd3nbe"
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left \
+        "#[bold] PID: ${SLURM_JOB_ID} | #{host_short} | %I:%M:%S %p "
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left-length 50
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right \
+        "#[fg=black,bg=colour229,bold] Detach: Ctrl+b d | Reattach: sinteractive --attach ${SLURM_JOB_ID} | Docs: https://tinyurl.com/2jsd3nbe "
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right-length 120
 
     $TMUX_BIN -L "$sock" set-hook -t "$session_name" session-closed \
         "run-shell '$TMUX_BIN -L $sock wait-for -S $wait_channel'"
