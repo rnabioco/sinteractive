@@ -42,6 +42,7 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--partition PART` | SLURM partition | `normal` |
 | `--time TIME` | Wall time limit | `08:00:00` |
 | `--attach JOBID` | Reattach to a running session | |
+| `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 
 All other arguments are passed directly to `sbatch`, so you can use any `sbatch` option.
@@ -90,10 +91,10 @@ sequenceDiagram
 If your SSH connection drops or you intentionally detach (`Ctrl-b d`), the tmux session **keeps running** on the compute node and your work is safe. To reconnect from the login node:
 
 ```bash
-# Find your job ID
-squeue --me
-#   JOBID  PARTITION  NAME          NODE       STATE
-#   12345  normal     sinteractive  compute01  RUNNING
+# List your running sessions
+sinteractive --list
+#   JOBID       NODE            ELAPSED     TIMELIMIT
+#   12345       compute01       01:23:45    08:00:00
 
 # Reattach
 sinteractive --attach 12345
