@@ -488,6 +488,9 @@ function start_tmux {
   $TMUX_BIN -L "$sock" set-option -t "$session_name" set-clipboard on
   # Keep panes open on non-zero exit for debugging (tmux >= 3.4)
   $TMUX_BIN -L "$sock" set-option -t "$session_name" remain-on-exit failed
+  # Auto-respawn pane on Ctrl-C / SIGINT (exit 130) instead of "Pane is dead"
+  $TMUX_BIN -L "$sock" set-hook -t "$session_name" pane-died \
+    "if -F '#{==:#{pane_dead_status},130}' 'respawn-pane -k'"
   # Highlight windows with new activity
   $TMUX_BIN -L "$sock" set-option -t "$session_name" monitor-activity on
   # Auto-rename windows to current command
