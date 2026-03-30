@@ -14,51 +14,51 @@ JOB_ID=''
 
 # Convert time shorthand (e.g. 8h, 30m, 2d, 1d12h, 1h30m) to HH:MM:SS
 function parse_time {
-    local input="$1"
+  local input="$1"
 
-    # Already in SLURM format (contains : or D-), pass through
-    if [[ "$input" =~ [:] ]] || [[ "$input" =~ ^[0-9]+-  ]]; then
-        echo "$input"
-        return
-    fi
+  # Already in SLURM format (contains : or D-), pass through
+  if [[ "$input" =~ [:] ]] || [[ "$input" =~ ^[0-9]+- ]]; then
+    echo "$input"
+    return
+  fi
 
-    # Pure integer = minutes (SLURM native)
-    if [[ "$input" =~ ^[0-9]+$ ]]; then
-        echo "$input"
-        return
-    fi
+  # Pure integer = minutes (SLURM native)
+  if [[ "$input" =~ ^[0-9]+$ ]]; then
+    echo "$input"
+    return
+  fi
 
-    local days=0 hours=0 minutes=0
-    local remaining="$input"
+  local days=0 hours=0 minutes=0
+  local remaining="$input"
 
-    if [[ "$remaining" =~ ^([0-9]+)d ]]; then
-        days="${BASH_REMATCH[1]}"
-        remaining="${remaining#*d}"
-    fi
-    if [[ "$remaining" =~ ^([0-9]+)h ]]; then
-        hours="${BASH_REMATCH[1]}"
-        remaining="${remaining#*h}"
-    fi
-    if [[ "$remaining" =~ ^([0-9]+)m ]]; then
-        minutes="${BASH_REMATCH[1]}"
-        remaining="${remaining#*m}"
-    fi
+  if [[ "$remaining" =~ ^([0-9]+)d ]]; then
+    days="${BASH_REMATCH[1]}"
+    remaining="${remaining#*d}"
+  fi
+  if [[ "$remaining" =~ ^([0-9]+)h ]]; then
+    hours="${BASH_REMATCH[1]}"
+    remaining="${remaining#*h}"
+  fi
+  if [[ "$remaining" =~ ^([0-9]+)m ]]; then
+    minutes="${BASH_REMATCH[1]}"
+    remaining="${remaining#*m}"
+  fi
 
-    if [[ -n "$remaining" ]]; then
-        echo 1>&2 "Warning: unrecognized time format '$input', passing through to SLURM"
-        echo "$input"
-        return
-    fi
+  if [[ -n "$remaining" ]]; then
+    echo 1>&2 "Warning: unrecognized time format '$input', passing through to SLURM"
+    echo "$input"
+    return
+  fi
 
-    if (( days > 0 )); then
-        printf '%d-%02d:%02d:00\n' "$days" "$hours" "$minutes"
-    else
-        printf '%02d:%02d:00\n' "$hours" "$minutes"
-    fi
+  if ((days > 0)); then
+    printf '%d-%02d:%02d:00\n' "$days" "$hours" "$minutes"
+  else
+    printf '%02d:%02d:00\n' "$hours" "$minutes"
+  fi
 }
 
 function usage {
-    cat <<EOF
+  cat <<EOF
 Usage: sinteractive [OPTIONS] [-- SBATCH_ARGS...]
        sinteractive --attach JOBID
 
@@ -67,7 +67,7 @@ Start an interactive tmux session on a compute node via Slurm.
 Options:
   --node NODE       Request a specific compute node (e.g., compute01)
   --partition PART  Slurm partition (default: interactive)
-  --time TIME       Wall time limit (default: 08:00:00)
+  --time TIME       Wall time limit (default: 1 day)
                     Supports shorthand: 8h, 30m, 2d, 1d12h, 1h30m
   --attach JOBID    Reattach to a running sinteractive session
   --list            List running sinteractive sessions
@@ -94,455 +94,455 @@ Timeout warning:
   A warning appears in the tmux status bar 10 minutes before the time
   limit. The bar turns yellow to alert you to save your work.
 EOF
-    exit 0
+  exit 0
 }
 
 function main {
-    if [[ "$1" == 'tmux' ]]; then
-        shift
-        start_tmux "$@"
-        return
-    elif [[ "$1" == 'attach' ]]; then
-        shift
-        attach_tmux "$@"
-        return
+  if [[ "$1" == 'tmux' ]]; then
+    shift
+    start_tmux "$@"
+    return
+  elif [[ "$1" == 'attach' ]]; then
+    shift
+    attach_tmux "$@"
+    return
+  fi
+
+  # Don't allow launching sinteractive from inside an existing session
+  if [[ -n "$TMUX" ]] && [[ "$TMUX" == *sinteractive* ]]; then
+    echo 1>&2 "Error: Already inside an sinteractive session. Exit this session first."
+    exit 1
+  fi
+
+  # Parse custom flags before passing remaining args to sbatch
+  local args=()
+  local reattach_jobid=''
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    -h | --help)
+      usage
+      ;;
+    --list)
+      list_sessions
+      ;;
+    --attach)
+      reattach_jobid="$2"
+      shift 2
+      ;;
+    --attach=*)
+      reattach_jobid="${1#--attach=}"
+      shift
+      ;;
+    --node)
+      args+=(--nodelist="$2")
+      shift 2
+      ;;
+    --node=*)
+      args+=(--nodelist="${1#--node=}")
+      shift
+      ;;
+    --time)
+      args+=(--time="$(parse_time "$2")")
+      shift 2
+      ;;
+    --time=*)
+      args+=(--time="$(parse_time "${1#--time=}")")
+      shift
+      ;;
+    -t)
+      args+=(-t "$(parse_time "$2")")
+      shift 2
+      ;;
+    --partition)
+      args+=(--partition="$2")
+      shift 2
+      ;;
+    --partition=*)
+      args+=(--partition="${1#--partition=}")
+      shift
+      ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+    esac
+  done
+
+  if [[ -n "${reattach_jobid}" ]]; then
+    reattach "${reattach_jobid}"
+  fi
+
+  set -- "${args[@]}"
+
+  # Default to 8 hours if no --time/-t specified
+  if ! printf '%s\n' "$@" | grep -qE '^(--time|-t)'; then
+    set -- --time=24:00:00 "$@"
+  fi
+
+  # Default to interactive partition if no --partition/-p specified
+  if ! printf '%s\n' "$@" | grep -qE '^(--partition|-p)'; then
+    set -- --partition=interactive "$@"
+  fi
+
+  # Default to 2 CPUs if no --cpus-per-task/-c specified
+  if ! printf '%s\n' "$@" | grep -qE '^(--cpus-per-task|-c)'; then
+    set -- --cpus-per-task=2 "$@"
+  fi
+
+  # Default to 8G memory if no --mem specified
+  if ! printf '%s\n' "$@" | grep -qE '^--mem'; then
+    set -- --mem=8G "$@"
+  fi
+
+  # Send warning signal 10 minutes before time limit
+  if ! printf '%s\n' "$@" | grep -qE '^--signal'; then
+    set -- --signal=B:USR1@600 "$@"
+  fi
+
+  # Check interactive job limit before submitting
+  local partition
+  partition=$(get_partition_from_args "$@")
+
+  if ! check_job_limit "$partition"; then
+    exit 1
+  fi
+
+  local output
+  local sbatch_ec
+  output=$(sbatch --output=/dev/null --error=/dev/null "$@" "${BASH_SOURCE[0]}" tmux)
+  sbatch_ec=$?
+
+  JOB_ID=$(<<<"${output}" egrep -o -e '\b[0-9]+$')
+  if [[ -z "${JOB_ID}" ]]; then
+    echo 1>&2 "$0: unable to find job id in sbatch output"
+    exit "$sbatch_ec"
+  fi
+
+  scontrol update JobId="${JOB_ID}" Comment="sinteractive-${JOB_ID}"
+
+  echo 1>&2 "Interactive job with ID ${JOB_ID} submitted, please wait."
+  local state
+  while true; do
+    sleep 5s
+
+    # Check job status
+    state=$(squeue --jobs "${JOB_ID}" --states PENDING,RUNNING --noheader --Format state | xargs)
+    if [[ "${state}" == 'RUNNING' ]]; then
+      break
+    elif [[ "${state}" != 'PENDING' ]]; then
+      echo 1>&2 "$0: job is neither RUNNING nor PENDING. Aborting."
+      scancel --quiet "${JOB_ID}"
+      exit 1
     fi
 
-    # Don't allow launching sinteractive from inside an existing session
-    if [[ -n "$TMUX" ]] && [[ "$TMUX" == *sinteractive* ]]; then
-        echo 1>&2 "Error: Already inside an sinteractive session. Exit this session first."
-        exit 1
-    fi
+    echo 1>&2 -n '.'
+  done
 
-    # Parse custom flags before passing remaining args to sbatch
-    local args=()
-    local reattach_jobid=''
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -h|--help)
-                usage
-                ;;
-            --list)
-                list_sessions
-                ;;
-            --attach)
-                reattach_jobid="$2"
-                shift 2
-                ;;
-            --attach=*)
-                reattach_jobid="${1#--attach=}"
-                shift
-                ;;
-            --node)
-                args+=(--nodelist="$2")
-                shift 2
-                ;;
-            --node=*)
-                args+=(--nodelist="${1#--node=}")
-                shift
-                ;;
-            --time)
-                args+=(--time="$(parse_time "$2")")
-                shift 2
-                ;;
-            --time=*)
-                args+=(--time="$(parse_time "${1#--time=}")")
-                shift
-                ;;
-            -t)
-                args+=(-t "$(parse_time "$2")")
-                shift 2
-                ;;
-            --partition)
-                args+=(--partition="$2")
-                shift 2
-                ;;
-            --partition=*)
-                args+=(--partition="${1#--partition=}")
-                shift
-                ;;
-            *)
-                args+=("$1")
-                shift
-                ;;
-        esac
-    done
+  local batchhost
+  batchhost=$(squeue --jobs "${JOB_ID}" --noheader --Format batchhost | xargs)
 
-    if [[ -n "${reattach_jobid}" ]]; then
-        reattach "${reattach_jobid}"
-    fi
+  echo 1>&2 ''
+  echo 1>&2 'Connecting to sinteractive session, please wait...'
 
-    set -- "${args[@]}"
+  sleep 8s
 
-    # Default to 8 hours if no --time/-t specified
-    if ! printf '%s\n' "$@" | grep -qE '^(--time|-t)'; then
-        set -- --time=08:00:00 "$@"
-    fi
+  # sinteractive job is running and we're about to connect. From this
+  # point, detaching or disconnecting should NOT cancel the job.
+  trap - SIGINT SIGTERM EXIT
 
-    # Default to interactive partition if no --partition/-p specified
-    if ! printf '%s\n' "$@" | grep -qE '^(--partition|-p)'; then
-        set -- --partition=interactive "$@"
-    fi
+  ssh -X -t "${batchhost}" "${BASH_SOURCE[0]}" attach "sinteractive-${JOB_ID}"
 
-    # Default to 2 CPUs if no --cpus-per-task/-c specified
-    if ! printf '%s\n' "$@" | grep -qE '^(--cpus-per-task|-c)'; then
-        set -- --cpus-per-task=2 "$@"
-    fi
+  # Give the batch script a moment to finish shutting down
+  sleep 3
 
-    # Default to 8G memory if no --mem specified
-    if ! printf '%s\n' "$@" | grep -qE '^--mem'; then
-        set -- --mem=8G "$@"
-    fi
+  # Check if the sinteractive job is still running after SSH exits
+  local post_state
+  post_state=$(squeue --jobs "${JOB_ID}" --states RUNNING --noheader --Format state 2>/dev/null | xargs)
 
-    # Send warning signal 10 minutes before time limit
-    if ! printf '%s\n' "$@" | grep -qE '^--signal'; then
-        set -- --signal=B:USR1@600 "$@"
-    fi
-
-    # Check interactive job limit before submitting
-    local partition
-    partition=$(get_partition_from_args "$@")
-
-    if ! check_job_limit "$partition"; then
-        exit 1
-    fi
-
-    local output
-    local sbatch_ec
-    output=$(sbatch --output=/dev/null --error=/dev/null "$@" "${BASH_SOURCE[0]}" tmux)
-    sbatch_ec=$?
-
-    JOB_ID=$(<<<"${output}" egrep -o -e '\b[0-9]+$')
-    if [[ -z "${JOB_ID}" ]]; then
-        echo 1>&2 "$0: unable to find job id in sbatch output"
-        exit "$sbatch_ec"
-    fi
-
-    scontrol update JobId="${JOB_ID}" Comment="sinteractive-${JOB_ID}"
-
-    echo 1>&2 "Interactive job with ID ${JOB_ID} submitted, please wait."
-    local state
-    while true; do
-        sleep 5s
-
-        # Check job status
-        state=$(squeue --jobs "${JOB_ID}" --states PENDING,RUNNING --noheader --Format state | xargs)
-        if [[ "${state}" == 'RUNNING' ]]; then
-            break
-        elif [[ "${state}" != 'PENDING' ]]; then
-            echo 1>&2 "$0: job is neither RUNNING nor PENDING. Aborting."
-            scancel --quiet "${JOB_ID}"
-            exit 1
-        fi
-
-        echo 1>&2 -n '.'
-    done
-
-    local batchhost
-    batchhost=$(squeue --jobs "${JOB_ID}" --noheader --Format batchhost | xargs)
-
+  if [[ "${post_state}" == 'RUNNING' ]]; then
     echo 1>&2 ''
-    echo 1>&2 'Connecting to sinteractive session, please wait...'
+    echo 1>&2 "Disconnected from sinteractive session."
+    echo 1>&2 "Your job ${JOB_ID} is still running on ${batchhost}."
+    echo 1>&2 ''
+    echo 1>&2 "To reconnect:"
+    echo 1>&2 "  sinteractive --attach ${JOB_ID}"
+    echo 1>&2 ''
+    echo 1>&2 "To cancel the job:"
+    echo 1>&2 "  scancel ${JOB_ID}"
 
-    sleep 8s
+    # Show other running sinteractive sessions
+    local other_running
+    other_running=$(squeue --me --states RUNNING --noheader \
+      --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 2>/dev/null |
+      grep sinteractive | grep -v "^${JOB_ID} ")
 
-    # sinteractive job is running and we're about to connect. From this
-    # point, detaching or disconnecting should NOT cancel the job.
-    trap - SIGINT SIGTERM EXIT
-
-    ssh -X -t "${batchhost}" "${BASH_SOURCE[0]}" attach "sinteractive-${JOB_ID}"
-
-    # Give the batch script a moment to finish shutting down
-    sleep 3
-
-    # Check if the sinteractive job is still running after SSH exits
-    local post_state
-    post_state=$(squeue --jobs "${JOB_ID}" --states RUNNING --noheader --Format state 2>/dev/null | xargs)
-
-    if [[ "${post_state}" == 'RUNNING' ]]; then
-        echo 1>&2 ''
-        echo 1>&2 "Disconnected from sinteractive session."
-        echo 1>&2 "Your job ${JOB_ID} is still running on ${batchhost}."
-        echo 1>&2 ''
-        echo 1>&2 "To reconnect:"
-        echo 1>&2 "  sinteractive --attach ${JOB_ID}"
-        echo 1>&2 ''
-        echo 1>&2 "To cancel the job:"
-        echo 1>&2 "  scancel ${JOB_ID}"
-
-        # Show other running sinteractive sessions
-        local other_running
-        other_running=$(squeue --me --states RUNNING --noheader \
-            --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 2>/dev/null \
-            | grep sinteractive | grep -v "^${JOB_ID} ")
-
-        if [[ -n "$other_running" ]]; then
-            echo 1>&2 ''
-            echo 1>&2 'Other running sinteractive sessions:'
-            printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
-            while read -r jobid comment node elapsed limit; do
-                printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
-            done <<< "$other_running"
-        fi
-    else
-        echo 1>&2 "Session ended. Job ${JOB_ID} is no longer running."
-
-        # Show any remaining sinteractive sessions
-        local remaining
-        remaining=$(squeue --me --states RUNNING --noheader \
-            --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 2>/dev/null \
-            | grep sinteractive)
-
-        if [[ -n "$remaining" ]]; then
-            echo 1>&2 ''
-            echo 1>&2 'You have other sinteractive sessions still running:'
-            printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
-            while read -r jobid comment node elapsed limit; do
-                printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
-            done <<< "$remaining"
-            echo 1>&2 ''
-            echo 1>&2 'To free slots, cancel sessions you no longer need:'
-            while read -r jobid _rest; do
-                echo 1>&2 "  scancel $jobid"
-            done <<< "$remaining"
-        fi
+    if [[ -n "$other_running" ]]; then
+      echo 1>&2 ''
+      echo 1>&2 'Other running sinteractive sessions:'
+      printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
+      while read -r jobid comment node elapsed limit; do
+        printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
+      done <<<"$other_running"
     fi
+  else
+    echo 1>&2 "Session ended. Job ${JOB_ID} is no longer running."
+
+    # Show any remaining sinteractive sessions
+    local remaining
+    remaining=$(squeue --me --states RUNNING --noheader \
+      --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 2>/dev/null |
+      grep sinteractive)
+
+    if [[ -n "$remaining" ]]; then
+      echo 1>&2 ''
+      echo 1>&2 'You have other sinteractive sessions still running:'
+      printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
+      while read -r jobid comment node elapsed limit; do
+        printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
+      done <<<"$remaining"
+      echo 1>&2 ''
+      echo 1>&2 'To free slots, cancel sessions you no longer need:'
+      while read -r jobid _rest; do
+        echo 1>&2 "  scancel $jobid"
+      done <<<"$remaining"
+    fi
+  fi
 }
 
 function list_sessions {
-    local lines
-    lines=$(squeue --me --states RUNNING --noheader \
-        --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 \
-        | grep sinteractive)
+  local lines
+  lines=$(squeue --me --states RUNNING --noheader \
+    --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 |
+    grep sinteractive)
 
-    if [[ -z "$lines" ]]; then
-        echo "No running sinteractive sessions."
-        exit 0
-    fi
-
-    printf '%-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
-    while read -r jobid comment node elapsed limit; do
-        printf '%-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
-    done <<< "$lines"
-
-    echo ''
-    echo 'To reattach:  sinteractive --attach JOBID'
+  if [[ -z "$lines" ]]; then
+    echo "No running sinteractive sessions."
     exit 0
+  fi
+
+  printf '%-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
+  while read -r jobid comment node elapsed limit; do
+    printf '%-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
+  done <<<"$lines"
+
+  echo ''
+  echo 'To reattach:  sinteractive --attach JOBID'
+  exit 0
 }
 
 # Extract the effective partition name from the processed argument list.
 function get_partition_from_args {
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --partition=*)
-                echo "${1#--partition=}"
-                return
-                ;;
-            -p)
-                echo "$2"
-                return
-                ;;
-            *)
-                shift
-                ;;
-        esac
-    done
-    echo "interactive"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --partition=*)
+      echo "${1#--partition=}"
+      return
+      ;;
+    -p)
+      echo "$2"
+      return
+      ;;
+    *)
+      shift
+      ;;
+    esac
+  done
+  echo "interactive"
 }
 
 # Check if submitting another job would exceed the QOS MaxJobsPerUser limit.
 # Only checks when targeting the interactive partition.
 # Falls through silently if sacctmgr or squeue are unavailable.
 function check_job_limit {
-    local partition="$1"
+  local partition="$1"
 
-    # Only enforce for the interactive partition
-    if [[ "$partition" != "interactive" ]]; then
-        return 0
-    fi
-
-    # Query QOS limit dynamically; fail open if sacctmgr unavailable
-    local max_jobs
-    max_jobs=$(sacctmgr show qos interactive format=MaxJobsPerUser --noheader --parsable2 2>/dev/null)
-    if [[ $? -ne 0 ]] || [[ -z "$max_jobs" ]]; then
-        return 0
-    fi
-
-    max_jobs=$(echo "$max_jobs" | xargs)
-
-    if ! [[ "$max_jobs" =~ ^[0-9]+$ ]]; then
-        return 0
-    fi
-
-    # Count current running + pending jobs on the interactive partition
-    local current_jobs
-    current_jobs=$(squeue --me --partition=interactive --states=RUNNING,PENDING --noheader 2>/dev/null | wc -l)
-    if [[ $? -ne 0 ]]; then
-        return 0
-    fi
-
-    current_jobs=$(echo "$current_jobs" | xargs)
-
-    if (( current_jobs >= max_jobs )); then
-        echo 1>&2 ""
-        echo 1>&2 "Error: You already have ${current_jobs}/${max_jobs} interactive jobs (the maximum allowed)."
-        echo 1>&2 ""
-
-        local lines
-        lines=$(squeue --me --partition=interactive --states=RUNNING,PENDING --noheader \
-            --Format=JobID:12,Name:20,NodeList:16,State:10,TimeUsed:12,TimeLimit:12 2>/dev/null)
-
-        if [[ -n "$lines" ]]; then
-            echo 1>&2 "Your current interactive jobs:"
-            echo 1>&2 ""
-            printf 1>&2 '  %-10s  %-18s  %-14s  %-9s  %-10s  %-10s\n' \
-                'JOBID' 'NAME' 'NODE' 'STATE' 'ELAPSED' 'TIMELIMIT'
-            while IFS= read -r line; do
-                read -r jobid name node state elapsed limit <<< "$line"
-                printf 1>&2 '  %-10s  %-18s  %-14s  %-9s  %-10s  %-10s\n' \
-                    "$jobid" "$name" "$node" "$state" "$elapsed" "$limit"
-            done <<< "$lines"
-            echo 1>&2 ""
-        fi
-
-        echo 1>&2 "To reattach to an existing session:"
-        local jobids
-        jobids=$(squeue --me --partition=interactive --states=RUNNING --noheader --Format=JobID 2>/dev/null | xargs)
-        for jid in $jobids; do
-            echo 1>&2 "  sinteractive --attach $jid"
-        done
-        echo 1>&2 ""
-        echo 1>&2 "To free a slot, cancel a session:"
-        jobids=$(squeue --me --partition=interactive --states=RUNNING,PENDING --noheader --Format=JobID 2>/dev/null | xargs)
-        for jid in $jobids; do
-            echo 1>&2 "  scancel $jid"
-        done
-        echo 1>&2 ""
-        return 1
-    fi
-
+  # Only enforce for the interactive partition
+  if [[ "$partition" != "interactive" ]]; then
     return 0
+  fi
+
+  # Query QOS limit dynamically; fail open if sacctmgr unavailable
+  local max_jobs
+  max_jobs=$(sacctmgr show qos interactive format=MaxJobsPerUser --noheader --parsable2 2>/dev/null)
+  if [[ $? -ne 0 ]] || [[ -z "$max_jobs" ]]; then
+    return 0
+  fi
+
+  max_jobs=$(echo "$max_jobs" | xargs)
+
+  if ! [[ "$max_jobs" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+
+  # Count current running + pending jobs on the interactive partition
+  local current_jobs
+  current_jobs=$(squeue --me --partition=interactive --states=RUNNING,PENDING --noheader 2>/dev/null | wc -l)
+  if [[ $? -ne 0 ]]; then
+    return 0
+  fi
+
+  current_jobs=$(echo "$current_jobs" | xargs)
+
+  if ((current_jobs >= max_jobs)); then
+    echo 1>&2 ""
+    echo 1>&2 "Error: You already have ${current_jobs}/${max_jobs} interactive jobs (the maximum allowed)."
+    echo 1>&2 ""
+
+    local lines
+    lines=$(squeue --me --partition=interactive --states=RUNNING,PENDING --noheader \
+      --Format=JobID:12,Name:20,NodeList:16,State:10,TimeUsed:12,TimeLimit:12 2>/dev/null)
+
+    if [[ -n "$lines" ]]; then
+      echo 1>&2 "Your current interactive jobs:"
+      echo 1>&2 ""
+      printf 1>&2 '  %-10s  %-18s  %-14s  %-9s  %-10s  %-10s\n' \
+        'JOBID' 'NAME' 'NODE' 'STATE' 'ELAPSED' 'TIMELIMIT'
+      while IFS= read -r line; do
+        read -r jobid name node state elapsed limit <<<"$line"
+        printf 1>&2 '  %-10s  %-18s  %-14s  %-9s  %-10s  %-10s\n' \
+          "$jobid" "$name" "$node" "$state" "$elapsed" "$limit"
+      done <<<"$lines"
+      echo 1>&2 ""
+    fi
+
+    echo 1>&2 "To reattach to an existing session:"
+    local jobids
+    jobids=$(squeue --me --partition=interactive --states=RUNNING --noheader --Format=JobID 2>/dev/null | xargs)
+    for jid in $jobids; do
+      echo 1>&2 "  sinteractive --attach $jid"
+    done
+    echo 1>&2 ""
+    echo 1>&2 "To free a slot, cancel a session:"
+    jobids=$(squeue --me --partition=interactive --states=RUNNING,PENDING --noheader --Format=JobID 2>/dev/null | xargs)
+    for jid in $jobids; do
+      echo 1>&2 "  scancel $jid"
+    done
+    echo 1>&2 ""
+    return 1
+  fi
+
+  return 0
 }
 
 function reattach {
-    local jobid=$1
-    local sock="sinteractive-${jobid}"
+  local jobid=$1
+  local sock="sinteractive-${jobid}"
 
-    # Verify the job is still running
-    local state
-    state=$(squeue --jobs "${jobid}" --states RUNNING --noheader --Format state | xargs)
-    if [[ "${state}" != 'RUNNING' ]]; then
-        echo 1>&2 "$0: job ${jobid} is not running (state: ${state:-unknown})"
-        exit 1
-    fi
+  # Verify the job is still running
+  local state
+  state=$(squeue --jobs "${jobid}" --states RUNNING --noheader --Format state | xargs)
+  if [[ "${state}" != 'RUNNING' ]]; then
+    echo 1>&2 "$0: job ${jobid} is not running (state: ${state:-unknown})"
+    exit 1
+  fi
 
-    echo 1>&2 "Reattaching to sinteractive session ${jobid}..."
-    exec srun --overlap --jobid="${jobid}" --pty \
-        $TMUX_BIN -L "$sock" -u attach-session -t "sinteractive-${jobid}"
+  echo 1>&2 "Reattaching to sinteractive session ${jobid}..."
+  exec srun --overlap --jobid="${jobid}" --pty \
+    $TMUX_BIN -L "$sock" -u attach-session -t "sinteractive-${jobid}"
 }
 
 function warn_timeout {
-    local session_name="$1"
-    local sock="sinteractive-${SLURM_JOB_ID}"
+  local session_name="$1"
+  local sock="sinteractive-${SLURM_JOB_ID}"
 
-    # Get job end time (epoch seconds) for countdown
-    local end_epoch
-    end_epoch=$(squeue --jobs "${SLURM_JOB_ID}" --noheader --Format EndTime | xargs)
-    end_epoch=$(date -d "$end_epoch" +%s 2>/dev/null)
+  # Get job end time (epoch seconds) for countdown
+  local end_epoch
+  end_epoch=$(squeue --jobs "${SLURM_JOB_ID}" --noheader --Format EndTime | xargs)
+  end_epoch=$(date -d "$end_epoch" +%s 2>/dev/null)
 
-    # Warning banner at top of pane, regular status bar stays at bottom
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-status top
+  # Warning banner at top of pane, regular status bar stays at bottom
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-status top
 
-    # Countdown loop: alternates colors every second for blink effect
-    while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
-        local remaining=$(( end_epoch - $(date +%s) ))
-        if (( remaining < 0 )); then remaining=0; fi
-        local mins=$(( remaining / 60 ))
-        local secs=$(( remaining % 60 ))
-        local msg
-        printf -v msg 'SESSION ENDS IN %d:%02d -- SAVE YOUR WORK' "$mins" "$secs"
+  # Countdown loop: alternates colors every second for blink effect
+  while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
+    local remaining=$((end_epoch - $(date +%s)))
+    if ((remaining < 0)); then remaining=0; fi
+    local mins=$((remaining / 60))
+    local secs=$((remaining % 60))
+    local msg
+    printf -v msg 'SESSION ENDS IN %d:%02d -- SAVE YOUR WORK' "$mins" "$secs"
 
-        $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-format \
-            "#[align=centre,fg=black,bg=yellow,bold,fill=yellow] >>> $msg <<< "
-        sleep 1
-        $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-format \
-            "#[align=centre,fg=yellow,bg=red,bold,fill=red] >>> $msg <<< "
-        sleep 1
-    done &
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-format \
+      "#[align=centre,fg=black,bg=yellow,bold,fill=yellow] >>> $msg <<< "
+    sleep 1
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-format \
+      "#[align=centre,fg=yellow,bg=red,bold,fill=red] >>> $msg <<< "
+    sleep 1
+  done &
 }
 
 function start_tmux {
-    export TERM=xterm-256color
+  export TERM=xterm-256color
 
-    local session_name="sinteractive-${SLURM_JOB_ID}"
-    local wait_channel="sinteractive-done-${SLURM_JOB_ID}"
-    local sock="sinteractive-${SLURM_JOB_ID}"
+  local session_name="sinteractive-${SLURM_JOB_ID}"
+  local wait_channel="sinteractive-done-${SLURM_JOB_ID}"
+  local sock="sinteractive-${SLURM_JOB_ID}"
 
-    # Each job gets its own tmux server socket (-L) so that SLURM cgroup
-    # cleanup for one job does not kill the tmux server shared by others.
-    $TMUX_BIN -L "$sock" -u new-session -d -s "$session_name"
+  # Each job gets its own tmux server socket (-L) so that SLURM cgroup
+  # cleanup for one job does not kill the tmux server shared by others.
+  $TMUX_BIN -L "$sock" -u new-session -d -s "$session_name"
 
-    # 50k lines of scrollback (default 2000)
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" history-limit 50000
-    # OSC 52 clipboard integration (copy works over SSH)
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" set-clipboard on
-    # Keep panes open on non-zero exit for debugging (tmux >= 3.4)
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" remain-on-exit failed
-    # Highlight windows with new activity
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" monitor-activity on
-    # Auto-rename windows to current command
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" automatic-rename on
+  # 50k lines of scrollback (default 2000)
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" history-limit 50000
+  # OSC 52 clipboard integration (copy works over SSH)
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" set-clipboard on
+  # Keep panes open on non-zero exit for debugging (tmux >= 3.4)
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" remain-on-exit failed
+  # Highlight windows with new activity
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" monitor-activity on
+  # Auto-rename windows to current command
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" automatic-rename on
 
-    # Status bar: left = job info, right = help/instructions
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-interval 60
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left \
-        "#[bold] interactive @ #{host_short} | %I:%M %p "
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left-length 50
-    # Hide the window list (0:bash*) from the center of the status bar
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-format ''
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-current-format ''
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right \
-        "#[fg=black,bg=colour229,bold] Detach: Ctrl+b d | Reattach: sinteractive --attach ${SLURM_JOB_ID} | Docs: https://tinyurl.com/2s45khbx "
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right-length 120
+  # Status bar: left = job info, right = help/instructions
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-interval 60
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left \
+    "#[bold] interactive @ #{host_short} | %I:%M %p "
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left-length 50
+  # Hide the window list (0:bash*) from the center of the status bar
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-format ''
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-current-format ''
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right \
+    "#[fg=black,bg=colour229,bold] Detach: Ctrl+b d | Reattach: sinteractive --attach ${SLURM_JOB_ID} | Docs: https://tinyurl.com/2s45khbx "
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right-length 120
 
-    $TMUX_BIN -L "$sock" set-hook -t "$session_name" session-closed \
-        "run-shell '$TMUX_BIN -L $sock wait-for -S $wait_channel'"
+  $TMUX_BIN -L "$sock" set-hook -t "$session_name" session-closed \
+    "run-shell '$TMUX_BIN -L $sock wait-for -S $wait_channel'"
 
-    # Trap SIGUSR1 sent by SLURM 10 minutes before time limit
-    trap 'warn_timeout "$session_name"' USR1
+  # Trap SIGUSR1 sent by SLURM 10 minutes before time limit
+  trap 'warn_timeout "$session_name"' USR1
 
-    # Run wait-for in background; `wait` builtin (foreground) is interruptible
-    # by signals, unlike external commands which block trap delivery in bash.
-    $TMUX_BIN -L "$sock" wait-for "$wait_channel" &
-    local wait_pid=$!
-    while true; do
-        wait $wait_pid
-        # 0 or 1-128 = process exited; >128 = signal interrupted wait
-        if (( $? <= 128 )); then
-            break
-        fi
-    done
+  # Run wait-for in background; `wait` builtin (foreground) is interruptible
+  # by signals, unlike external commands which block trap delivery in bash.
+  $TMUX_BIN -L "$sock" wait-for "$wait_channel" &
+  local wait_pid=$!
+  while true; do
+    wait $wait_pid
+    # 0 or 1-128 = process exited; >128 = signal interrupted wait
+    if (($? <= 128)); then
+      break
+    fi
+  done
 
-    trap - USR1
+  trap - USR1
 }
 
 function attach_tmux {
-    local SESSION=$1
-    local sock="$SESSION"
+  local SESSION=$1
+  local sock="$SESSION"
 
-    if [[ "$DISPLAY" != '' ]]; then
-        $TMUX_BIN -L "$sock" setenv -t "$SESSION" DISPLAY "$DISPLAY"
-    fi
+  if [[ "$DISPLAY" != '' ]]; then
+    $TMUX_BIN -L "$sock" setenv -t "$SESSION" DISPLAY "$DISPLAY"
+  fi
 
-    exec $TMUX_BIN -L "$sock" -u attach-session -t "$SESSION"
+  exec $TMUX_BIN -L "$sock" -u attach-session -t "$SESSION"
 }
 
 function cleanup {
-    if [[ -n "${JOB_ID}" ]]; then
-        scancel --quiet "${JOB_ID}"
-    fi
+  if [[ -n "${JOB_ID}" ]]; then
+    scancel --quiet "${JOB_ID}"
+  fi
 
-    exit
+  exit
 }
 
 trap cleanup SIGINT SIGTERM EXIT
