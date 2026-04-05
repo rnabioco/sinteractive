@@ -496,6 +496,16 @@ function start_tmux {
   # Auto-rename windows to current command
   $TMUX_BIN -L "$sock" set-option -t "$session_name" automatic-rename on
 
+  # Strip SLURM vars from tmux session so child processes (e.g. snakemake)
+  # don't think they're running as a SLURM job step.
+  # set-environment -u prevents future panes from inheriting the vars;
+  # send-keys unsets them in the already-running initial shell.
+  for var in $(env | grep ^SLURM_ | cut -d= -f1); do
+      $TMUX_BIN -L "$sock" set-environment -t "$session_name" -u "$var"
+  done
+  $TMUX_BIN -L "$sock" send-keys -t "$session_name" \
+      ' unset ${!SLURM_@}; clear' Enter
+
   # Status bar: left = job info, right = help/instructions
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-interval 60
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left \
