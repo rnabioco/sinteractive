@@ -60,22 +60,28 @@ function parse_time {
 function usage {
   cat <<EOF
 Usage: sinteractive [OPTIONS] [-- SBATCH_ARGS...]
-       sinteractive --attach JOBID
+       sinteractive --attach JOBID|NAME
 
 Start an interactive tmux session on a compute node via Slurm.
 
 Options:
+  -n, --name NAME   Tag the session with a name for easy reattach
+                    (allowed: letters, digits, '.', '_', '-')
   --node NODE       Request a specific compute node (e.g., compute01)
   --partition PART  Slurm partition (default: interactive)
   --time TIME       Wall time limit (default: 1 day)
                     Supports shorthand: 8h, 30m, 2d, 1d12h, 1h30m
-  --attach JOBID    Reattach to a running sinteractive session
-  --list            List running sinteractive sessions
+  --attach TARGET   Reattach to a running session by JOBID or NAME
+  --list            List running sinteractive sessions (with NAME and CWD)
   -h, --help        Show this help message
+
+Note: -n is consumed by sinteractive as --name. Use --ntasks=N to set
+sbatch ntasks instead of -n.
 
 All other options are passed directly to sbatch. Examples:
 
   sinteractive                          # 8h session, 2 CPUs, 8G memory
+  sinteractive -n myproj                # named session
   sinteractive --node compute01         # run on a specific node
   sinteractive --time=2h -p rna          # 2h session on rna partition
   sinteractive --mem=16G --cpus-per-task=4
@@ -85,7 +91,8 @@ Reconnecting after a disconnect:
   If your SSH connection drops or you detach (Ctrl-b d), the tmux
   session keeps running. To reconnect from the login node:
 
-  sinteractive --attach JOBID           # reattach to the session
+  sinteractive --attach JOBID           # reattach by job id
+  sinteractive --attach myproj          # reattach by name
 
   Use "sinteractive --list" to find your running sessions.
 
@@ -116,7 +123,8 @@ function main {
 
   # Parse custom flags before passing remaining args to sbatch
   local args=()
-  local reattach_jobid=''
+  local reattach_target=''
+  local session_name=''
   while [[ $# -gt 0 ]]; do
     case "$1" in
     -h | --help)
@@ -126,11 +134,19 @@ function main {
       list_sessions
       ;;
     --attach)
-      reattach_jobid="$2"
+      reattach_target="$2"
       shift 2
       ;;
     --attach=*)
-      reattach_jobid="${1#--attach=}"
+      reattach_target="${1#--attach=}"
+      shift
+      ;;
+    -n | --name)
+      session_name="$2"
+      shift 2
+      ;;
+    --name=*)
+      session_name="${1#--name=}"
       shift
       ;;
     --node)
@@ -168,11 +184,34 @@ function main {
     esac
   done
 
-  if [[ -n "${reattach_jobid}" ]]; then
-    reattach "${reattach_jobid}"
+  if [[ -n "${reattach_target}" ]]; then
+    reattach "${reattach_target}"
+  fi
+
+  if [[ -n "${session_name}" ]]; then
+    if ! [[ "${session_name}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      echo 1>&2 "Error: --name must contain only letters, digits, '.', '_', '-'"
+      exit 1
+    fi
+    local existing
+    existing=$(squeue --me --states RUNNING,PENDING --noheader \
+      --Format=JobID:12,Comment:80 2>/dev/null |
+      awk -v n="sinteractive:${session_name}" '$2 == n {print $1}')
+    if [[ -n "${existing}" ]]; then
+      echo 1>&2 "Error: A sinteractive session named '${session_name}' is already running:"
+      echo 1>&2 "  JobID(s): $(echo ${existing} | xargs)"
+      echo 1>&2 "Pick a different name, or reattach with: sinteractive --attach ${session_name}"
+      exit 1
+    fi
   fi
 
   set -- "${args[@]}"
+
+  # If a session name was given and the user did not pass --job-name/-J,
+  # set it so the name shows up natively in squeue output.
+  if [[ -n "${session_name}" ]] && ! printf '%s\n' "$@" | grep -qE '^(--job-name|-J)'; then
+    set -- --job-name="sint-${session_name}" "$@"
+  fi
 
   # Default to 8 hours if no --time/-t specified
   if ! printf '%s\n' "$@" | grep -qE '^(--time|-t)'; then
@@ -218,7 +257,11 @@ function main {
     exit "$sbatch_ec"
   fi
 
-  scontrol update JobId="${JOB_ID}" Comment="sinteractive-${JOB_ID}"
+  local job_comment="sinteractive"
+  if [[ -n "${session_name}" ]]; then
+    job_comment="sinteractive:${session_name}"
+  fi
+  scontrol update JobId="${JOB_ID}" Comment="${job_comment}"
 
   echo 1>&2 "Interactive job with ID ${JOB_ID} submitted, please wait."
   local state
@@ -264,8 +307,12 @@ function main {
     echo 1>&2 "Disconnected from sinteractive session."
     echo 1>&2 "Your job ${JOB_ID} is still running on ${batchhost}."
     echo 1>&2 ''
+    local attach_target="${JOB_ID}"
+    if [[ -n "${session_name}" ]]; then
+      attach_target="${session_name}"
+    fi
     echo 1>&2 "To reconnect:"
-    echo 1>&2 "  sinteractive --attach ${JOB_ID}"
+    echo 1>&2 "  sinteractive --attach ${attach_target}"
     echo 1>&2 ''
     echo 1>&2 "To cancel the job:"
     echo 1>&2 "  scancel ${JOB_ID}"
@@ -309,24 +356,61 @@ function main {
   fi
 }
 
+# Query the current working directory of an sinteractive tmux session by
+# asking tmux on the compute node. Returns empty string on failure.
+function get_session_cwd {
+  local node=$1 jobid=$2
+  local sock="sinteractive-${jobid}"
+  local session="sinteractive-${jobid}"
+  local cwd
+  cwd=$(ssh -o BatchMode=yes -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new \
+    "$node" \
+    "$TMUX_BIN -L '$sock' display-message -p -t '$session' '#{pane_current_path}'" \
+    2>/dev/null)
+  # Collapse $HOME prefix to ~ for readability
+  if [[ -n "$cwd" && "$cwd" == "$HOME"* ]]; then
+    cwd="~${cwd#$HOME}"
+  fi
+  printf '%s' "$cwd"
+}
+
 function list_sessions {
   local lines
   lines=$(squeue --me --states RUNNING --noheader \
-    --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 |
-    grep sinteractive)
+    --Format=JobID:12,Comment:80,NodeList:16,TimeUsed:12,TimeLimit:12 |
+    grep -E '[[:space:]]sinteractive([:-]|[[:space:]]|$)')
 
   if [[ -z "$lines" ]]; then
     echo "No running sinteractive sessions."
     exit 0
   fi
 
-  printf '%-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
+  # Query cwd for each session in parallel; results land in $tmpdir/<jobid>
+  local tmpdir
+  tmpdir=$(mktemp -d)
   while read -r jobid comment node elapsed limit; do
-    printf '%-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
+    (get_session_cwd "$node" "$jobid" >"$tmpdir/$jobid") &
+  done <<<"$lines"
+  wait
+
+  printf '%-10s  %-20s  %-14s  %-10s  %-10s  %s\n' \
+    'JOBID' 'NAME' 'NODE' 'ELAPSED' 'TIMELIMIT' 'CWD'
+  while read -r jobid comment node elapsed limit; do
+    local name='-'
+    if [[ "$comment" =~ ^sinteractive:(.+)$ ]]; then
+      name="${BASH_REMATCH[1]}"
+    fi
+    local cwd
+    cwd=$(<"$tmpdir/$jobid")
+    [[ -z "$cwd" ]] && cwd='-'
+    printf '%-10s  %-20s  %-14s  %-10s  %-10s  %s\n' \
+      "$jobid" "$name" "$node" "$elapsed" "$limit" "$cwd"
   done <<<"$lines"
 
+  rm -rf "$tmpdir"
+
   echo ''
-  echo 'To reattach:  sinteractive --attach JOBID'
+  echo 'To reattach:  sinteractive --attach JOBID  (or NAME if set)'
   exit 0
 }
 
@@ -425,12 +509,37 @@ function check_job_limit {
 }
 
 function reattach {
-  local jobid=$1
+  local target=$1
+  local jobid
+
+  if [[ "${target}" =~ ^[0-9]+$ ]]; then
+    jobid="${target}"
+  else
+    # Resolve by name via the Comment marker set at submit time
+    local matches
+    matches=$(squeue --me --states RUNNING --noheader \
+      --Format=JobID:12,Comment:80 2>/dev/null |
+      awk -v n="sinteractive:${target}" '$2 == n {print $1}')
+    local count
+    count=$(printf '%s\n' "${matches}" | grep -c .)
+    if [[ "${count}" -eq 0 ]]; then
+      echo 1>&2 "$0: no running sinteractive session named '${target}'"
+      echo 1>&2 "Run 'sinteractive --list' to see available sessions."
+      exit 1
+    elif [[ "${count}" -gt 1 ]]; then
+      echo 1>&2 "$0: multiple running sessions named '${target}':"
+      echo 1>&2 "  $(echo ${matches} | xargs)"
+      echo 1>&2 "Reattach by JOBID instead."
+      exit 1
+    fi
+    jobid="${matches}"
+  fi
+
   local sock="sinteractive-${jobid}"
 
   # Verify the job is still running
   local state
-  state=$(squeue --jobs "${jobid}" --states RUNNING --noheader --Format state | xargs)
+  state=$(squeue --jobs "${jobid}" --states RUNNING --noheader --Format state 2>/dev/null | xargs)
   if [[ "${state}" != 'RUNNING' ]]; then
     echo 1>&2 "$0: job ${jobid} is not running (state: ${state:-unknown})"
     exit 1
