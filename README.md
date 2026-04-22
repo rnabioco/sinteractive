@@ -41,10 +41,10 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--node NODE` | Request a specific compute node | any available |
 | `--partition PART` | SLURM partition | `interactive` |
 | `--time TIME` | Wall time limit | `08:00:00` |
-| `--cpus-per-task N` | Number of CPUs | `2` |
-| `--mem SIZE` | Memory | `8G` |
-| `--attach JOBID` | Reattach to a running session | |
-| `--list` | List running sinteractive sessions | |
+| `-j`, `--threads N` | Number of CPUs (alias for `--cpus-per-task`) | `2` |
+| `-m`, `--mem SIZE` | Memory | `8G` |
+| `-a`, `--attach JOBID` | Reattach to a running session | |
+| `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 
 All other arguments are passed directly to `sbatch`, so you can use any `sbatch` option.

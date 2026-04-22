@@ -65,15 +65,17 @@ Usage: sinteractive [OPTIONS] [-- SBATCH_ARGS...]
 Start an interactive tmux session on a compute node via Slurm.
 
 Options:
-  -n, --name NAME   Tag the session with a name for easy reattach
-                    (allowed: letters, digits, '.', '_', '-')
-  --node NODE       Request a specific compute node (e.g., compute01)
-  --partition PART  Slurm partition (default: interactive)
-  --time TIME       Wall time limit (default: 1 day)
-                    Supports shorthand: 8h, 30m, 2d, 1d12h, 1h30m
-  --attach TARGET   Reattach to a running session by JOBID or NAME
-  --list            List running sinteractive sessions (with NAME and CWD)
-  -h, --help        Show this help message
+  -n, --name NAME       Tag the session with a name for easy reattach
+                        (allowed: letters, digits, '.', '_', '-')
+  --node NODE           Request a specific compute node (e.g., compute01)
+  --partition PART      Slurm partition (default: interactive)
+  --time TIME           Wall time limit (default: 1 day)
+                        Supports shorthand: 8h, 30m, 2d, 1d12h, 1h30m
+  -j, --threads N       Number of CPUs (alias for --cpus-per-task)
+  -m SIZE               Memory (alias for --mem, e.g., 16G)
+  -a, --attach TARGET   Reattach to a running session by JOBID or NAME
+  -l, --list            List running sinteractive sessions (with NAME and CWD)
+  -h, --help            Show this help message
 
 Note: -n is consumed by sinteractive as --name. Use --ntasks=N to set
 sbatch ntasks instead of -n.
@@ -130,10 +132,10 @@ function main {
     -h | --help)
       usage
       ;;
-    --list)
+    -l | --list)
       list_sessions
       ;;
-    --attach)
+    -a | --attach)
       reattach_target="$2"
       shift 2
       ;;
@@ -176,6 +178,18 @@ function main {
     --partition=*)
       args+=(--partition="${1#--partition=}")
       shift
+      ;;
+    -j | --threads)
+      args+=(--cpus-per-task="$2")
+      shift 2
+      ;;
+    --threads=*)
+      args+=(--cpus-per-task="${1#--threads=}")
+      shift
+      ;;
+    -m)
+      args+=(--mem="$2")
+      shift 2
       ;;
     *)
       args+=("$1")
