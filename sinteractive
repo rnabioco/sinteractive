@@ -136,11 +136,21 @@ function main {
       list_sessions
       ;;
     -a | --attach)
+      if [[ -z "$2" || "$2" == -* ]]; then
+        echo 1>&2 "Error: $1 requires a JOBID or NAME argument."
+        echo 1>&2 "Run 'sinteractive --list' to see available sessions."
+        exit 1
+      fi
       reattach_target="$2"
       shift 2
       ;;
     --attach=*)
       reattach_target="${1#--attach=}"
+      if [[ -z "${reattach_target}" ]]; then
+        echo 1>&2 "Error: --attach requires a JOBID or NAME argument."
+        echo 1>&2 "Run 'sinteractive --list' to see available sessions."
+        exit 1
+      fi
       shift
       ;;
     -n | --name)
@@ -250,6 +260,11 @@ function main {
   # Send warning signal 10 minutes before time limit
   if ! printf '%s\n' "$@" | grep -qE '^--signal'; then
     set -- --signal=B:USR1@600 "$@"
+  fi
+
+  # Refuse to submit if --time would overlap an upcoming MAINT reservation
+  if ! check_maintenance_window "$@"; then
+    exit 1
   fi
 
   # Check interactive job limit before submitting
@@ -446,6 +461,157 @@ function get_partition_from_args {
     esac
   done
   echo "interactive"
+}
+
+# Extract the effective --time / -t value from the processed argument list.
+# Echoes the value (e.g. "24:00:00", "1-12:00:00", "120") and returns 0; if
+# no time is set, returns 1.
+function extract_time_from_args {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --time=*)
+      echo "${1#--time=}"
+      return 0
+      ;;
+    --time)
+      echo "$2"
+      return 0
+      ;;
+    -t)
+      echo "$2"
+      return 0
+      ;;
+    -t=*)
+      echo "${1#-t=}"
+      return 0
+      ;;
+    *)
+      shift
+      ;;
+    esac
+  done
+  return 1
+}
+
+# Convert a SLURM time string to whole seconds. Echoes the integer and returns
+# 0 on success; returns 1 if the format isn't recognized (caller should fail
+# open).
+function slurm_time_to_seconds {
+  local t=$1
+  local d=0 h=0 m=0 s=0
+  if [[ "$t" =~ ^([0-9]+)-([0-9]+):([0-9]+):([0-9]+)$ ]]; then
+    d=${BASH_REMATCH[1]}; h=${BASH_REMATCH[2]}; m=${BASH_REMATCH[3]}; s=${BASH_REMATCH[4]}
+  elif [[ "$t" =~ ^([0-9]+)-([0-9]+):([0-9]+)$ ]]; then
+    d=${BASH_REMATCH[1]}; h=${BASH_REMATCH[2]}; m=${BASH_REMATCH[3]}
+  elif [[ "$t" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+    d=${BASH_REMATCH[1]}; h=${BASH_REMATCH[2]}
+  elif [[ "$t" =~ ^([0-9]+):([0-9]+):([0-9]+)$ ]]; then
+    h=${BASH_REMATCH[1]}; m=${BASH_REMATCH[2]}; s=${BASH_REMATCH[3]}
+  elif [[ "$t" =~ ^([0-9]+):([0-9]+)$ ]]; then
+    m=${BASH_REMATCH[1]}; s=${BASH_REMATCH[2]}
+  elif [[ "$t" =~ ^([0-9]+)$ ]]; then
+    m=${BASH_REMATCH[1]}
+  else
+    return 1
+  fi
+  echo $(( d * 86400 + 10#$h * 3600 + 10#$m * 60 + 10#$s ))
+}
+
+# Format seconds as a short human duration like "1d 2h 5m" or "45m".
+function format_short_duration {
+  local secs=$1
+  local d=$(( secs / 86400 ))
+  local h=$(( (secs % 86400) / 3600 ))
+  local m=$(( (secs % 3600) / 60 ))
+  local out=""
+  (( d > 0 )) && out+="${d}d "
+  (( h > 0 )) && out+="${h}h "
+  if (( m > 0 )) || (( d == 0 && h == 0 )); then
+    out+="${m}m"
+  fi
+  echo "${out% }"
+}
+
+# Refuse to submit if the requested --time would overlap an upcoming MAINT
+# reservation. Returns 0 to proceed, 1 to abort. Fails open silently when
+# scontrol is unavailable, no MAINT reservation is queued, or the time string
+# can't be parsed (the scheduler will still apply its own constraints).
+function check_maintenance_window {
+  # User explicitly opted into a reservation — trust them
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+    --reservation=*|--reservation) return 0 ;;
+    esac
+  done
+
+  local resv_out
+  resv_out=$(scontrol show reservation -o 2>/dev/null) || return 0
+  [[ -z "$resv_out" ]] && return 0
+  [[ "$resv_out" == "No reservations"* ]] && return 0
+
+  local now_epoch best_epoch=0 best_name=""
+  now_epoch=$(date +%s)
+
+  local line start_str start_epoch
+  while IFS= read -r line; do
+    [[ "$line" =~ Flags=[^[:space:]]*MAINT ]] || continue
+    [[ "$line" =~ StartTime=([^[:space:]]+) ]] || continue
+    start_str=${BASH_REMATCH[1]}
+    start_epoch=$(date -d "$start_str" +%s 2>/dev/null) || continue
+    (( start_epoch > now_epoch )) || continue
+    if (( best_epoch == 0 || start_epoch < best_epoch )); then
+      best_epoch=$start_epoch
+      if [[ "$line" =~ ReservationName=([^[:space:]]+) ]]; then
+        best_name=${BASH_REMATCH[1]}
+      fi
+    fi
+  done <<<"$resv_out"
+
+  (( best_epoch == 0 )) && return 0
+
+  local time_str time_secs
+  time_str=$(extract_time_from_args "$@") || return 0
+  time_secs=$(slurm_time_to_seconds "$time_str") || return 0
+
+  local job_end=$(( now_epoch + time_secs ))
+  (( job_end <= best_epoch )) && return 0
+
+  local gap_secs=$(( best_epoch - now_epoch ))
+  local overlap_secs=$(( job_end - best_epoch ))
+  local fit_secs=$(( gap_secs - 300 ))
+
+  local maint_when end_when
+  maint_when=$(date -d "@$best_epoch" "+%a %b %-d %H:%M")
+  end_when=$(date -d "@$job_end" "+%a %b %-d %H:%M")
+
+  local suggestion=""
+  if (( fit_secs >= 3600 )); then
+    suggestion="sinteractive --time=$(( fit_secs / 3600 ))h"
+  elif (( fit_secs >= 60 )); then
+    suggestion="sinteractive --time=$(( fit_secs / 60 ))m"
+  fi
+
+  echo 1>&2 ""
+  echo 1>&2 "Error: --time=${time_str} conflicts with scheduled maintenance."
+  echo 1>&2 ""
+  echo 1>&2 "  Reservation: ${best_name:-<unnamed>}"
+  echo 1>&2 "  Starts:      ${maint_when} (in $(format_short_duration $gap_secs))"
+  echo 1>&2 "  Job would end: ${end_when} ($(format_short_duration $overlap_secs) past start)"
+  echo 1>&2 ""
+  if [[ -n "$suggestion" ]]; then
+    echo 1>&2 "Slurm won't schedule this job until after the reservation ends. To start"
+    echo 1>&2 "a session now, shorten --time to fit before maintenance:"
+    echo 1>&2 ""
+    echo 1>&2 "  ${suggestion}"
+  else
+    echo 1>&2 "The window before maintenance is too short for a useful session."
+    echo 1>&2 "Wait until after the reservation ends."
+  fi
+  echo 1>&2 ""
+  echo 1>&2 "See 'scontrol show reservation' for full details."
+  echo 1>&2 ""
+  return 1
 }
 
 # Check if submitting another job would exceed the QOS MaxJobsPerUser limit.
