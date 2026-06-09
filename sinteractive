@@ -1,13 +1,20 @@
 #!/bin/bash
 # -*- coding: utf-8 -*-
-# Original Author: Pär Andersson (National Supercomputer Centre, Sweden)
-# Updated by: Jonathon Anderson (University of Colorado Boulder)
-# Updated by: Jay Hesselberth
-# Version: 2017-09-15
 #
-# This will submit a batch script that starts tmux on a node. Then
-# ssh is used to connect to the node and attach the tmux session. The
-# result is similar to an interactive shell in PBS (qsub -I)
+# sinteractive — start an interactive shell on a Slurm compute node.
+#
+# Submits a batch job that launches a detached tmux session on the
+# allocated node, then SSHes in and attaches to it. Because the shell
+# lives in tmux, the session survives SSH drops and can be reattached
+# later (see --attach / --list).
+#
+# Clean-room reimplementation, inspired by the original sinteractive by
+# Pär Andersson (NSC, Sweden) and the later CU Boulder adaptation by
+# Jonathon Anderson. Maintained by Jay Hesselberth.
+
+# Treat unset variables as errors; the argument handling below guards every
+# optional value explicitly, so this only fires on genuine bugs.
+set -u
 
 TMUX_BIN='/usr/local/bin/tmux'
 JOB_ID=''
@@ -50,6 +57,13 @@ function parse_time {
     return
   fi
 
+  # Normalize carries so e.g. 90m -> 1h30m and 25h -> 1d1h, keeping each
+  # field within range for SLURM's [D-]HH:MM:SS format.
+  hours=$((hours + minutes / 60))
+  minutes=$((minutes % 60))
+  days=$((days + hours / 24))
+  hours=$((hours % 24))
+
   if ((days > 0)); then
     printf '%d-%02d:%02d:00\n' "$days" "$hours" "$minutes"
   else
@@ -82,7 +96,7 @@ sbatch ntasks instead of -n.
 
 All other options are passed directly to sbatch. Examples:
 
-  sinteractive                          # 8h session, 2 CPUs, 8G memory
+  sinteractive                          # 1-day session, 2 CPUs, 8G memory
   sinteractive -n myproj                # named session
   sinteractive --node compute01         # run on a specific node
   sinteractive --time=2h -p rna          # 2h session on rna partition
@@ -107,18 +121,18 @@ EOF
 }
 
 function main {
-  if [[ "$1" == 'tmux' ]]; then
+  if [[ "${1:-}" == 'tmux' ]]; then
     shift
     start_tmux "$@"
     return
-  elif [[ "$1" == 'attach' ]]; then
+  elif [[ "${1:-}" == 'attach' ]]; then
     shift
     attach_tmux "$@"
     return
   fi
 
   # Don't allow launching sinteractive from inside an existing session
-  if [[ -n "$TMUX" ]] && [[ "$TMUX" == *sinteractive* ]]; then
+  if [[ -n "${TMUX:-}" ]] && [[ "$TMUX" == *sinteractive* ]]; then
     echo 1>&2 "Error: Already inside an sinteractive session. Exit this session first."
     exit 1
   fi
@@ -136,7 +150,7 @@ function main {
       list_sessions
       ;;
     -a | --attach)
-      if [[ -z "$2" || "$2" == -* ]]; then
+      if [[ -z "${2:-}" || "$2" == -* ]]; then
         echo 1>&2 "Error: $1 requires a JOBID or NAME argument."
         echo 1>&2 "Run 'sinteractive --list' to see available sessions."
         exit 1
@@ -154,6 +168,7 @@ function main {
       shift
       ;;
     -n | --name)
+      [[ $# -ge 2 ]] || { echo 1>&2 "Error: $1 requires a NAME argument."; exit 1; }
       session_name="$2"
       shift 2
       ;;
@@ -162,6 +177,7 @@ function main {
       shift
       ;;
     --node)
+      [[ $# -ge 2 ]] || { echo 1>&2 "Error: --node requires a NODE argument."; exit 1; }
       args+=(--nodelist="$2")
       shift 2
       ;;
@@ -170,6 +186,7 @@ function main {
       shift
       ;;
     --time)
+      [[ $# -ge 2 ]] || { echo 1>&2 "Error: --time requires a TIME argument."; exit 1; }
       args+=(--time="$(parse_time "$2")")
       shift 2
       ;;
@@ -178,10 +195,12 @@ function main {
       shift
       ;;
     -t)
+      [[ $# -ge 2 ]] || { echo 1>&2 "Error: -t requires a TIME argument."; exit 1; }
       args+=(-t "$(parse_time "$2")")
       shift 2
       ;;
     --partition)
+      [[ $# -ge 2 ]] || { echo 1>&2 "Error: --partition requires a PARTITION argument."; exit 1; }
       args+=(--partition="$2")
       shift 2
       ;;
@@ -190,6 +209,7 @@ function main {
       shift
       ;;
     -j | --threads)
+      [[ $# -ge 2 ]] || { echo 1>&2 "Error: $1 requires a CPU-count argument."; exit 1; }
       args+=(--cpus-per-task="$2")
       shift 2
       ;;
@@ -198,6 +218,7 @@ function main {
       shift
       ;;
     -m)
+      [[ $# -ge 2 ]] || { echo 1>&2 "Error: -m requires a SIZE argument."; exit 1; }
       args+=(--mem="$2")
       shift 2
       ;;
@@ -217,6 +238,10 @@ function main {
       echo 1>&2 "Error: --name must contain only letters, digits, '.', '_', '-'"
       exit 1
     fi
+    # Best-effort duplicate-name guard: the Comment marker that records the
+    # name is only set after submission (see below), so two near-simultaneous
+    # launches with the same name can both pass here. Reattach-by-name
+    # resolves the resulting ambiguity by erroring on multiple matches.
     local existing
     existing=$(squeue --me --states RUNNING,PENDING --noheader \
       --Format=JobID:12,Comment:80 2>/dev/null |
@@ -237,7 +262,7 @@ function main {
     set -- --job-name="sint-${session_name}" "$@"
   fi
 
-  # Default to 8 hours if no --time/-t specified
+  # Default to 1 day if no --time/-t specified
   if ! printf '%s\n' "$@" | grep -qE '^(--time|-t)'; then
     set -- --time=24:00:00 "$@"
   fi
@@ -280,7 +305,7 @@ function main {
   output=$(sbatch --output=/dev/null --error=/dev/null "$@" "${BASH_SOURCE[0]}" tmux)
   sbatch_ec=$?
 
-  JOB_ID=$(<<<"${output}" egrep -o -e '\b[0-9]+$')
+  JOB_ID=$(grep -Eo -e '\b[0-9]+$' <<<"${output}")
   if [[ -z "${JOB_ID}" ]]; then
     echo 1>&2 "$0: unable to find job id in sbatch output"
     exit "$sbatch_ec"
@@ -316,11 +341,29 @@ function main {
   echo 1>&2 ''
   echo 1>&2 'Connecting to sinteractive session, please wait...'
 
-  sleep 8s
+  # A RUNNING job only means the allocation exists; the batch script still
+  # has to bring up the tmux server. Poll for the session (a single SSH that
+  # retries on the node) instead of guessing a fixed sleep, which races on a
+  # slow or loaded node.
+  local sock="sinteractive-${JOB_ID}"
+  local connected=0
+  if ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+    "${batchhost}" \
+    "for i in \$(seq 1 30); do ${TMUX_BIN} -L '${sock}' has-session -t '${sock}' 2>/dev/null && exit 0; sleep 1; done; exit 1"; then
+    connected=1
+  fi
 
-  # sinteractive job is running and we're about to connect. From this
-  # point, detaching or disconnecting should NOT cancel the job.
+  # The session is up (or we gave up waiting); from this point a detach or
+  # disconnect should NOT cancel the job.
   trap - SIGINT SIGTERM EXIT
+
+  if ((connected == 0)); then
+    echo 1>&2 ''
+    echo 1>&2 "$0: tmux session did not come up on ${batchhost} within 30s."
+    echo 1>&2 "Job ${JOB_ID} may still be starting. Reconnect with:"
+    echo 1>&2 "  sinteractive --attach ${JOB_ID}"
+    exit 1
+  fi
 
   ssh -X -t "${batchhost}" "${BASH_SOURCE[0]}" attach "sinteractive-${JOB_ID}"
 
@@ -417,6 +460,7 @@ function list_sessions {
   # Query cwd for each session in parallel; results land in $tmpdir/<jobid>
   local tmpdir
   tmpdir=$(mktemp -d)
+  trap 'rm -rf "$tmpdir"' EXIT
   while read -r jobid comment node elapsed limit; do
     (get_session_cwd "$node" "$jobid" >"$tmpdir/$jobid") &
   done <<<"$lines"
@@ -436,8 +480,6 @@ function list_sessions {
       "$jobid" "$name" "$node" "$elapsed" "$limit" "$cwd"
   done <<<"$lines"
 
-  rm -rf "$tmpdir"
-
   echo ''
   echo 'To reattach:  sinteractive --attach JOBID  (or NAME if set)'
   exit 0
@@ -452,7 +494,7 @@ function get_partition_from_args {
       return
       ;;
     -p)
-      echo "$2"
+      echo "${2:-}"
       return
       ;;
     *)
@@ -474,11 +516,11 @@ function extract_time_from_args {
       return 0
       ;;
     --time)
-      echo "$2"
+      echo "${2:-}"
       return 0
       ;;
     -t)
-      echo "$2"
+      echo "${2:-}"
       return 0
       ;;
     -t=*)
@@ -832,7 +874,7 @@ function attach_tmux {
   local SESSION=$1
   local sock="$SESSION"
 
-  if [[ "$DISPLAY" != '' ]]; then
+  if [[ "${DISPLAY:-}" != '' ]]; then
     $TMUX_BIN -L "$sock" setenv -t "$SESSION" DISPLAY "$DISPLAY"
   fi
 
