@@ -87,6 +87,9 @@ Options:
                         Supports shorthand: 8h, 30m, 2d, 1d12h, 1h30m
   -j, --threads N       Number of CPUs (alias for --cpus-per-task)
   -m SIZE               Memory (alias for --mem, e.g., 16G)
+  --mouse               Enable tmux mouse support (wheel scrollback, click to
+                        select panes, drag borders to resize). Off by default;
+                        hold Shift to select text for an OS-level copy.
   -a, --attach TARGET   Reattach to a running session by JOBID or NAME
   -l, --list            List running sinteractive sessions (with NAME and CWD)
   -h, --help            Show this help message
@@ -141,10 +144,15 @@ function main {
   local args=()
   local reattach_target=''
   local session_name=''
+  local enable_mouse=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
     -h | --help)
       usage
+      ;;
+    --mouse)
+      enable_mouse=1
+      shift
       ;;
     -l | --list)
       list_sessions
@@ -300,9 +308,13 @@ function main {
     exit 1
   fi
 
+  # Feature flags to forward to the batch-side tmux setup (start_tmux).
+  local tmux_args=()
+  ((enable_mouse)) && tmux_args+=(--mouse)
+
   local output
   local sbatch_ec
-  output=$(sbatch --output=/dev/null --error=/dev/null "$@" "${BASH_SOURCE[0]}" tmux)
+  output=$(sbatch --output=/dev/null --error=/dev/null "$@" "${BASH_SOURCE[0]}" tmux "${tmux_args[@]}")
   sbatch_ec=$?
 
   JOB_ID=$(grep -Eo -e '\b[0-9]+$' <<<"${output}")
@@ -805,27 +817,58 @@ function warn_timeout {
 function start_tmux {
   export TERM=xterm-256color
 
+  # Optional feature flags passed after "tmux" on the sbatch command line.
+  local enable_mouse=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --mouse) enable_mouse=1; shift ;;
+    *) shift ;;
+    esac
+  done
+
   local session_name="sinteractive-${SLURM_JOB_ID}"
   local wait_channel="sinteractive-done-${SLURM_JOB_ID}"
   local sock="sinteractive-${SLURM_JOB_ID}"
 
   # Each job gets its own tmux server socket (-L) so that SLURM cgroup
   # cleanup for one job does not kill the tmux server shared by others.
-  $TMUX_BIN -L "$sock" -u new-session -d -s "$session_name"
+  #
+  # history-limit is captured per pane at creation time, so it must be set
+  # globally BEFORE new-session or the initial pane keeps the 2000-line
+  # default. Chain start-server + set -g + new-session so 50k applies to the
+  # first pane and every split inherits it.
+  $TMUX_BIN -L "$sock" -u \
+    start-server \; \
+    set-option -g history-limit 50000 \; \
+    new-session -d -s "$session_name"
 
-  # 50k lines of scrollback (default 2000)
-  $TMUX_BIN -L "$sock" set-option -t "$session_name" history-limit 50000
   # OSC 52 clipboard integration (copy works over SSH)
   $TMUX_BIN -L "$sock" set-option -t "$session_name" set-clipboard on
-  # Keep panes open on non-zero exit for debugging (tmux >= 3.4)
+  # Drop the 500ms key-sequence wait so ESC is snappy in vim/editors, and let
+  # applications see terminal focus changes (autoread, cursor-shape, etc.).
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" escape-time 10
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" focus-events on
+  # Keep dead panes visible on non-zero exit for debugging (tmux >= 3.4).
   $TMUX_BIN -L "$sock" set-option -t "$session_name" remain-on-exit failed
-  # Auto-respawn pane on Ctrl-C / SIGINT (exit 130) instead of "Pane is dead"
+  # pane-died: on Ctrl-C/SIGINT (exit 130) respawn the pane instead of leaving
+  # "Pane is dead"; otherwise, if the dead pane was the last LIVE pane in the
+  # session, end the session so the job exits. Without this, a login shell
+  # exiting non-zero (e.g. a failed last command then Ctrl-D) would linger as a
+  # dead pane, keeping session-closed from firing and stranding the allocation.
+  # Dead panes in a multi-pane layout are still kept for inspection.
   $TMUX_BIN -L "$sock" set-hook -t "$session_name" pane-died \
-    "if -F '#{==:#{pane_dead_status},130}' 'respawn-pane -k'"
+    "run-shell \"if [ '#{pane_dead_status}' = 130 ]; then $TMUX_BIN -L $sock respawn-pane -k -t '#{pane_id}'; elif [ \\\$($TMUX_BIN -L $sock list-panes -s -t $session_name -F '##{pane_dead}' | grep -cx 0) -eq 0 ]; then $TMUX_BIN -L $sock kill-session -t $session_name; fi\""
   # Highlight windows with new activity
   $TMUX_BIN -L "$sock" set-option -t "$session_name" monitor-activity on
   # Auto-rename windows to current command
   $TMUX_BIN -L "$sock" set-option -t "$session_name" automatic-rename on
+  # Opt-in mouse support (--mouse): wheel scrollback, click to select panes,
+  # drag borders to resize. Off by default because it intercepts terminal
+  # selection (hold Shift to select for an OS-level copy); with set-clipboard
+  # on, tmux's own mouse selection copies out over SSH via OSC 52.
+  if ((enable_mouse)); then
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" mouse on
+  fi
 
   # Strip SLURM vars from tmux session so child processes (e.g. snakemake)
   # don't think they're running as a SLURM job step.
