@@ -832,21 +832,17 @@ function start_tmux {
 
   # Each job gets its own tmux server socket (-L) so that SLURM cgroup
   # cleanup for one job does not kill the tmux server shared by others.
-  #
-  # history-limit is captured per pane at creation time, so it must be set
-  # globally BEFORE new-session or the initial pane keeps the 2000-line
-  # default. Chain start-server + set -g + new-session so 50k applies to the
-  # first pane and every split inherits it.
-  $TMUX_BIN -L "$sock" -u \
-    start-server \; \
-    set-option -g history-limit 50000 \; \
-    new-session -d -s "$session_name"
+  $TMUX_BIN -L "$sock" -u new-session -d -s "$session_name"
+
+  # tmux >= 3.7 resizes existing panes when history-limit changes, so setting
+  # it globally after new-session applies to the initial pane too; every split
+  # inherits the global value.
+  $TMUX_BIN -L "$sock" set-option -g history-limit 50000
 
   # OSC 52 clipboard integration (copy works over SSH)
   $TMUX_BIN -L "$sock" set-option -t "$session_name" set-clipboard on
-  # Drop the 500ms key-sequence wait so ESC is snappy in vim/editors, and let
-  # applications see terminal focus changes (autoread, cursor-shape, etc.).
-  $TMUX_BIN -L "$sock" set-option -t "$session_name" escape-time 10
+  # Let applications see terminal focus changes (autoread, cursor-shape, etc.).
+  # escape-time is left at the tmux >= 3.5 default of 10ms (snappy ESC in vim).
   $TMUX_BIN -L "$sock" set-option -t "$session_name" focus-events on
   # Keep dead panes visible on non-zero exit for debugging (tmux >= 3.4).
   $TMUX_BIN -L "$sock" set-option -t "$session_name" remain-on-exit failed
@@ -868,6 +864,10 @@ function start_tmux {
   # on, tmux's own mouse selection copies out over SSH via OSC 52.
   if ((enable_mouse)); then
     $TMUX_BIN -L "$sock" set-option -t "$session_name" mouse on
+    # tmux >= 3.6: show a per-pane scrollbar so wheel scrollback has a visible
+    # position indicator. tmux >= 3.7: focus the pane under the cursor.
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-scrollbars on
+    $TMUX_BIN -L "$sock" set-option -t "$session_name" focus-follows-mouse on
   fi
 
   # Strip SLURM vars from tmux session so child processes (e.g. snakemake)
