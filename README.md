@@ -44,11 +44,31 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `-j`, `--threads N` | Number of CPUs (alias for `--cpus-per-task`) | `2` |
 | `-m`, `--mem SIZE` | Memory | `8G` |
 | `--mouse` | Enable tmux mouse support (scroll, click panes, drag to resize) | off |
+| `--no-mouse` | Disable mouse support (overrides `SINTERACTIVE_MOUSE`) | |
 | `-a`, `--attach JOBID` | Reattach to a running session | |
 | `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 
 All other arguments are passed directly to `sbatch`, so you can use any `sbatch` option.
+
+### Environment variables
+
+Set personal defaults in your `~/.bashrc`; explicit flags always win.
+
+| Variable | Description | Default |
+|---|---|---|
+| `SINTERACTIVE_TIME` | Default wall time (e.g. `8h`, `2d`) | `1 day` |
+| `SINTERACTIVE_PARTITION` | Default partition | `interactive` |
+| `SINTERACTIVE_CPUS` | Default CPU count | `2` |
+| `SINTERACTIVE_MEM` | Default memory (e.g. `16G`) | `8G` |
+| `SINTERACTIVE_MOUSE` | `on`/`1`/`true`/`yes` enables mouse support | off |
+
+```bash
+# Example: always use mouse mode and a bigger default allocation
+export SINTERACTIVE_MOUSE=on
+export SINTERACTIVE_MEM=16G
+export SINTERACTIVE_CPUS=4
+```
 
 ### Examples
 
@@ -99,8 +119,8 @@ If your SSH connection drops or you intentionally detach (`Ctrl-b d`), the tmux 
 ```bash
 # List your running sessions
 sinteractive --list
-#   JOBID       NODE            ELAPSED     TIMELIMIT
-#   12345       compute01       01:23:45    1-00:00:00
+#   JOBID       NAME                  NODE            PARTITION     ELAPSED     TIMELIMIT   CWD
+#   12345       rna-seq               compute01       cpu           01:23:45    1-00:00:00  ~/projects/rna-seq
 
 # Reattach
 sinteractive --attach 12345
@@ -118,6 +138,7 @@ sinteractive --attach 12345
 
 | Action | Key |
 |---|---|
+| Show help popup (job info, keys) | `Ctrl-b h` |
 | Detach from session | `Ctrl-b d` |
 | Split pane horizontally | `Ctrl-b "` |
 | Split pane vertically | `Ctrl-b %` |

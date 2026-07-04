@@ -90,12 +90,22 @@ Options:
   --mouse               Enable tmux mouse support (wheel scrollback, click to
                         select panes, drag borders to resize). Off by default;
                         hold Shift to select text for an OS-level copy.
+  --no-mouse            Disable mouse support (overrides SINTERACTIVE_MOUSE)
   -a, --attach TARGET   Reattach to a running session by JOBID or NAME
   -l, --list            List running sinteractive sessions (with NAME and CWD)
   -h, --help            Show this help message
 
 Note: -n is consumed by sinteractive as --name. Use --ntasks=N to set
 sbatch ntasks instead of -n.
+
+Environment variables (set personal defaults, e.g. in ~/.bashrc;
+explicit flags always win):
+
+  SINTERACTIVE_TIME        Default wall time (e.g. 8h, 2d)       [1 day]
+  SINTERACTIVE_PARTITION   Default partition                     [interactive]
+  SINTERACTIVE_CPUS        Default CPU count                     [2]
+  SINTERACTIVE_MEM         Default memory (e.g. 16G)             [8G]
+  SINTERACTIVE_MOUSE       on|1|true|yes enables mouse support   [off]
 
 All other options are passed directly to sbatch. Examples:
 
@@ -115,10 +125,18 @@ Reconnecting after a disconnect:
 
   Use "sinteractive --list" to find your running sessions.
 
+In-session help:
+
+  Press Ctrl-b h inside the session to open a help popup with job info
+  (node, time remaining), detach/reattach commands, and basic tmux keys.
+  Any key closes it.
+
 Timeout warning:
 
   A warning appears in the tmux status bar 10 minutes before the time
-  limit. The bar turns yellow to alert you to save your work.
+  limit. The bar turns yellow to alert you to save your work, and the
+  terminal bell rings once so the tab is flagged even if you are
+  looking elsewhere.
 EOF
   exit 0
 }
@@ -132,12 +150,10 @@ function main {
     shift
     attach_tmux "$@"
     return
-  fi
-
-  # Don't allow launching sinteractive from inside an existing session
-  if [[ -n "${TMUX:-}" ]] && [[ "$TMUX" == *sinteractive* ]]; then
-    echo 1>&2 "Error: Already inside an sinteractive session. Exit this session first."
-    exit 1
+  elif [[ "${1:-}" == 'help-popup' ]]; then
+    shift
+    show_help_popup "$@"
+    return
   fi
 
   # Parse custom flags before passing remaining args to sbatch
@@ -145,6 +161,9 @@ function main {
   local reattach_target=''
   local session_name=''
   local enable_mouse=0
+  case "${SINTERACTIVE_MOUSE:-}" in
+  on | 1 | true | yes) enable_mouse=1 ;;
+  esac
   while [[ $# -gt 0 ]]; do
     case "$1" in
     -h | --help)
@@ -152,6 +171,10 @@ function main {
       ;;
     --mouse)
       enable_mouse=1
+      shift
+      ;;
+    --no-mouse)
+      enable_mouse=0
       shift
       ;;
     -l | --list)
@@ -237,6 +260,15 @@ function main {
     esac
   done
 
+  # Don't allow launching or attaching from inside an existing session (both
+  # would nest tmux). Checked after flag parsing so informational commands
+  # (--help, --list) still work from within a session; those exit in the
+  # parse loop above.
+  if [[ -n "${TMUX:-}" ]] && [[ "$TMUX" == *sinteractive* ]]; then
+    echo 1>&2 "Error: Already inside an sinteractive session. Exit this session first."
+    exit 1
+  fi
+
   if [[ -n "${reattach_target}" ]]; then
     reattach "${reattach_target}"
   fi
@@ -270,24 +302,27 @@ function main {
     set -- --job-name="sint-${session_name}" "$@"
   fi
 
+  # Defaults below can be personalized with SINTERACTIVE_* environment
+  # variables (e.g. in ~/.bashrc); explicit flags always win.
+
   # Default to 1 day if no --time/-t specified
   if ! printf '%s\n' "$@" | grep -qE '^(--time|-t)'; then
-    set -- --time=24:00:00 "$@"
+    set -- --time="$(parse_time "${SINTERACTIVE_TIME:-24:00:00}")" "$@"
   fi
 
   # Default to interactive partition if no --partition/-p specified
   if ! printf '%s\n' "$@" | grep -qE '^(--partition|-p)'; then
-    set -- --partition=interactive "$@"
+    set -- --partition="${SINTERACTIVE_PARTITION:-interactive}" "$@"
   fi
 
   # Default to 2 CPUs if no --cpus-per-task/-c specified
   if ! printf '%s\n' "$@" | grep -qE '^(--cpus-per-task|-c)'; then
-    set -- --cpus-per-task=2 "$@"
+    set -- --cpus-per-task="${SINTERACTIVE_CPUS:-2}" "$@"
   fi
 
   # Default to 8G memory if no --mem specified
   if ! printf '%s\n' "$@" | grep -qE '^--mem'; then
-    set -- --mem=8G "$@"
+    set -- --mem="${SINTERACTIVE_MEM:-8G}" "$@"
   fi
 
   # Send warning signal 10 minutes before time limit
@@ -461,7 +496,7 @@ function get_session_cwd {
 function list_sessions {
   local lines
   lines=$(squeue --me --states RUNNING --noheader \
-    --Format=JobID:12,Comment:80,NodeList:16,TimeUsed:12,TimeLimit:12 |
+    --Format=JobID:12,Comment:80,NodeList:16,Partition:14,TimeUsed:12,TimeLimit:12 |
     grep -E '[[:space:]]sinteractive([:-]|[[:space:]]|$)')
 
   if [[ -z "$lines" ]]; then
@@ -473,14 +508,14 @@ function list_sessions {
   local tmpdir
   tmpdir=$(mktemp -d)
   trap 'rm -rf "$tmpdir"' EXIT
-  while read -r jobid comment node elapsed limit; do
+  while read -r jobid comment node partition elapsed limit; do
     (get_session_cwd "$node" "$jobid" >"$tmpdir/$jobid") &
   done <<<"$lines"
   wait
 
-  printf '%-10s  %-20s  %-14s  %-10s  %-10s  %s\n' \
-    'JOBID' 'NAME' 'NODE' 'ELAPSED' 'TIMELIMIT' 'CWD'
-  while read -r jobid comment node elapsed limit; do
+  printf '%-10s  %-20s  %-14s  %-12s  %-10s  %-10s  %s\n' \
+    'JOBID' 'NAME' 'NODE' 'PARTITION' 'ELAPSED' 'TIMELIMIT' 'CWD'
+  while read -r jobid comment node partition elapsed limit; do
     local name='-'
     if [[ "$comment" =~ ^sinteractive:(.+)$ ]]; then
       name="${BASH_REMATCH[1]}"
@@ -488,8 +523,8 @@ function list_sessions {
     local cwd
     cwd=$(<"$tmpdir/$jobid")
     [[ -z "$cwd" ]] && cwd='-'
-    printf '%-10s  %-20s  %-14s  %-10s  %-10s  %s\n' \
-      "$jobid" "$name" "$node" "$elapsed" "$limit" "$cwd"
+    printf '%-10s  %-20s  %-14s  %-12s  %-10s  %-10s  %s\n' \
+      "$jobid" "$name" "$node" "$partition" "$elapsed" "$limit" "$cwd"
   done <<<"$lines"
 
   echo ''
@@ -784,6 +819,61 @@ function reattach {
     $TMUX_BIN -L "$sock" -u attach-session -t "sinteractive-${jobid}"
 }
 
+# Render the in-session help modal. Runs inside a tmux display-popup on the
+# compute node (invoked as "help-popup JOBID" via the spooled batch script).
+# Job info is queried live so time remaining is current each time the popup
+# opens; any keypress closes it. Degrades to '-' if squeue is unavailable.
+function show_help_popup {
+  local jobid="${1:-}"
+
+  local node='-' limit='-' remaining='-'
+  local info
+  info=$(squeue --jobs "$jobid" --noheader \
+    --Format=EndTime:24,NodeList:20,TimeLimit:12 2>/dev/null | xargs)
+  if [[ -n "$info" ]]; then
+    local end_str
+    read -r end_str node limit <<<"$info"
+    local end_epoch
+    end_epoch=$(date -d "$end_str" +%s 2>/dev/null)
+    if [[ -n "$end_epoch" ]]; then
+      local secs=$((end_epoch - $(date +%s)))
+      ((secs < 0)) && secs=0
+      remaining=$(format_short_duration "$secs")
+    fi
+  fi
+
+  # ANSI styles; the popup always renders on a terminal. Yellow keys echo the
+  # status-bar highlight (colour229).
+  local rst=$'\e[0m' bold=$'\e[1m' dim=$'\e[2m' url=$'\e[4;36m'
+  local hdr=$'\e[1;36m' key=$'\e[1;33m'
+  # OSC 8 hyperlink so the docs URL is clickable in terminals that support it
+  # (needs the hyperlinks terminal-feature set in start_tmux to pass through).
+  local docs='https://tinyurl.com/2s45khbx'
+  local lnk=$'\e]8;;'"$docs"$'\e\\' lnk_end=$'\e]8;;\e\\'
+
+  cat <<EOF
+
+  ${bold}Job ${jobid:-?} on ${node}${rst} | ${key}${remaining}${rst} remaining ${dim}(limit ${limit})${rst}
+
+  ${hdr}Session${rst}
+    Detach (keeps job running)   ${key}Ctrl+b d${rst}
+    Reattach from login node     ${key}sinteractive --attach ${jobid:-JOBID}${rst}
+    List your sessions           ${key}sinteractive --list${rst}
+    End session and job          ${key}exit${rst} ${dim}(in all panes)${rst}
+
+  ${hdr}tmux basics${rst}
+    Split pane (top/bottom)      ${key}Ctrl+b "${rst}
+    Split pane (side/side)       ${key}Ctrl+b %${rst}
+    Switch panes                 ${key}Ctrl+b arrow-key${rst}
+    Scrollback                   ${key}Ctrl+b [${rst}  ${dim}(q to exit)${rst}
+
+  Docs: ${url}${lnk}${docs}${lnk_end}${rst}
+
+  ${dim}Press any key to close.${rst}
+EOF
+  read -rsn1
+}
+
 function warn_timeout {
   local session_name="$1"
   local sock="sinteractive-${SLURM_JOB_ID}"
@@ -795,6 +885,15 @@ function warn_timeout {
 
   # Warning banner at top of pane, regular status bar stays at bottom
   $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-status top
+
+  # Ring the terminal bell once as the warning starts: writing BEL to a pane's
+  # tty registers as a pane bell, which tmux forwards to attached clients
+  # (default bell-action any), so the terminal tab gets an attention badge
+  # even when the user is looking at another window.
+  local pane_tty
+  while read -r pane_tty; do
+    printf '\a' >"$pane_tty" 2>/dev/null || true
+  done < <($TMUX_BIN -L "$sock" list-panes -s -t "$session_name" -F '#{pane_tty}')
 
   # Countdown loop: alternates colors every second for blink effect
   while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
@@ -841,6 +940,11 @@ function start_tmux {
 
   # OSC 52 clipboard integration (copy works over SSH)
   $TMUX_BIN -L "$sock" set-option -t "$session_name" set-clipboard on
+  # OSC 8 hyperlinks (docs link in the help popup): tmux only re-emits them to
+  # clients whose terminal declares the feature, and it can't detect support
+  # from TERM alone, so assert it for all clients. Terminals without OSC 8
+  # ignore the sequence; the link text still renders.
+  $TMUX_BIN -L "$sock" set-option -sa terminal-features ',*:hyperlinks'
   # Let applications see terminal focus changes (autoread, cursor-shape, etc.).
   # escape-time is left at the tmux >= 3.5 default of 10ms (snappy ESC in vim).
   $TMUX_BIN -L "$sock" set-option -t "$session_name" focus-events on
@@ -880,17 +984,44 @@ function start_tmux {
   $TMUX_BIN -L "$sock" send-keys -t "$session_name" \
       ' unset ${!SLURM_@}; clear' Enter
 
-  # Status bar: left = job info, right = help/instructions
-  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-interval 60
+  # Status bar: no background color (terminal default), separated from the
+  # pane by a thin border line. Left = job info, right = hint for the help
+  # popup; the full help (reattach command, docs link, tmux keys) lives in
+  # the Ctrl+b h modal.
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-style 'fg=default,bg=default'
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left \
-    "#[bold] interactive @ #{host_short} | %I:%M %p "
+    "#[bold] session ${SLURM_JOB_ID} | #{host_short} "
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left-length 50
   # Hide the window list (0:bash*) from the center of the status bar
   $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-format ''
   $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-current-format ''
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right \
-    "#[fg=black,bg=colour229,bold] Detach: Ctrl+b d | Reattach: sinteractive --attach ${SLURM_JOB_ID} | Docs: https://tinyurl.com/2s45khbx "
-  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right-length 120
+    " Help: #[fg=yellow,bold]Ctrl+b h#[default] | Detach: #[fg=yellow,bold]Ctrl+b d#[default] "
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right-length 40
+  # Terminal window/tab title (OSC 2): mirror the status-left text so users
+  # with several sessions can tell tabs apart at a glance.
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" set-titles on
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" set-titles-string \
+    "session ${SLURM_JOB_ID} | #{host_short}"
+  # Separator line between the terminal and the status bar: show the pane's
+  # bottom border as a heavy rule in Okabe-Ito yellow (empty format = no title
+  # text). Global so windows created later get it too; warn_timeout moves the
+  # border to the top of the pane for the countdown banner during the final
+  # 10 minutes.
+  $TMUX_BIN -L "$sock" set-option -g pane-border-status bottom
+  $TMUX_BIN -L "$sock" set-option -g pane-border-format ''
+  $TMUX_BIN -L "$sock" set-option -g pane-border-lines heavy
+  $TMUX_BIN -L "$sock" set-option -g pane-border-style 'fg=#F0E442'
+  $TMUX_BIN -L "$sock" set-option -g pane-active-border-style 'fg=#F0E442'
+
+  # Help popup: prefix + h opens a modal with job info and key help, closed by
+  # any key. Bindings are per-server, and each job has its own socket, so this
+  # can't leak into other tmux servers. BASH_SOURCE here is Slurm's spooled
+  # copy of this script, which stays executable on this node for the job's
+  # lifetime, so the popup can re-invoke it as "help-popup JOBID".
+  $TMUX_BIN -L "$sock" bind-key h display-popup -E -w 76 -h 21 \
+    -T ' sinteractive help ' \
+    "'${BASH_SOURCE[0]}' help-popup ${SLURM_JOB_ID}"
 
   $TMUX_BIN -L "$sock" set-hook -t "$session_name" session-closed \
     "run-shell '$TMUX_BIN -L $sock wait-for -S $wait_channel'"
