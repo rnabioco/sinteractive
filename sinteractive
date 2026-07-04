@@ -106,6 +106,8 @@ explicit flags always win):
   SINTERACTIVE_CPUS        Default CPU count                     [2]
   SINTERACTIVE_MEM         Default memory (e.g. 16G)             [8G]
   SINTERACTIVE_MOUSE       on|1|true|yes enables mouse support   [off]
+  SINTERACTIVE_WARN_YELLOW Yellow countdown clock (secs left)    [3600]
+  SINTERACTIVE_WARN_RED    Blinking final countdown (secs left)  [600]
 
 All other options are passed directly to sbatch. Examples:
 
@@ -133,10 +135,11 @@ In-session help:
 
 Timeout warning:
 
-  A warning appears in the tmux status bar 10 minutes before the time
-  limit. The bar turns yellow to alert you to save your work, and the
-  terminal bell rings once so the tab is flagged even if you are
-  looking elsewhere.
+  The dot at the left of the status bar tracks time remaining: white
+  while more than an hour is left, then a yellow clock with a countdown,
+  and a clock blinking yellow/red for the final 10 minutes. The terminal
+  bell rings once as the final countdown starts, so the tab is flagged
+  even if you are looking elsewhere.
 EOF
   exit 0
 }
@@ -323,11 +326,6 @@ function main {
   # Default to 8G memory if no --mem specified
   if ! printf '%s\n' "$@" | grep -qE '^--mem'; then
     set -- --mem="${SINTERACTIVE_MEM:-8G}" "$@"
-  fi
-
-  # Send warning signal 10 minutes before time limit
-  if ! printf '%s\n' "$@" | grep -qE '^--signal'; then
-    set -- --signal=B:USR1@600 "$@"
   fi
 
   # Refuse to submit if --time would overlap an upcoming MAINT reservation
@@ -874,43 +872,91 @@ EOF
   read -rsn1
 }
 
-function warn_timeout {
+# Background updater for the status-bar glyph: a white dot while plenty of
+# walltime remains, a yellow clock plus countdown once less than
+# SINTERACTIVE_WARN_YELLOW seconds are left (default 1 hour), and a spinning
+# clock blinking yellow/red with an M:SS countdown for the final
+# SINTERACTIVE_WARN_RED seconds (default 10 minutes). Replaces the old
+# USR1-driven warning banner at the top of the pane. Runs until the tmux
+# session ends; killed with the job's cgroup at teardown.
+function status_dot_loop {
   local session_name="$1"
   local sock="sinteractive-${SLURM_JOB_ID}"
 
-  # Get job end time (epoch seconds) for countdown
-  local end_epoch
-  end_epoch=$(squeue --jobs "${SLURM_JOB_ID}" --noheader --Format EndTime | xargs)
-  end_epoch=$(date -d "$end_epoch" +%s 2>/dev/null)
+  local warn_yellow="${SINTERACTIVE_WARN_YELLOW:-3600}"
+  local warn_red="${SINTERACTIVE_WARN_RED:-600}"
 
-  # Warning banner at top of pane, regular status bar stays at bottom
-  $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-status top
+  # Everything after the glyph is fixed; the loop only swaps the glyph and
+  # appends a countdown. Must mirror the initial status-left in start_tmux.
+  local base=" #[dim]session#[default] #[fg=#2DBFB8,bold]${SLURM_JOB_ID}#[default] #[dim]|#[default] #[fg=#2DBFB8,bold]#{host_short}#[default]"
 
-  # Ring the terminal bell once as the warning starts: writing BEL to a pane's
-  # tty registers as a pane bell, which tmux forwards to attached clients
-  # (default bell-action any), so the terminal tab gets an attention badge
-  # even when the user is looking at another window.
-  local pane_tty
-  while read -r pane_tty; do
-    printf '\a' >"$pane_tty" 2>/dev/null || true
-  done < <($TMUX_BIN -L "$sock" list-panes -s -t "$session_name" -F '#{pane_tty}')
-
-  # Countdown loop: alternates colors every second for blink effect
+  local clocks=('◴' '◵' '◶' '◷')
+  local end_epoch='' end_query=0 spin=0 belled=0 last=''
   while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
-    local remaining=$((end_epoch - $(date +%s)))
-    if ((remaining < 0)); then remaining=0; fi
-    local mins=$((remaining / 60))
-    local secs=$((remaining % 60))
-    local msg
-    printf -v msg 'SESSION ENDS IN %d:%02d -- SAVE YOUR WORK' "$mins" "$secs"
+    local now remaining
+    now=$(date +%s)
 
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-format \
-      "#[align=centre,fg=black,bg=yellow,bold,fill=yellow] >>> $msg <<< "
-    sleep 1
-    $TMUX_BIN -L "$sock" set-option -t "$session_name" pane-border-format \
-      "#[align=centre,fg=yellow,bg=red,bold,fill=red] >>> $msg <<< "
-    sleep 1
-  done &
+    # (Re-)query the scheduler for the job end time every 5 minutes so a
+    # scontrol timelimit update moves the clock; keep the previous value on
+    # transient squeue failures.
+    if ((now - end_query >= 300)); then
+      end_query=$now
+      local end_str new_epoch
+      end_str=$(squeue --jobs "${SLURM_JOB_ID}" --noheader --Format EndTime 2>/dev/null | xargs)
+      if [[ -n "$end_str" ]]; then
+        new_epoch=$(date -d "$end_str" +%s 2>/dev/null) && end_epoch=$new_epoch
+      fi
+    fi
+    # No parseable end time yet (UNLIMITED, squeue hiccup): leave the white
+    # dot alone and try again later.
+    if [[ -z "$end_epoch" ]]; then
+      sleep 60
+      continue
+    fi
+
+    remaining=$((end_epoch - now))
+    ((remaining < 0)) && remaining=0
+
+    local glyph text sleep_for
+    if ((remaining > warn_yellow)); then
+      glyph='#[bold]●#[default]'
+      text=''
+      sleep_for=60
+      belled=0
+    elif ((remaining > warn_red)); then
+      glyph='#[fg=yellow,bold]◷#[default]'
+      text=" #[dim]| $(format_short_duration "$remaining") left#[default]"
+      sleep_for=30
+      belled=0
+    else
+      # Ring the terminal bell once as the final countdown starts: writing
+      # BEL to a pane's tty registers as a pane bell, which tmux forwards to
+      # attached clients (default bell-action any), so the terminal tab gets
+      # an attention badge even when the user is looking at another window.
+      if ((!belled)); then
+        belled=1
+        local pane_tty
+        while read -r pane_tty; do
+          printf '\a' >"$pane_tty" 2>/dev/null || true
+        done < <($TMUX_BIN -L "$sock" list-panes -s -t "$session_name" -F '#{pane_tty}')
+      fi
+      # Spin the clock and alternate yellow/red every second (blink effect)
+      local color=yellow
+      ((spin % 2)) && color=red
+      glyph="#[fg=${color},bold]${clocks[spin % 4]}#[default]"
+      printf -v text ' #[fg=%s,bold]| %d:%02d left#[default]' \
+        "$color" $((remaining / 60)) $((remaining % 60))
+      spin=$((spin + 1))
+      sleep_for=1
+    fi
+
+    local left=" ${glyph}${base}${text} "
+    if [[ "$left" != "$last" ]]; then
+      $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left "$left"
+      last="$left"
+    fi
+    sleep "$sleep_for"
+  done
 }
 
 function start_tmux {
@@ -985,12 +1031,15 @@ function start_tmux {
       ' unset ${!SLURM_@}; clear' Enter
 
   # Status bar: no background color (terminal default), separated from the
-  # pane by a thin border line. Left = job info, right = hint for the help
-  # popup; the full help (reattach command, docs link, tmux keys) lives in
-  # the Ctrl+b h modal.
+  # pane by a thin border line. Left = a status glyph (white dot; becomes a
+  # time-remaining clock near the limit — see status_dot_loop, which keeps
+  # this string updated) and the job ID + host in bold cyan (#2DBFB8, the
+  # teal-cyan rustc/cargo use for ANSI cyan), with the label and separator
+  # dimmed. Right = hint for the help popup; the full help (reattach command,
+  # docs link, tmux keys) lives in the Ctrl+b h modal.
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-style 'fg=default,bg=default'
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left \
-    "#[bold] session ${SLURM_JOB_ID} | #{host_short} "
+    " #[bold]●#[default] #[dim]session#[default] #[fg=#2DBFB8,bold]${SLURM_JOB_ID}#[default] #[dim]|#[default] #[fg=#2DBFB8,bold]#{host_short}#[default] "
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left-length 50
   # Hide the window list (0:bash*) from the center of the status bar
   $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-format ''
@@ -1005,9 +1054,7 @@ function start_tmux {
     "session ${SLURM_JOB_ID} | #{host_short}"
   # Separator line between the terminal and the status bar: show the pane's
   # bottom border as a heavy rule in Okabe-Ito yellow (empty format = no title
-  # text). Global so windows created later get it too; warn_timeout moves the
-  # border to the top of the pane for the countdown banner during the final
-  # 10 minutes.
+  # text). Global so windows created later get it too.
   $TMUX_BIN -L "$sock" set-option -g pane-border-status bottom
   $TMUX_BIN -L "$sock" set-option -g pane-border-format ''
   $TMUX_BIN -L "$sock" set-option -g pane-border-lines heavy
@@ -1026,8 +1073,13 @@ function start_tmux {
   $TMUX_BIN -L "$sock" set-hook -t "$session_name" session-closed \
     "run-shell '$TMUX_BIN -L $sock wait-for -S $wait_channel'"
 
-  # Trap SIGUSR1 sent by SLURM 10 minutes before time limit
-  trap 'warn_timeout "$session_name"' USR1
+  # Keep the status-bar glyph in sync with the job's time remaining.
+  status_dot_loop "$session_name" &
+
+  # Ignore USR1: nothing traps it anymore (the old warning banner did), and
+  # the default disposition would kill this batch shell if the user submits
+  # with their own --signal=B:USR1.
+  trap ':' USR1
 
   # Run wait-for in background; `wait` builtin (foreground) is interruptible
   # by signals, unlike external commands which block trap delivery in bash.
