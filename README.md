@@ -43,6 +43,7 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--time TIME` | Wall time limit (supports `8h`, `30m`, `1d12h`, …) | `1 day` |
 | `-j`, `--threads N` | Number of CPUs (alias for `--cpus-per-task`) | `2` |
 | `-m`, `--mem SIZE` | Memory | `8G` |
+| `-n`, `--name NAME` | Tag the session with a name for easy reattach (`--attach NAME`) | |
 | `--mouse` | Enable tmux mouse support (scroll, click panes, drag to resize) | off |
 | `--no-mouse` | Disable mouse support (overrides `SINTERACTIVE_MOUSE`) | |
 | `--detach` | Launch without attaching; print connection info and return | |
@@ -129,6 +130,8 @@ sinteractive --list
 sinteractive --attach 12345
 ```
 
+Sessions launched with `-n NAME` can be reattached by name (`sinteractive --attach NAME`). Forgot to name one? Press `Ctrl-b $` inside the session to name (or rename) it in place — the new name shows up in the status bar, `squeue`, `--list`, and works with `--attach NAME`.
+
 !!! info "This is the key advantage over `srun --pty bash`"
     With `srun`, a dropped SSH connection kills your session and any running processes. With `sinteractive`, you just reconnect and pick up where you left off.
 
@@ -154,7 +157,7 @@ sinteractive --status mywork --json
 srun --overlap --jobid=JOBID -- bash -lc 'make test'
 ```
 
-Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`, if named) are exported, and `sinteractive --status` with no argument reports on the current session. A state file at `~/.cache/sinteractive/JOBID.json` is refreshed about every 30 seconds with `remaining_seconds`, so tools can poll the time budget without querying the scheduler; it is removed when the session ends.
+Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`, if named) are exported, and `sinteractive --status` with no argument reports on the current session. A state file at `~/.cache/sinteractive/JOBID.json` is refreshed about every 30 seconds with `remaining_seconds`, so tools can poll the time budget without querying the scheduler; it is removed when the session ends. In-session renames (`Ctrl-b $`) are reflected in the state file, `--status`, and new panes, but shells already running keep their original `SINTERACTIVE_NAME`.
 
 !!! tip "Claude Code skill"
     The repo ships a [skill](https://code.claude.com/docs/en/skills) that teaches Claude Code cluster etiquette: run heavy work in an allocation (never on the login node), reuse sessions, check the time budget before long jobs, and clean up. Install it per-user from a checkout of this repo:
@@ -171,6 +174,7 @@ Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`, if named) are 
 |---|---|
 | Show help popup (job info, keys) | `Ctrl-b h` |
 | Detach from session | `Ctrl-b d` |
+| Name/rename session (updates squeue and `--attach` name) | `Ctrl-b $` |
 | Split pane horizontally | `Ctrl-b "` |
 | Split pane vertically | `Ctrl-b %` |
 | Switch between panes | `Ctrl-b arrow-key` |

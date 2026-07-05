@@ -58,7 +58,8 @@ sinteractive --status JOBID --json   # or NAME; includes remaining_seconds
 ```
 
 Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`) are set and
-`sinteractive --status` needs no target. For frequent polling, read the state
+`sinteractive --status` needs no target. Users can rename a session while it
+runs (`Ctrl-b $`), so resolve and cache sessions by `job_id`, not name. For frequent polling, read the state
 file instead of hitting the scheduler — it is refreshed about every 30 s:
 
 ```bash

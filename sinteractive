@@ -139,7 +139,8 @@ In-session help:
 
   Press Ctrl-b h inside the session to open a help popup with job info
   (node, time remaining), detach/reattach commands, and basic tmux keys.
-  Any key closes it.
+  Any key closes it. Ctrl-b $ names (or renames) the session in place,
+  updating the squeue job name and the --attach/--status name.
 
 Scripting and agents (e.g. Claude Code):
 
@@ -175,6 +176,10 @@ function main {
   elif [[ "${1:-}" == 'help-popup' ]]; then
     shift
     show_help_popup "$@"
+    return
+  elif [[ "${1:-}" == 'rename-session' ]]; then
+    shift
+    rename_session "$@"
     return
   fi
 
@@ -1046,6 +1051,7 @@ function show_help_popup {
 
   ${hdr}Session${rst}
     Detach (keeps job running)   ${key}Ctrl+b d${rst}
+    Name/rename session          ${key}Ctrl+b \$${rst}
     Reattach from login node     ${key}sinteractive --attach ${jobid:-JOBID}${rst}
     List your sessions           ${key}sinteractive --list${rst}
     End session and job          ${key}exit${rst} ${dim}(in all panes)${rst}
@@ -1061,6 +1067,73 @@ function show_help_popup {
   ${dim}Press any key to close.${rst}
 EOF
   read -rsn1
+}
+
+# Flash a message in the status line of every attached client. Handlers run
+# via run-shell with no client context, so target clients explicitly; with no
+# clients attached (detached session) this is a silent no-op.
+function display_to_clients {
+  local jobid="$1" delay="$2" msg="$3"
+  local sock="sinteractive-${jobid}"
+  local client
+  while IFS= read -r client; do
+    $TMUX_BIN -L "$sock" display-message -d "$delay" -c "$client" "$msg"
+  done < <($TMUX_BIN -L "$sock" list-clients -F '#{client_name}' 2>/dev/null)
+}
+
+# Name or rename a running session in place (bound to prefix + $ in
+# start_tmux). Runs on the compute node via run-shell. Updates, in order:
+# the Slurm Comment marker (what --attach/--list/--status resolve against),
+# the Slurm job name (cosmetic, shows in squeue), and the tmux session
+# environment SINTERACTIVE_NAME (drives the status bar, terminal title, and
+# state file; new panes inherit it). Shells already running keep their old
+# SINTERACTIVE_NAME — deliberately no send-keys, which could type into a
+# foreground program.
+function rename_session {
+  local jobid="$1"
+  local new_name="${2:-}"
+  local sock="sinteractive-${jobid}"
+  local session="sinteractive-${jobid}"
+
+  # Bare Enter at the prompt = cancel.
+  [[ -z "$new_name" ]] && return 0
+
+  if ! [[ "$new_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    display_to_clients "$jobid" 5000 \
+      "rename failed: name must contain only letters, digits, '.', '_', '-'"
+    return 1
+  fi
+
+  # Duplicate-name guard, excluding this job so renaming to the current name
+  # is a clean no-op. squeue failure fails open, matching the submit side.
+  local existing
+  existing=$(squeue --me --states RUNNING,PENDING --noheader \
+    --Format=JobID:12,Comment:80 2>/dev/null |
+    awk -v n="sinteractive:${new_name}" -v me="$jobid" '$2 == n && $1 != me {print $1}')
+  if [[ -n "$existing" ]]; then
+    display_to_clients "$jobid" 5000 \
+      "rename failed: '${new_name}' is already used by job $(echo ${existing} | xargs)"
+    return 1
+  fi
+
+  # Comment first: it is what name-based lookups match on. If it fails
+  # (e.g. slurmctld unreachable), stop before touching the tmux env so
+  # Slurm and tmux stay consistent on the old name.
+  local err
+  if ! err=$(scontrol update JobId="$jobid" Comment="sinteractive:${new_name}" 2>&1); then
+    display_to_clients "$jobid" 5000 "rename failed: ${err}"
+    return 1
+  fi
+  # Job name is cosmetic (squeue display); best-effort.
+  scontrol update JobId="$jobid" Name="sint-${new_name}" 2>/dev/null || true
+
+  $TMUX_BIN -L "$sock" set-environment -t "$session" SINTERACTIVE_NAME "$new_name"
+
+  # Poke status_dot_loop so the state-file name refreshes next tick instead
+  # of waiting out its 30s write cache.
+  touch "${HOME}/.cache/sinteractive/${jobid}.poke" 2>/dev/null || true
+
+  display_to_clients "$jobid" 2000 "session renamed to '${new_name}'"
 }
 
 # Background updater for the status-bar glyph: a dot in the terminal's
@@ -1091,13 +1164,26 @@ function status_dot_loop {
 
   # Everything after the glyph is fixed; the loop only swaps the glyph and
   # appends a countdown. Must mirror the initial status-left in start_tmux.
-  local base=" #[dim]session#[default] #[fg=#2DBFB8,bold]${SLURM_JOB_ID}#[default] #[dim]|#[default] #[fg=#2DBFB8,bold]#{host_short}#[default]"
+  # The trailing conditional shows the session name when one is set; tmux
+  # format lookup falls back to the session environment, so a prefix+$
+  # rename (set-environment SINTERACTIVE_NAME) appears on the next redraw
+  # without this loop rebuilding anything.
+  # (The #, inside the conditional escapes the style comma, which would
+  # otherwise terminate the branch.)
+  local base=" #[dim]session#[default] #[fg=#2DBFB8,bold]${SLURM_JOB_ID}#[default] #[dim]|#[default] #[fg=#2DBFB8,bold]#{host_short}#[default]#{?SINTERACTIVE_NAME, #[dim]|#[default] #[fg=#2DBFB8#,bold]#{SINTERACTIVE_NAME}#[default],}"
 
   local clocks=('◴' '◵' '◶' '◷')
   local end_epoch='' end_query=0 spin=0 belled=0 last=''
   while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
     local now remaining
     now=$(date +%s)
+
+    # A poke file (touched by rename_session) forces an immediate state-file
+    # write instead of waiting out the 30-second cache below.
+    if [[ -e "${state_file%.json}.poke" ]]; then
+      rm -f "${state_file%.json}.poke"
+      state_written=0
+    fi
 
     # (Re-)query the scheduler for the job end time every 5 minutes so a
     # scontrol timelimit update moves the clock; keep the previous value on
@@ -1124,6 +1210,13 @@ function status_dot_loop {
     # during the final countdown); write-then-rename keeps reads atomic.
     if ((now - state_written >= 30)); then
       state_written=$now
+      # Re-read the name each write so a prefix+$ rename lands in the state
+      # file; the tmux session environment is the source of truth. Keep the
+      # captured value as fallback when the var was never set.
+      local env_name
+      if env_name=$($TMUX_BIN -L "$sock" show-environment -t "$session_name" SINTERACTIVE_NAME 2>/dev/null); then
+        disp_name="${env_name#*=}"
+      fi
       printf '{"job_id":%s,"name":%s,"node":"%s","end_epoch":%s,"remaining_seconds":%s,"updated_epoch":%s}\n' \
         "${SLURM_JOB_ID}" "$(json_string_or_null "$disp_name")" "$host" \
         "$end_epoch" "$remaining" "$now" >"${state_file}.tmp" &&
@@ -1171,7 +1264,7 @@ function status_dot_loop {
     sleep "$sleep_for"
   done
 
-  rm -f "$state_file" "${state_file}.tmp"
+  rm -f "$state_file" "${state_file}.tmp" "${state_file%.json}.poke"
 }
 
 function start_tmux {
@@ -1266,10 +1359,17 @@ function start_tmux {
   # teal-cyan rustc/cargo use for ANSI cyan), with the label and separator
   # dimmed. Right = hint for the help popup; the full help (reattach command,
   # docs link, tmux keys) lives in the Ctrl+b h modal.
+  # The trailing conditional appends "| <name>" when the session has a name.
+  # tmux format lookup falls back to the session environment, so the segment
+  # tracks SINTERACTIVE_NAME live (set at launch with --name, or later via
+  # prefix+$). Must mirror the base string in status_dot_loop. The #, inside
+  # the conditional escapes the style comma, which would otherwise terminate
+  # the branch.
+  local name_fmt='#{?SINTERACTIVE_NAME, #[dim]|#[default] #[fg=#2DBFB8#,bold]#{SINTERACTIVE_NAME}#[default],}'
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-style 'fg=default,bg=default'
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left \
-    " #[bold]●#[default] #[dim]session#[default] #[fg=#2DBFB8,bold]${SLURM_JOB_ID}#[default] #[dim]|#[default] #[fg=#2DBFB8,bold]#{host_short}#[default] "
-  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left-length 50
+    " #[bold]●#[default] #[dim]session#[default] #[fg=#2DBFB8,bold]${SLURM_JOB_ID}#[default] #[dim]|#[default] #[fg=#2DBFB8,bold]#{host_short}#[default]${name_fmt} "
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left-length 80
   # Hide the window list (0:bash*) from the center of the status bar
   $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-format ''
   $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-current-format ''
@@ -1280,7 +1380,7 @@ function start_tmux {
   # with several sessions can tell tabs apart at a glance.
   $TMUX_BIN -L "$sock" set-option -t "$session_name" set-titles on
   $TMUX_BIN -L "$sock" set-option -t "$session_name" set-titles-string \
-    "session ${SLURM_JOB_ID} | #{host_short}"
+    "session ${SLURM_JOB_ID} | #{host_short}#{?SINTERACTIVE_NAME, | #{SINTERACTIVE_NAME},}"
   # Separator line between the terminal and the status bar: show the pane's
   # bottom border as a heavy rule in palette yellow (empty format = no title
   # text). Palette yellow, not a hex value, so light themes that remap
@@ -1298,9 +1398,27 @@ function start_tmux {
   # can't leak into other tmux servers. BASH_SOURCE here is Slurm's spooled
   # copy of this script, which stays executable on this node for the job's
   # lifetime, so the popup can re-invoke it as "help-popup JOBID".
-  $TMUX_BIN -L "$sock" bind-key h display-popup -E -w 76 -h 21 \
+  $TMUX_BIN -L "$sock" bind-key h display-popup -E -w 76 -h 22 \
     -T ' sinteractive help ' \
     "'${BASH_SOURCE[0]}' help-popup ${SLURM_JOB_ID}"
+
+  # Name/rename the session in place: prefix + $ prompts for a name and
+  # hands it to the rename-session handler (scontrol Comment/Name update,
+  # SINTERACTIVE_NAME env). This deliberately overrides tmux's stock $
+  # (rename-session): renaming the tmux session itself would desync
+  # status_dot_loop's has-session/set-option targets and the literal session
+  # name baked into the pane-died hook above. The prompt is prefilled with
+  # the current name (format lookup falls back to the session environment).
+  # Quoting: tmux substitutes %%% for the reply, backslash-escaping
+  # double-quote/backslash/dollar/semicolon/tilde; the single-quoted tmux
+  # template passes those through to run-shell's /bin/sh -c, where the inner
+  # double quotes are exactly right. A literal single quote in the reply
+  # breaks tmux parsing with a status-line error before the handler runs —
+  # cosmetic only, on the user's own per-job server, and no such input would
+  # pass the handler's name validation anyway.
+  $TMUX_BIN -L "$sock" bind-key '$' command-prompt -p ' session name:' \
+    -I '#{SINTERACTIVE_NAME}' \
+    "run-shell '\"${BASH_SOURCE[0]}\" rename-session ${SLURM_JOB_ID} \"%%%\"'"
 
   $TMUX_BIN -L "$sock" set-hook -t "$session_name" session-closed \
     "run-shell '$TMUX_BIN -L $sock wait-for -S $wait_channel'"
@@ -1316,7 +1434,8 @@ function start_tmux {
   # Slurm delivers SIGTERM on scancel and at timeout (SIGKILL follows after
   # KillWait); remove the state file on the way out so it can't go stale.
   trap 'rm -f "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.json" \
-    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.json.tmp"; exit 0' TERM
+    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.json.tmp" \
+    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.poke"; exit 0' TERM
 
   # Run wait-for in background; `wait` builtin (foreground) is interruptible
   # by signals, unlike external commands which block trap delivery in bash.
@@ -1333,7 +1452,8 @@ function start_tmux {
   # Belt-and-braces: status_dot_loop removes its state file when it sees the
   # session die, but Slurm's cgroup cleanup can kill it mid-sleep first.
   rm -f "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.json" \
-    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.json.tmp"
+    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.json.tmp" \
+    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.poke"
 
   trap - USR1
 }
