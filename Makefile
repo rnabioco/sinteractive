@@ -4,7 +4,7 @@ PREFIX ?= ~/.local/bin
 # the splash to /etc/profile.d so it runs for every interactive login.
 UID := $(shell id -u)
 
-.PHONY: install install-user install-system
+.PHONY: install install-user install-system skill-install
 
 ifeq ($(UID),0)
 install: install-system
@@ -22,6 +22,13 @@ install-user:
 install-system:
 	install -m 0755 scripts/sinteractive /usr/local/bin/sinteractive
 	install -m 0644 scripts/bodhi-splash /etc/profile.d/bodhi-splash.sh
+
+# Claude Code skill: teaches agents to run heavy work in a Slurm allocation
+# (sinteractive --detach/--status, srun --overlap, time budgets). Skills are
+# per-user, so this installs into ~/.claude/skills regardless of UID.
+skill-install:
+	mkdir -p $(HOME)/.claude/skills/bodhi-compute
+	cp skills/bodhi-compute/SKILL.md $(HOME)/.claude/skills/bodhi-compute/SKILL.md
 
 # ---------------------------------------------------------------------------
 # tmux — build the latest release from source and install to $(TMUX_PREFIX).
