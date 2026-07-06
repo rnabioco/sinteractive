@@ -1,7 +1,10 @@
 PREFIX ?= ~/.local/bin
+# man finds ~/.local/share/man automatically when ~/.local/bin is on PATH.
+MANDIR ?= ~/.local/share/man/man1
 
-# When run as root, install system-wide: sinteractive to /usr/local/bin and
-# the splash to /etc/profile.d so it runs for every interactive login.
+# When run as root, install system-wide: sinteractive to /usr/local/bin,
+# its man page to /usr/local/share/man, and the splash to /etc/profile.d
+# so it runs for every interactive login.
 UID := $(shell id -u)
 
 .PHONY: install install-user install-system skill-install
@@ -18,10 +21,13 @@ install-user:
 	chmod +x $(PREFIX)/sinteractive
 	cp scripts/bodhi-splash $(PREFIX)/bodhi-splash
 	chmod +x $(PREFIX)/bodhi-splash
+	mkdir -p $(MANDIR)
+	cp man/sinteractive.1 $(MANDIR)/sinteractive.1
 
 install-system:
 	install -m 0755 scripts/sinteractive /usr/local/bin/sinteractive
 	install -m 0644 scripts/bodhi-splash /etc/profile.d/bodhi-splash.sh
+	install -D -m 0644 man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1
 
 # Claude Code skill: teaches agents to run heavy work in a Slurm allocation
 # (sinteractive --detach/--status, srun --overlap, time budgets). Skills are

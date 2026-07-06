@@ -1,0 +1,328 @@
+.TH SINTERACTIVE 1 "July 2026" "bodhi" "User Commands"
+.SH NAME
+sinteractive \- start an interactive tmux session on a Slurm compute node
+.SH SYNOPSIS
+.B sinteractive
+.RI [ OPTIONS ]
+.RB [ \-\-
+.IR SBATCH_ARGS... ]
+.br
+.B sinteractive \-\-attach
+.IR JOBID | NAME
+.br
+.B sinteractive \-\-list
+.RB [ \-\-json ]
+.br
+.B sinteractive \-\-status
+.RI [ TARGET ]
+.RB [ \-\-json ]
+.SH DESCRIPTION
+.B sinteractive
+submits a batch job that launches a detached
+.BR tmux (1)
+session on the allocated compute node, then SSHes in and attaches to
+it. Because the shell lives in tmux, the session survives SSH drops and
+can be reattached later with
+.BR \-\-attach .
+.PP
+Options not listed below are passed directly to
+.BR sbatch (1),
+so any sbatch resource flag (e.g.
+.BR \-\-gres ,
+.BR \-\-exclusive ,
+.BR \-\-qos )
+works as expected.
+.SH OPTIONS
+.SS Launch options
+.TP
+.BI \-n\fR,\ \fB\-\-name\  NAME
+Tag the session with a name for easy reattach. Allowed characters:
+letters, digits,
+.BR . ,
+.BR _ ,
+.BR \- .
+The name appears in
+.B squeue
+(as job name
+.BI sint\- NAME ),
+in
+.B \-\-list
+output, and can be used anywhere a
+.I JOBID
+is accepted. Launching a second session with a name already in use is
+refused.
+.IP
+Note that
+.B \-n
+is consumed by sinteractive as
+.BR \-\-name ;
+use
+.BI \-\-ntasks= N
+to set sbatch ntasks instead.
+.TP
+.BI \-\-node\  NODE
+Request a specific compute node (alias for
+.BR \-\-nodelist ),
+e.g.
+.BR compute01 .
+.TP
+.BI \-\-partition\  PART
+Slurm partition (default:
+.BR interactive ).
+.TP
+.BI \-\-time\  TIME
+Wall time limit (default: 1 day). Accepts shorthand in addition to
+Slurm formats; see
+.B TIME FORMATS
+below.
+.TP
+.BI \-j\fR,\ \fB\-\-threads\  N
+Number of CPUs (alias for
+.BR \-\-cpus\-per\-task ;
+default: 2).
+.TP
+.BI \-m\  SIZE
+Memory (alias for
+.BR \-\-mem ),
+e.g.
+.BR 16G
+(default: 8G).
+.TP
+.B \-\-mouse
+Enable tmux mouse support: wheel scrollback, click to select panes,
+drag borders to resize. Off by default because it intercepts terminal
+selection; hold Shift to select text for an OS-level copy. With mouse
+support on, tmux's own mouse selection copies out over SSH via OSC 52.
+.TP
+.B \-\-no\-mouse
+Disable mouse support (overrides
+.BR SINTERACTIVE_MOUSE ).
+.TP
+.B \-\-detach
+Launch without attaching: wait until the session is ready, print
+connection info (attach/status/run/cancel commands), and return.
+Attach later with
+.BR \-\-attach .
+Useful for scripts and agents; combine with
+.B \-\-json
+for machine-readable output. Unlike a normal launch,
+.B \-\-detach
+is allowed from inside an existing session (it never nests tmux).
+.SS Session management
+.TP
+.BI \-a\fR,\ \fB\-\-attach\  TARGET
+Reattach to a running session by
+.I JOBID
+or
+.IR NAME .
+If multiple sessions share a name, specify the job id.
+.TP
+.BR \-l ,\  \-\-list
+List running sinteractive sessions with job id, name, node, partition,
+elapsed time, time limit, and the session's current working directory.
+.TP
+.BI \-\-status\  [TARGET]
+Show session status: state, node, partition, elapsed time, and time
+remaining.
+.I TARGET
+is a
+.I JOBID
+or
+.IR NAME ;
+inside a session it defaults to the current session.
+.TP
+.B \-\-json
+With
+.BR \-\-list ,
+.BR \-\-status ,
+or
+.BR \-\-detach :
+print JSON for scripts and agents.
+.B \-\-status \-\-json
+includes
+.BR end_epoch " and " remaining_seconds .
+.TP
+.BR \-h ,\  \-\-help
+Show a short help message.
+.SH TIME FORMATS
+.B \-\-time
+(and
+.BR \-t )
+accept shorthand that is converted to Slurm's
+.I [D\-]HH:MM:SS
+format:
+.BR 8h ,
+.BR 30m ,
+.BR 2d ,
+.BR 1d12h ,
+.BR 1h30m .
+Values carry over, so
+.B 90m
+becomes 1:30:00 and
+.B 25h
+becomes 1\-01:00:00. Native Slurm formats (anything containing
+.B :
+or
+.IR D \-)
+and pure integers (minutes) pass through unchanged.
+.SH DEFAULTS
+With no flags, a session gets 1 day of wall time, 2 CPUs, and 8G of
+memory on the
+.B interactive
+partition. Personal defaults can be set with
+.B SINTERACTIVE_*
+environment variables (see
+.BR ENVIRONMENT );
+explicit flags always win.
+.SH SUBMISSION CHECKS
+Submission is refused, with an explanation, when:
+.IP \(bu 3
+the requested
+.B \-\-time
+would overlap an upcoming Slurm maintenance (MAINT) reservation \(em
+Slurm would not start the job until after maintenance anyway. The error
+suggests a shorter
+.B \-\-time
+that fits before the window. Passing
+.B \-\-reservation
+explicitly skips this check.
+.IP \(bu 3
+launching would exceed the interactive partition's per-user job limit.
+The error lists your current sessions with reattach and cancel
+commands.
+.SH IN-SESSION KEYS
+.TP
+.B Ctrl\-b h
+Open a help popup with job info (node, time remaining), detach and
+reattach commands, and basic tmux keys. Any key closes it.
+.TP
+.B Ctrl\-b d
+Detach from the session; the job keeps running. Reattach later with
+.BR "sinteractive \-\-attach" .
+.TP
+.B Ctrl\-b $
+Name (or rename) the session in place. Updates the squeue job name and
+the name used by
+.BR \-\-attach / \-\-status .
+.PP
+Ending the shell in every pane
+.RB ( exit )
+ends the session and releases the allocation.
+.SH STATUS BAR
+The dot at the left of the tmux status bar tracks time remaining:
+shown in the terminal's foreground color while more than an hour is
+left (configurable via
+.BR SINTERACTIVE_WARN_YELLOW ),
+then a yellow clock with a countdown, and a clock blinking yellow/red
+with an M:SS countdown for the final 10 minutes
+.RB ( SINTERACTIVE_WARN_RED ).
+The terminal bell rings once as the final countdown starts, so the
+terminal tab is flagged even when you are looking elsewhere.
+.SH SCRIPTING AND AGENTS
+Headless workflows (e.g. Claude Code) can launch, inspect, and use a
+session without attaching:
+.PP
+.nf
+.RS
+sinteractive \-\-detach \-n build \-\-time=8h \-\-json
+sinteractive \-\-status build \-\-json     # incl. remaining_seconds
+srun \-\-overlap \-\-jobid=JOBID \-\- CMD...  # run inside the allocation
+.RE
+.fi
+.PP
+Inside a session,
+.B SINTERACTIVE_JOB_ID
+(and
+.BR SINTERACTIVE_NAME ,
+if named) are exported, and
+.B sinteractive \-\-status
+needs no target. A state file (see
+.BR FILES )
+mirrors the countdown so the time budget can be polled without hitting
+the scheduler.
+.SH ENVIRONMENT
+Set personal defaults, e.g. in
+.IR ~/.bashrc ;
+explicit flags always win.
+.TP
+.B SINTERACTIVE_TIME
+Default wall time (e.g. 8h, 2d). Default: 1 day.
+.TP
+.B SINTERACTIVE_PARTITION
+Default partition. Default: interactive.
+.TP
+.B SINTERACTIVE_CPUS
+Default CPU count. Default: 2.
+.TP
+.B SINTERACTIVE_MEM
+Default memory (e.g. 16G). Default: 8G.
+.TP
+.B SINTERACTIVE_MOUSE
+.BR on | 1 | true | yes
+enables mouse support. Default: off.
+.TP
+.B SINTERACTIVE_WARN_YELLOW
+Seconds remaining at which the status-bar countdown turns yellow.
+Default: 3600.
+.TP
+.B SINTERACTIVE_WARN_RED
+Seconds remaining at which the blinking final countdown starts.
+Default: 600.
+.PP
+Exported inside a session:
+.B SINTERACTIVE_JOB_ID
+and, when the session is named,
+.BR SINTERACTIVE_NAME .
+.SH FILES
+.TP
+.I ~/.cache/sinteractive/JOBID.json
+Time-remaining state file, refreshed about every 30 seconds while the
+session runs and removed at teardown. Contains
+.BR job_id ,
+.BR name ,
+.BR node ,
+.BR end_epoch ,
+.BR remaining_seconds ,
+and
+.BR updated_epoch .
+.B $HOME
+is shared, so it is readable from the login node too.
+.SH EXAMPLES
+.TP
+.B sinteractive
+1-day session, 2 CPUs, 8G memory.
+.TP
+.B sinteractive \-n myproj \-\-time=8h
+Named 8-hour session.
+.TP
+.B sinteractive \-\-node compute01
+Run on a specific node.
+.TP
+.B sinteractive \-\-time=2h \-p rna
+2-hour session on the rna partition.
+.TP
+.B sinteractive \-\-mem=32G \-j 8
+32G of memory and 8 CPUs.
+.TP
+.B sinteractive \-\-attach myproj
+Reconnect after a disconnect or detach.
+.TP
+.B sinteractive \-\-detach \-n build \-\-time=8h
+Headless launch for scripts and agents.
+.SH EXIT STATUS
+0 on success; nonzero if submission is refused, a target session
+cannot be found or is ambiguous, or the session fails to start.
+.SH SEE ALSO
+.BR sbatch (1),
+.BR srun (1),
+.BR squeue (1),
+.BR scancel (1),
+.BR tmux (1)
+.PP
+Bodhi cluster documentation:
+.UR https://rnabioco.github.io/bodhi\-docs/sinteractive/
+.UE
+.SH HISTORY
+A clean-room reimplementation, inspired by the original sinteractive by
+P\[:a]r Andersson (NSC, Sweden) and the later CU Boulder adaptation by
+Jonathon Anderson. Maintained by Jay Hesselberth.

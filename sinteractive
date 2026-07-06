@@ -77,89 +77,31 @@ Usage: sinteractive [OPTIONS] [-- SBATCH_ARGS...]
        sinteractive --attach JOBID|NAME
 
 Start an interactive tmux session on a compute node via Slurm.
+The session survives SSH drops; reconnect with --attach.
 
 Options:
-  -n, --name NAME       Tag the session with a name for easy reattach
-                        (allowed: letters, digits, '.', '_', '-')
-  --node NODE           Request a specific compute node (e.g., compute01)
-  --partition PART      Slurm partition (default: interactive)
-  --time TIME           Wall time limit (default: 1 day)
-                        Supports shorthand: 8h, 30m, 2d, 1d12h, 1h30m
-  -j, --threads N       Number of CPUs (alias for --cpus-per-task)
-  -m SIZE               Memory (alias for --mem, e.g., 16G)
-  --mouse               Enable tmux mouse support (wheel scrollback, click to
-                        select panes, drag borders to resize). Off by default;
-                        hold Shift to select text for an OS-level copy.
-  --no-mouse            Disable mouse support (overrides SINTERACTIVE_MOUSE)
-  --detach              Launch without attaching: wait until the session is
-                        ready, print connection info, and return. Attach
-                        later with --attach.
-  --status [TARGET]     Show session status (state, node, time remaining).
-                        TARGET is a JOBID or NAME; defaults to the current
-                        session when run inside one.
-  --json                With --list, --status, or --detach: print JSON for
-                        scripts and agents.
+  -n, --name NAME       Name the session for easy reattach
+  --time TIME           Wall time limit (default: 1 day; e.g. 8h, 30m, 1d12h)
+  -j, --threads N       Number of CPUs (default: 2)
+  -m SIZE               Memory (default: 8G; e.g. 16G)
   -a, --attach TARGET   Reattach to a running session by JOBID or NAME
-  -l, --list            List running sinteractive sessions (with NAME and CWD)
+  -l, --list            List your running sessions
   -h, --help            Show this help message
 
-Note: -n is consumed by sinteractive as --name. Use --ntasks=N to set
-sbatch ntasks instead of -n.
+Unrecognized options pass through to sbatch (e.g. --partition, --gres).
 
-Environment variables (set personal defaults, e.g. in ~/.bashrc;
-explicit flags always win):
-
-  SINTERACTIVE_TIME        Default wall time (e.g. 8h, 2d)       [1 day]
-  SINTERACTIVE_PARTITION   Default partition                     [interactive]
-  SINTERACTIVE_CPUS        Default CPU count                     [2]
-  SINTERACTIVE_MEM         Default memory (e.g. 16G)             [8G]
-  SINTERACTIVE_MOUSE       on|1|true|yes enables mouse support   [off]
-  SINTERACTIVE_WARN_YELLOW Yellow countdown clock (secs left)    [3600]
-  SINTERACTIVE_WARN_RED    Blinking final countdown (secs left)  [600]
-
-All other options are passed directly to sbatch. Examples:
-
+Examples:
   sinteractive                          # 1-day session, 2 CPUs, 8G memory
-  sinteractive -n myproj                # named session
-  sinteractive --node compute01         # run on a specific node
-  sinteractive --time=2h -p rna          # 2h session on rna partition
-  sinteractive --mem=16G --cpus-per-task=4
+  sinteractive -n myproj --time=8h      # named 8-hour session
+  sinteractive --attach myproj          # reconnect after a disconnect
 
-Reconnecting after a disconnect:
+Inside the session, Ctrl-b h opens a help popup; Ctrl-b d detaches
+(the job keeps running).
 
-  If your SSH connection drops or you detach (Ctrl-b d), the tmux
-  session keeps running. To reconnect from the login node:
+Full documentation, including --detach/--status/--json for scripting,
+--node, --mouse, and SINTERACTIVE_* environment variables:
 
-  sinteractive --attach JOBID           # reattach by job id
-  sinteractive --attach myproj          # reattach by name
-
-  Use "sinteractive --list" to find your running sessions.
-
-In-session help:
-
-  Press Ctrl-b h inside the session to open a help popup with job info
-  (node, time remaining), detach/reattach commands, and basic tmux keys.
-  Any key closes it. Ctrl-b $ names (or renames) the session in place,
-  updating the squeue job name and the --attach/--status name.
-
-Scripting and agents (e.g. Claude Code):
-
-  sinteractive --detach -n build --time=8h  # headless launch (add --json)
-  sinteractive --status build --json        # incl. remaining_seconds
-  srun --overlap --jobid=JOBID -- CMD...    # run inside the allocation
-  ~/.cache/sinteractive/JOBID.json          # time-remaining state file
-
-  Inside a session, SINTERACTIVE_JOB_ID (and SINTERACTIVE_NAME, if named)
-  are exported, and "sinteractive --status" needs no target.
-
-Timeout warning:
-
-  The dot at the left of the status bar tracks time remaining: shown in
-  your terminal's foreground color while more than an hour is left, then
-  a yellow clock with a countdown,
-  and a clock blinking yellow/red for the final 10 minutes. The terminal
-  bell rings once as the final countdown starts, so the tab is flagged
-  even if you are looking elsewhere.
+  man sinteractive
 EOF
   exit 0
 }
