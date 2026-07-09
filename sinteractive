@@ -196,7 +196,10 @@ function main {
       shift
       ;;
     -n | --name)
-      [[ $# -ge 2 ]] || { echo 1>&2 "Error: $1 requires a NAME argument."; exit 1; }
+      [[ $# -ge 2 ]] || {
+        echo 1>&2 "Error: $1 requires a NAME argument."
+        exit 1
+      }
       session_name="$2"
       shift 2
       ;;
@@ -205,7 +208,10 @@ function main {
       shift
       ;;
     --node)
-      [[ $# -ge 2 ]] || { echo 1>&2 "Error: --node requires a NODE argument."; exit 1; }
+      [[ $# -ge 2 ]] || {
+        echo 1>&2 "Error: --node requires a NODE argument."
+        exit 1
+      }
       args+=(--nodelist="$2")
       shift 2
       ;;
@@ -214,7 +220,10 @@ function main {
       shift
       ;;
     --time)
-      [[ $# -ge 2 ]] || { echo 1>&2 "Error: --time requires a TIME argument."; exit 1; }
+      [[ $# -ge 2 ]] || {
+        echo 1>&2 "Error: --time requires a TIME argument."
+        exit 1
+      }
       args+=(--time="$(parse_time "$2")")
       shift 2
       ;;
@@ -223,12 +232,18 @@ function main {
       shift
       ;;
     -t)
-      [[ $# -ge 2 ]] || { echo 1>&2 "Error: -t requires a TIME argument."; exit 1; }
+      [[ $# -ge 2 ]] || {
+        echo 1>&2 "Error: -t requires a TIME argument."
+        exit 1
+      }
       args+=(-t "$(parse_time "$2")")
       shift 2
       ;;
     --partition)
-      [[ $# -ge 2 ]] || { echo 1>&2 "Error: --partition requires a PARTITION argument."; exit 1; }
+      [[ $# -ge 2 ]] || {
+        echo 1>&2 "Error: --partition requires a PARTITION argument."
+        exit 1
+      }
       args+=(--partition="$2")
       shift 2
       ;;
@@ -237,7 +252,10 @@ function main {
       shift
       ;;
     -j | --threads)
-      [[ $# -ge 2 ]] || { echo 1>&2 "Error: $1 requires a CPU-count argument."; exit 1; }
+      [[ $# -ge 2 ]] || {
+        echo 1>&2 "Error: $1 requires a CPU-count argument."
+        exit 1
+      }
       args+=(--cpus-per-task="$2")
       shift 2
       ;;
@@ -246,7 +264,10 @@ function main {
       shift
       ;;
     -m)
-      [[ $# -ge 2 ]] || { echo 1>&2 "Error: -m requires a SIZE argument."; exit 1; }
+      [[ $# -ge 2 ]] || {
+        echo 1>&2 "Error: -m requires a SIZE argument."
+        exit 1
+      }
       args+=(--mem="$2")
       shift 2
       ;;
@@ -715,35 +736,44 @@ function slurm_time_to_seconds {
   local t=$1
   local d=0 h=0 m=0 s=0
   if [[ "$t" =~ ^([0-9]+)-([0-9]+):([0-9]+):([0-9]+)$ ]]; then
-    d=${BASH_REMATCH[1]}; h=${BASH_REMATCH[2]}; m=${BASH_REMATCH[3]}; s=${BASH_REMATCH[4]}
+    d=${BASH_REMATCH[1]}
+    h=${BASH_REMATCH[2]}
+    m=${BASH_REMATCH[3]}
+    s=${BASH_REMATCH[4]}
   elif [[ "$t" =~ ^([0-9]+)-([0-9]+):([0-9]+)$ ]]; then
-    d=${BASH_REMATCH[1]}; h=${BASH_REMATCH[2]}; m=${BASH_REMATCH[3]}
+    d=${BASH_REMATCH[1]}
+    h=${BASH_REMATCH[2]}
+    m=${BASH_REMATCH[3]}
   elif [[ "$t" =~ ^([0-9]+)-([0-9]+)$ ]]; then
-    d=${BASH_REMATCH[1]}; h=${BASH_REMATCH[2]}
+    d=${BASH_REMATCH[1]}
+    h=${BASH_REMATCH[2]}
   elif [[ "$t" =~ ^([0-9]+):([0-9]+):([0-9]+)$ ]]; then
-    h=${BASH_REMATCH[1]}; m=${BASH_REMATCH[2]}; s=${BASH_REMATCH[3]}
+    h=${BASH_REMATCH[1]}
+    m=${BASH_REMATCH[2]}
+    s=${BASH_REMATCH[3]}
   elif [[ "$t" =~ ^([0-9]+):([0-9]+)$ ]]; then
-    m=${BASH_REMATCH[1]}; s=${BASH_REMATCH[2]}
+    m=${BASH_REMATCH[1]}
+    s=${BASH_REMATCH[2]}
   elif [[ "$t" =~ ^([0-9]+)$ ]]; then
     m=${BASH_REMATCH[1]}
   else
     return 1
   fi
-  echo $(( d * 86400 + 10#$h * 3600 + 10#$m * 60 + 10#$s ))
+  echo $((d * 86400 + 10#$h * 3600 + 10#$m * 60 + 10#$s))
 }
 
 # Format seconds as a short human duration like "1d 2h 5m" or "45m".
 function format_short_duration {
   local secs=$1
-  local d=$(( secs / 86400 ))
-  local h=$(( (secs % 86400) / 3600 ))
-  local m=$(( (secs % 3600) / 60 ))
+  local d=$((secs / 86400))
+  local h=$(((secs % 86400) / 3600))
+  local m=$(((secs % 3600) / 60))
   local out=""
-  (( d > 0 )) && out+="${d}d "
-  (( h > 0 )) && out+="${h}h "
-  if (( m > 0 )) || (( d == 0 && h == 0 )); then
-    out+="${m}m"
-  fi
+  ((d > 0)) && out+="${d}d "
+  ((h > 0)) && out+="${h}h "
+  ((m > 0)) && out+="${m}m"
+  # Below one minute, minute granularity reads as a confusing "0m".
+  ((d == 0 && h == 0 && m == 0)) && out="${secs}s"
   echo "${out% }"
 }
 
@@ -756,7 +786,7 @@ function check_maintenance_window {
   local arg
   for arg in "$@"; do
     case "$arg" in
-    --reservation=*|--reservation) return 0 ;;
+    --reservation=* | --reservation) return 0 ;;
     esac
   done
 
@@ -774,8 +804,8 @@ function check_maintenance_window {
     [[ "$line" =~ StartTime=([^[:space:]]+) ]] || continue
     start_str=${BASH_REMATCH[1]}
     start_epoch=$(date -d "$start_str" +%s 2>/dev/null) || continue
-    (( start_epoch > now_epoch )) || continue
-    if (( best_epoch == 0 || start_epoch < best_epoch )); then
+    ((start_epoch > now_epoch)) || continue
+    if ((best_epoch == 0 || start_epoch < best_epoch)); then
       best_epoch=$start_epoch
       if [[ "$line" =~ ReservationName=([^[:space:]]+) ]]; then
         best_name=${BASH_REMATCH[1]}
@@ -783,28 +813,28 @@ function check_maintenance_window {
     fi
   done <<<"$resv_out"
 
-  (( best_epoch == 0 )) && return 0
+  ((best_epoch == 0)) && return 0
 
   local time_str time_secs
   time_str=$(extract_time_from_args "$@") || return 0
   time_secs=$(slurm_time_to_seconds "$time_str") || return 0
 
-  local job_end=$(( now_epoch + time_secs ))
-  (( job_end <= best_epoch )) && return 0
+  local job_end=$((now_epoch + time_secs))
+  ((job_end <= best_epoch)) && return 0
 
-  local gap_secs=$(( best_epoch - now_epoch ))
-  local overlap_secs=$(( job_end - best_epoch ))
-  local fit_secs=$(( gap_secs - 300 ))
+  local gap_secs=$((best_epoch - now_epoch))
+  local overlap_secs=$((job_end - best_epoch))
+  local fit_secs=$((gap_secs - 300))
 
   local maint_when end_when
   maint_when=$(date -d "@$best_epoch" "+%a %b %-d %H:%M")
   end_when=$(date -d "@$job_end" "+%a %b %-d %H:%M")
 
   local suggestion=""
-  if (( fit_secs >= 3600 )); then
-    suggestion="sinteractive --time=$(( fit_secs / 3600 ))h"
-  elif (( fit_secs >= 60 )); then
-    suggestion="sinteractive --time=$(( fit_secs / 60 ))m"
+  if ((fit_secs >= 3600)); then
+    suggestion="sinteractive --time=$((fit_secs / 3600))h"
+  elif ((fit_secs >= 60)); then
+    suggestion="sinteractive --time=$((fit_secs / 60))m"
   fi
 
   echo 1>&2 ""
@@ -1080,12 +1110,18 @@ function rename_session {
 
 # Background updater for the status-bar glyph: a dot in the terminal's
 # default foreground color (adapts to light/dark themes) while plenty of
-# walltime remains, a yellow clock plus countdown once less than
-# SINTERACTIVE_WARN_YELLOW seconds are left (default 1 hour), and a spinning
-# clock blinking yellow/red with an M:SS countdown for the final
-# SINTERACTIVE_WARN_RED seconds (default 10 minutes). Replaces the old
-# USR1-driven warning banner at the top of the pane. Runs until the tmux
-# session ends; killed with the job's cgroup at teardown.
+# walltime remains, a pulsing yellow dot plus countdown once less than
+# SINTERACTIVE_WARN_YELLOW seconds are left (default 1 hour), and a braille
+# spinner blinking yellow/red with an M:SS countdown for the final
+# SINTERACTIVE_WARN_RED seconds (default 10 minutes). (Braille cells are
+# single-width everywhere; the quadrant clocks ◴◵◶◷ used previously are
+# East Asian Ambiguous width and jitter in some fonts.) A few seconds
+# before the limit it prints a notice in every pane and kills the session
+# itself, so teardown runs the normal exit path (clean client detach, job
+# COMPLETED) instead of Slurm's SIGTERM/SIGKILL tearing tmux down
+# mid-frame. Replaces the old USR1-driven warning banner at the top of the
+# pane. Runs until the tmux session ends; killed with the job's cgroup at
+# teardown.
 function status_dot_loop {
   local session_name="$1"
   local disp_name="${2:-}"
@@ -1093,6 +1129,10 @@ function status_dot_loop {
 
   local warn_yellow="${SINTERACTIVE_WARN_YELLOW:-3600}"
   local warn_red="${SINTERACTIVE_WARN_RED:-600}"
+  # Seconds before the limit at which the session is shut down cleanly.
+  # Env-tunable mainly for testing (e.g. SINTERACTIVE_GRACE=55 --time=1
+  # fires the shutdown a few seconds after launch).
+  local grace="${SINTERACTIVE_GRACE:-10}"
 
   # State file mirroring the countdown, so scripts and agents can poll the
   # time budget without hitting the scheduler. $HOME is shared, so it is
@@ -1114,11 +1154,13 @@ function status_dot_loop {
   # otherwise terminate the branch.)
   local base=" #[dim]session#[default] #[fg=#2DBFB8,bold]${SLURM_JOB_ID}#[default] #[dim]|#[default] #[fg=#2DBFB8,bold]#{host_short}#[default]#{?SINTERACTIVE_NAME, #[dim]|#[default] #[fg=#2DBFB8#,bold]#{SINTERACTIVE_NAME}#[default],}"
 
-  local clocks=('◴' '◵' '◶' '◷')
+  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
   local end_epoch='' end_query=0 spin=0 belled=0 last=''
   while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
     local now remaining
-    now=$(date +%s)
+    # printf's builtin strftime — no date fork, which matters at the
+    # 10 ticks/second cadence of the final countdown.
+    printf -v now '%(%s)T' -1
 
     # A poke file (touched by rename_session) forces an immediate state-file
     # write instead of waiting out the 30-second cache below.
@@ -1148,8 +1190,9 @@ function status_dot_loop {
     remaining=$((end_epoch - now))
     ((remaining < 0)) && remaining=0
 
-    # Refresh the state file at most every 30s (the loop ticks every second
-    # during the final countdown); write-then-rename keeps reads atomic.
+    # Refresh the state file at most every 30s (the loop ticks up to ten
+    # times a second during the final countdown); write-then-rename keeps
+    # reads atomic.
     if ((now - state_written >= 30)); then
       state_written=$now
       # Re-read the name each write so a prefix+$ rename lands in the state
@@ -1169,12 +1212,23 @@ function status_dot_loop {
     if ((remaining > warn_yellow)); then
       glyph='#[bold]●#[default]'
       text=''
-      sleep_for=60
+      # Wake at the yellow boundary when it lands inside the normal cadence,
+      # so the yellow phase starts on time (not up to 59s late — which in
+      # short sessions skipped it entirely).
+      sleep_for=$((remaining - warn_yellow < 60 ? remaining - warn_yellow : 60))
+      ((sleep_for < 1)) && sleep_for=1
       belled=0
     elif ((remaining > warn_red)); then
-      glyph='#[fg=yellow,bold]◷#[default]'
+      # Pulse the dot bold/dim once a second — catches the eye without the
+      # urgency of the red phase's spinner.
+      if ((spin % 2)); then
+        glyph='#[fg=yellow,dim]●#[default]'
+      else
+        glyph='#[fg=yellow,bold]●#[default]'
+      fi
+      spin=$((spin + 1))
       text=" #[dim]| $(format_short_duration "$remaining") left#[default]"
-      sleep_for=30
+      sleep_for=1
       belled=0
     else
       # Ring the terminal bell once as the final countdown starts: writing
@@ -1188,14 +1242,43 @@ function status_dot_loop {
           printf '\a' >"$pane_tty" 2>/dev/null || true
         done < <($TMUX_BIN -L "$sock" list-panes -s -t "$session_name" -F '#{pane_tty}')
       fi
-      # Spin the clock and alternate yellow/red every second (blink effect)
+      # Almost out of time: end the session ourselves so teardown runs the
+      # normal exit path (farewell in every pane, clean client detach, job
+      # COMPLETED via the session-closed hook) instead of Slurm's
+      # SIGTERM/SIGKILL tearing tmux down mid-frame.
+      if ((remaining <= grace)); then
+        # end_epoch can be up to 5 minutes stale; re-check so a timelimit
+        # extension inside that window is honored rather than cut short.
+        local end_str new_epoch
+        end_str=$(squeue --jobs "${SLURM_JOB_ID}" --noheader --Format EndTime 2>/dev/null | xargs)
+        if [[ -n "$end_str" ]] && new_epoch=$(date -d "$end_str" +%s 2>/dev/null); then
+          end_epoch=$new_epoch
+          end_query=$now
+          if ((end_epoch - now > grace)); then
+            continue
+          fi
+        fi
+        $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left \
+          " #[fg=red,bold]●#[default]${base} #[fg=red,bold]| time's up — ending session#[default] "
+        local pane_tty
+        while read -r pane_tty; do
+          printf '\r\n\033[1;31m[sinteractive] walltime reached — ending session\033[0m\r\n' \
+            >"$pane_tty" 2>/dev/null || true
+        done < <($TMUX_BIN -L "$sock" list-panes -s -t "$session_name" -F '#{pane_tty}')
+        sleep 2
+        $TMUX_BIN -L "$sock" kill-session -t "$session_name" 2>/dev/null
+        break
+      fi
+      # Spin at 10 frames/second so the motion is fluid; blink yellow/red
+      # keyed to the countdown's seconds parity so the color change stays a
+      # calm once-a-second beat rather than a 10 Hz strobe.
       local color=yellow
-      ((spin % 2)) && color=red
-      glyph="#[fg=${color},bold]${clocks[spin % 4]}#[default]"
+      ((remaining % 2)) && color=red
+      glyph="#[fg=${color},bold]${frames[spin % 10]}#[default]"
       printf -v text ' #[fg=%s,bold]| %d:%02d left#[default]' \
         "$color" $((remaining / 60)) $((remaining % 60))
       spin=$((spin + 1))
-      sleep_for=1
+      sleep_for=0.1
     fi
 
     local left=" ${glyph}${base}${text} "
@@ -1217,8 +1300,14 @@ function start_tmux {
   local disp_name=''
   while [[ $# -gt 0 ]]; do
     case "$1" in
-    --mouse) enable_mouse=1; shift ;;
-    --session-name=*) disp_name="${1#--session-name=}"; shift ;;
+    --mouse)
+      enable_mouse=1
+      shift
+      ;;
+    --session-name=*)
+      disp_name="${1#--session-name=}"
+      shift
+      ;;
     *) shift ;;
     esac
   done
@@ -1277,7 +1366,7 @@ function start_tmux {
   # set-environment -u prevents future panes from inheriting the vars;
   # send-keys unsets them in the already-running initial shell.
   for var in $(env | grep ^SLURM_ | cut -d= -f1); do
-      $TMUX_BIN -L "$sock" set-environment -t "$session_name" -u "$var"
+    $TMUX_BIN -L "$sock" set-environment -t "$session_name" -u "$var"
   done
 
   # Expose the job identity to shells inside the session, so tools and agents
@@ -1291,7 +1380,7 @@ function start_tmux {
     init_env+=" SINTERACTIVE_NAME=${disp_name}"
   fi
   $TMUX_BIN -L "$sock" send-keys -t "$session_name" \
-      " unset \${!SLURM_@}; ${init_env}; clear" Enter
+    " unset \${!SLURM_@}; ${init_env}; clear" Enter
 
   # Status bar: no background color (terminal default), separated from the
   # pane by a thin border line. Left = a status glyph (a dot in the default

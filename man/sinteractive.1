@@ -213,11 +213,14 @@ The dot at the left of the tmux status bar tracks time remaining:
 shown in the terminal's foreground color while more than an hour is
 left (configurable via
 .BR SINTERACTIVE_WARN_YELLOW ),
-then a yellow clock with a countdown, and a clock blinking yellow/red
+then pulsing yellow with a countdown, and a spinner blinking yellow/red
 with an M:SS countdown for the final 10 minutes
 .RB ( SINTERACTIVE_WARN_RED ).
 The terminal bell rings once as the final countdown starts, so the
 terminal tab is flagged even when you are looking elsewhere.
+About ten seconds before the limit, a notice is printed in every pane
+and the session shuts down cleanly, so the job completes instead of
+being killed at timeout.
 .SH SCRIPTING AND AGENTS
 Headless workflows (e.g. Claude Code) can launch, inspect, and use a
 session without attaching:
@@ -268,6 +271,10 @@ Default: 3600.
 .B SINTERACTIVE_WARN_RED
 Seconds remaining at which the blinking final countdown starts.
 Default: 600.
+.TP
+.B SINTERACTIVE_GRACE
+Seconds remaining at which the session shuts down cleanly.
+Default: 10.
 .PP
 Exported inside a session:
 .B SINTERACTIVE_JOB_ID
