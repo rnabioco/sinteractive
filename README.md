@@ -63,9 +63,11 @@ Set personal defaults in your `~/.bashrc`; explicit flags always win.
 |---|---|---|
 | `SINTERACTIVE_TIME` | Default wall time (e.g. `8h`, `2d`) | `1 day` |
 | `SINTERACTIVE_PARTITION` | Default partition | `interactive` |
+| `SINTERACTIVE_QOS` | Default QOS (`--qos`); needed on schedulers that require one | unset |
 | `SINTERACTIVE_CPUS` | Default CPU count | `2` |
 | `SINTERACTIVE_MEM` | Default memory (e.g. `16G`) | `8G` |
 | `SINTERACTIVE_MOUSE` | `on`/`1`/`true`/`yes` enables mouse support | off |
+| `SINTERACTIVE_TMUX` | Path to the `tmux` binary on the compute node | `/usr/local/bin/tmux` |
 
 ```bash
 # Example: always use mouse mode and a bigger default allocation
@@ -73,6 +75,40 @@ export SINTERACTIVE_MOUSE=on
 export SINTERACTIVE_MEM=16G
 export SINTERACTIVE_CPUS=4
 ```
+
+### Configuring for CU Alpine
+
+`sinteractive` is written for Bodhi but is cluster-agnostic — the scheduler
+details are all driven by `SINTERACTIVE_*` variables. To run it on
+[CU Boulder's Alpine](https://curc.readthedocs.io/en/latest/clusters/alpine/index.html),
+three things differ from the Bodhi defaults:
+
+- **tmux path** — Alpine ships tmux as a system package at `/usr/bin/tmux`,
+  not the source-built `/usr/local/bin/tmux` Bodhi uses.
+- **CPU partition + QOS** — the general-purpose CPU queue is `acpu` (an
+  explicit `--qos` is mandatory). `acpu`/`cpu-normal` are the names that take
+  effect after Alpine's **2026-08-05** rename of `amilan`/`normal`; both name
+  sets are already accepted, so using the new ones now means no change at the
+  cutover.
+- **name clash on `PATH`** — Alpine already provides an older, `screen`-based
+  `sinteractive` in `/usr/local/bin`, which is ahead of `~/.local/bin` on
+  `PATH`. An `alias` forces your copy to win.
+
+After `make install`, add this to your `~/.bashrc`:
+
+```bash
+# Use the ~/.local/bin copy instead of Alpine's older /usr/local/bin one
+alias sinteractive="$HOME/.local/bin/sinteractive"
+
+export SINTERACTIVE_TMUX=/usr/bin/tmux     # Alpine's system tmux
+export SINTERACTIVE_PARTITION=acpu         # CPU queue (was 'amilan' pre-2026-08-05)
+export SINTERACTIVE_QOS=cpu-normal         # 1-day max walltime; QOS is required on Alpine
+```
+
+Then `sinteractive` launches a 1-day CPU session. For a longer run (up to
+7 days), override the QOS: `sinteractive --time=2d --qos=cpu-long`. The default
+account (`amc-general` for most users) is applied automatically; pass
+`--account=<name>` if you need a different allocation.
 
 ### Examples
 
