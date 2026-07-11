@@ -16,7 +16,7 @@
 # optional value explicitly, so this only fires on genuine bugs.
 set -u
 
-TMUX_BIN='/usr/local/bin/tmux'
+TMUX_BIN="${SINTERACTIVE_TMUX:-/usr/local/bin/tmux}"
 JOB_ID=''
 
 # Convert time shorthand (e.g. 8h, 30m, 2d, 1d12h, 1h30m) to HH:MM:SS
@@ -341,6 +341,14 @@ function main {
   # Default to interactive partition if no --partition/-p specified
   if ! printf '%s\n' "$@" | grep -qE '^(--partition|-p)'; then
     set -- --partition="${SINTERACTIVE_PARTITION:-interactive}" "$@"
+  fi
+
+  # Default the QOS from SINTERACTIVE_QOS if set and no --qos/-q specified.
+  # Empty by default, so clusters that don't require an explicit QOS are
+  # unaffected; set SINTERACTIVE_QOS where the scheduler mandates one.
+  if [[ -n "${SINTERACTIVE_QOS:-}" ]] &&
+     ! printf '%s\n' "$@" | grep -qE '^(--qos|-q)'; then
+    set -- --qos="${SINTERACTIVE_QOS}" "$@"
   fi
 
   # Default to 2 CPUs if no --cpus-per-task/-c specified

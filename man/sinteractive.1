@@ -254,11 +254,24 @@ Default wall time (e.g. 8h, 2d). Default: 1 day.
 .B SINTERACTIVE_PARTITION
 Default partition. Default: interactive.
 .TP
+.B SINTERACTIVE_QOS
+Default Quality of Service, passed as
+.BR --qos .
+Unset by default (no QOS is added); set it on schedulers that require an
+explicit QOS.
+.TP
 .B SINTERACTIVE_CPUS
 Default CPU count. Default: 2.
 .TP
 .B SINTERACTIVE_MEM
 Default memory (e.g. 16G). Default: 8G.
+.TP
+.B SINTERACTIVE_TMUX
+Path to the
+.B tmux
+binary used on the compute node. Default: /usr/local/bin/tmux.
+Set this when tmux lives elsewhere (e.g. /usr/bin/tmux on clusters that
+ship it as a system package).
 .TP
 .B SINTERACTIVE_MOUSE
 .BR on | 1 | true | yes
