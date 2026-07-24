@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-24
+
 ### Changed
 
 - Copy mode is now always vi-keys (`mode-keys vi`), regardless of
@@ -57,5 +59,6 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/rnabioco/sinteractive/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rnabioco/sinteractive/releases/tag/v0.1.0
