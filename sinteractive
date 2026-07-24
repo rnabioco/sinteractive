@@ -544,39 +544,42 @@ function main {
     echo 1>&2 "To cancel the job:"
     echo 1>&2 "  scancel ${JOB_ID}"
 
-    # Show other running sinteractive sessions
+    # Show other running sinteractive sessions. Pipe-delimited -o output
+    # (not --Format columns) so long comments can't run into the next field
+    # and shift the columns during parsing.
     local other_running
-    other_running=$(squeue --me --states RUNNING --noheader \
-      --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 2>/dev/null |
-      grep sinteractive | grep -v "^${JOB_ID} ")
+    other_running=$(squeue --me --states RUNNING --noheader -o '%i|%k|%N|%M|%l' 2>/dev/null |
+      awk -F'|' -v self="${JOB_ID}" \
+        '$1 != self && ($2 == "sinteractive" || index($2, "sinteractive:") == 1)')
 
     if [[ -n "$other_running" ]]; then
       echo 1>&2 ''
       echo 1>&2 'Other running sinteractive sessions:'
       printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
-      while read -r jobid comment node elapsed limit; do
+      while IFS='|' read -r jobid comment node elapsed limit; do
         printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
       done <<<"$other_running"
     fi
   else
     echo 1>&2 "Session ended. Job ${JOB_ID} is no longer running."
 
-    # Show any remaining sinteractive sessions
+    # Show any remaining sinteractive sessions. Pipe-delimited -o output
+    # (not --Format columns) so long comments can't run into the next field
+    # and shift the columns during parsing.
     local remaining
-    remaining=$(squeue --me --states RUNNING --noheader \
-      --Format=JobID:12,Comment:30,NodeList:16,TimeUsed:12,TimeLimit:12 2>/dev/null |
-      grep sinteractive)
+    remaining=$(squeue --me --states RUNNING --noheader -o '%i|%k|%N|%M|%l' 2>/dev/null |
+      awk -F'|' '$2 == "sinteractive" || index($2, "sinteractive:") == 1')
 
     if [[ -n "$remaining" ]]; then
       echo 1>&2 ''
       echo 1>&2 'You have other sinteractive sessions still running:'
       printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
-      while read -r jobid comment node elapsed limit; do
+      while IFS='|' read -r jobid comment node elapsed limit; do
         printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
       done <<<"$remaining"
       echo 1>&2 ''
       echo 1>&2 'To free slots, cancel sessions you no longer need:'
-      while read -r jobid _rest; do
+      while IFS='|' read -r jobid _rest; do
         echo 1>&2 "  scancel $jobid"
       done <<<"$remaining"
     fi

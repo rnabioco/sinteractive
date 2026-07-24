@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The session tables shown after detaching (`Other running sinteractive
+  sessions` / `You have other sinteractive sessions still running`) no
+  longer misalign columns when a session name is long. The fixed-width
+  `squeue --Format` output let a comment of 30+ characters run into the
+  node field with no separator, shifting every column left; the tables
+  now use pipe-delimited `-o` output like `--list` already did.
+
 ## [0.1.1] - 2026-07-24
 
 ### Changed
