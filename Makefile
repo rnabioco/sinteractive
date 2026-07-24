@@ -1,6 +1,10 @@
 PREFIX ?= ~/.local/bin
 # man finds ~/.local/share/man automatically when ~/.local/bin is on PATH.
 MANDIR ?= ~/.local/share/man/man1
+# bash-completion's dynamic loader searches $XDG_DATA_HOME (user) and
+# $XDG_DATA_DIRS (which includes /usr/local/share) for
+# bash-completion/completions/<command>.
+COMPDIR ?= ~/.local/share/bash-completion/completions
 
 # When run as root, install system-wide: sinteractive to /usr/local/bin and
 # its man page to /usr/local/share/man.
@@ -20,10 +24,13 @@ install-user:
 	chmod +x $(PREFIX)/sinteractive
 	mkdir -p $(MANDIR)
 	cp man/sinteractive.1 $(MANDIR)/sinteractive.1
+	mkdir -p $(COMPDIR)
+	cp completions/sinteractive.bash $(COMPDIR)/sinteractive
 
 install-system:
 	install -m 0755 sinteractive /usr/local/bin/sinteractive
 	install -D -m 0644 man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1
+	install -D -m 0644 completions/sinteractive.bash /usr/local/share/bash-completion/completions/sinteractive
 
 # Claude Code skill: teaches agents to run heavy work in a Slurm allocation
 # (sinteractive --detach/--status, srun --overlap, time budgets). Skills are
@@ -110,15 +117,17 @@ nodes: require-root
 	  pdsh -w $(NODELIST) \
 	    'install -m 0755 $(CURDIR)/sinteractive /usr/local/bin/sinteractive \
 	     && install -D -m 0644 $(CURDIR)/man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1 \
+	     && install -D -m 0644 $(CURDIR)/completions/sinteractive.bash /usr/local/share/bash-completion/completions/sinteractive \
 	     && echo ok'; \
 	else \
 	  for n in $(NODES); do \
 	    printf '==> %s: ' "$$n"; \
-	    scp -q sinteractive man/sinteractive.1 $(SSH_USER)@$$n:/tmp/ \
+	    scp -q sinteractive man/sinteractive.1 completions/sinteractive.bash $(SSH_USER)@$$n:/tmp/ \
 	      && ssh $(SSH_USER)@$$n \
 	        'install -m 0755 /tmp/sinteractive /usr/local/bin/sinteractive \
 	         && install -D -m 0644 /tmp/sinteractive.1 /usr/local/share/man/man1/sinteractive.1 \
-	         && rm -f /tmp/sinteractive /tmp/sinteractive.1 && echo ok' \
+	         && install -D -m 0644 /tmp/sinteractive.bash /usr/local/share/bash-completion/completions/sinteractive \
+	         && rm -f /tmp/sinteractive /tmp/sinteractive.1 /tmp/sinteractive.bash && echo ok' \
 	      || echo "FAILED"; \
 	  done; \
 	fi

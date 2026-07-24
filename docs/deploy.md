@@ -39,7 +39,8 @@ sudo make tmux-all
 sudo make nodes
 ```
 
-This installs the script and man page to `/usr/local` on every compute node.
+This installs the script, man page, and bash completion to `/usr/local` on
+every compute node.
 If the checkout lives on a cluster-wide mount and `pdsh` is available, each
 node installs straight from the shared path; otherwise it falls back to an
 scp/ssh loop. `NODES` and `SSH_USER` are overridable as above.

@@ -35,9 +35,10 @@ cd sinteractive
 make install
 ```
 
-As a regular user this copies the script and man page to `~/.local/bin` and
-`~/.local/share/man` (make sure `~/.local/bin` is on your `$PATH`); as root it
-installs to `/usr/local` instead. To install to a different location:
+As a regular user this copies the script, man page, and bash completion to
+`~/.local/bin`, `~/.local/share/man`, and `~/.local/share/bash-completion`
+(make sure `~/.local/bin` is on your `$PATH`); as root it installs to
+`/usr/local` instead. To install to a different location:
 
 ```bash
 make install PREFIX=~/bin
@@ -69,7 +70,8 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--detach` | Launch without attaching; print connection info and return | |
 | `--status [TARGET]` | Show session status by JOBID or NAME (state, node, time remaining) | current session |
 | `--json` | With `--list`/`--status`/`--detach`: machine-readable JSON output | |
-| `-a`, `--attach JOBID` | Reattach to a running session | |
+| `-a`, `--attach [TARGET]` | Reattach by JOBID or NAME; with no target, your only session | |
+| `--cancel TARGET` | Cancel a session by JOBID or NAME | |
 | `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 
@@ -156,7 +158,7 @@ sinteractive --time=1-12:00:00 --partition=normal
 ## How it works
 
 1. **Submits a batch job** — `sbatch` launches the script itself on a compute node, where it starts a tmux session.
-2. **Waits for the job to start** — polls `squeue` every 5 seconds until the job is running (you'll see dots printed while waiting).
+2. **Waits for the job to start** — polls `squeue` every 5 seconds until the job is running, showing why it is pending and Slurm's estimated start time. `Ctrl-C` here cancels the pending job.
 3. **Connects via SSH** — once running, it SSHs into the compute node with X11 forwarding (`-X`) and attaches to the tmux session.
 4. **Stays alive until you exit** — the SLURM job remains running as long as the tmux session exists. Detaching (`Ctrl-b d`) or losing your SSH connection leaves the job running so you can reconnect. Exiting tmux (`exit`) ends the job.
 
@@ -188,6 +190,10 @@ sinteractive --list
 # Reattach
 sinteractive --attach 12345
 ```
+
+If you have only one session running, a bare `sinteractive --attach` goes
+straight to it — no need to look up the job id first. With several running,
+it lists them with ready-to-run commands to pick from.
 
 Sessions launched with `-n NAME` can be reattached by name
 (`sinteractive --attach NAME`). Forgot to name one? Press `Ctrl-b $` inside
@@ -268,11 +274,43 @@ ends. In-session renames (`Ctrl-b $`) are reflected in the state file,
 ### Cancelling the job
 
 Exiting the tmux session (type `exit` or `Ctrl-d` in all panes) automatically
-cancels the SLURM job. You can also cancel it directly:
+cancels the SLURM job. You can also cancel it from the login node, by name or
+job id:
 
 ```bash
-scancel <JOBID>
+sinteractive --cancel myproj
+sinteractive --cancel 12345
+scancel 12345              # equivalent, job id only
 ```
+
+Pressing `Ctrl-C` while a launch is still waiting in the queue cancels the
+pending job too.
+
+### Waiting for a job to start
+
+When the cluster is busy your job may sit in the queue. While it does,
+`sinteractive` shows why it is waiting (Slurm's pend reason — free resources,
+higher-priority jobs ahead of you) and, when Slurm can estimate one, the
+expected start time:
+
+```
+ ⠹ waiting for free resources — est. start 14:32 (2m elapsed)
+```
+
+### Tab completion
+
+`make install` installs a bash completion. It completes options, and after
+`--attach`, `--status`, and `--cancel` it completes the job ids and names of
+your running sessions:
+
+```bash
+sinteractive --attach <TAB>
+# 12345  rna-seq  12346  assembly
+```
+
+Session names are read from the state files in `~/.cache/sinteractive/`, not
+from `squeue`, so completion stays instant even when the scheduler is slow.
+Start a new shell after installing to pick it up.
 
 ## Deploying on a cluster
 
@@ -287,7 +325,7 @@ sudo make tmux        # build tmux from source into /usr/local
 sudo make tmux-push   # fan the binary out to every node Slurm knows about
 sudo make tmux-all    # build + push
 
-sudo make nodes       # install sinteractive + man page onto every compute node
+sudo make nodes       # install sinteractive + man page + completion on every node
 ```
 
 `NODES` defaults to `sinfo -hN -o '%N'`; override with

@@ -78,7 +78,7 @@ function parse_time {
 function usage {
   cat <<EOF
 Usage: sinteractive [OPTIONS] [-- SBATCH_ARGS...]
-       sinteractive --attach JOBID|NAME
+       sinteractive --attach [JOBID|NAME]
 
 Start an interactive tmux session on a compute node via Slurm.
 The session survives SSH drops; reconnect with --attach.
@@ -88,7 +88,8 @@ Options:
   --time TIME           Wall time limit (default: 1 day; e.g. 8h, 30m, 1d12h)
   -j, --threads N       Number of CPUs (default: 2)
   -m SIZE               Memory (default: 8G; e.g. 16G)
-  -a, --attach TARGET   Reattach to a running session by JOBID or NAME
+  -a, --attach [TARGET] Reattach: your only session, or one by JOBID or NAME
+  --cancel TARGET       Cancel a session by JOBID or NAME
   -l, --list            List your running sessions
   -h, --help            Show this help message
   -V, --version         Show version
@@ -98,7 +99,8 @@ Unrecognized options pass through to sbatch (e.g. --partition, --gres).
 Examples:
   sinteractive                          # 1-day session, 2 CPUs, 8G memory
   sinteractive -n myproj --time=8h      # named 8-hour session
-  sinteractive --attach myproj          # reconnect after a disconnect
+  sinteractive --attach                 # reconnect to your only session
+  sinteractive --cancel myproj          # cancel a session by name
 
 Inside the session, Ctrl-b h opens a help popup; Ctrl-b d detaches
 (the job keeps running).
@@ -133,7 +135,9 @@ function main {
   # Parse custom flags before passing remaining args to sbatch
   local args=()
   local passthrough=()
+  local do_attach=0
   local reattach_target=''
+  local cancel_target=''
   local session_name=''
   local enable_mouse=0
   local detach_mode=0
@@ -188,18 +192,39 @@ function main {
       shift
       ;;
     -a | --attach)
+      # Target is optional: with none, reattach picks your only running
+      # session (or lists them when there are several).
+      do_attach=1
+      if [[ -n "${2:-}" && "$2" != -* ]]; then
+        reattach_target="$2"
+        shift 2
+      else
+        shift
+      fi
+      ;;
+    --attach=*)
+      do_attach=1
+      reattach_target="${1#--attach=}"
+      if [[ -z "${reattach_target}" ]]; then
+        echo 1>&2 "Error: --attach= requires a JOBID or NAME argument."
+        echo 1>&2 "Use a bare '--attach' to reattach to your only session."
+        exit 1
+      fi
+      shift
+      ;;
+    --cancel)
       if [[ -z "${2:-}" || "$2" == -* ]]; then
-        echo 1>&2 "Error: $1 requires a JOBID or NAME argument."
+        echo 1>&2 "Error: --cancel requires a JOBID or NAME argument."
         echo 1>&2 "Run 'sinteractive --list' to see available sessions."
         exit 1
       fi
-      reattach_target="$2"
+      cancel_target="$2"
       shift 2
       ;;
-    --attach=*)
-      reattach_target="${1#--attach=}"
-      if [[ -z "${reattach_target}" ]]; then
-        echo 1>&2 "Error: --attach requires a JOBID or NAME argument."
+    --cancel=*)
+      cancel_target="${1#--cancel=}"
+      if [[ -z "${cancel_target}" ]]; then
+        echo 1>&2 "Error: --cancel requires a JOBID or NAME argument."
         echo 1>&2 "Run 'sinteractive --list' to see available sessions."
         exit 1
       fi
@@ -312,26 +337,30 @@ function main {
     esac
   done
 
-  # Informational commands; both exit. Run after flag parsing so they can be
+  # Management commands; all exit. Run after flag parsing so they can be
   # combined with --json in any order, and before the nesting guard so they
-  # work from inside a session.
+  # work from inside a session (cancelling your own session ends it, like
+  # walltime running out).
   if ((do_list)); then
     list_sessions "$json_out"
   fi
   if ((do_status)); then
     show_status "$status_target" "$json_out"
   fi
+  if [[ -n "${cancel_target}" ]]; then
+    cancel_session "${cancel_target}"
+  fi
 
   # Don't allow attaching (or an attaching launch) from inside an existing
   # session — both would nest tmux. A --detach launch never attaches, so it
   # is allowed from within a session.
   if [[ -n "${TMUX:-}" ]] && [[ "$TMUX" == *sinteractive* ]] &&
-    { ((!detach_mode)) || [[ -n "${reattach_target}" ]]; }; then
+    { ((!detach_mode)) || ((do_attach)); }; then
     echo 1>&2 "Error: Already inside an sinteractive session. Exit this session first."
     exit 1
   fi
 
-  if [[ -n "${reattach_target}" ]]; then
+  if ((do_attach)); then
     reattach "${reattach_target}"
   fi
 
@@ -408,6 +437,31 @@ function main {
     exit 1
   fi
 
+  # Heads-up when sessions are already running (a common accident after a
+  # forgotten detach): point at --attach, then continue. Informational only —
+  # the job-limit check above is what actually refuses.
+  local running_sessions
+  running_sessions=$(squeue --me --states RUNNING --noheader -o '%i|%k|%N' 2>/dev/null |
+    awk -F'|' '$2 == "sinteractive" || index($2, "sinteractive:") == 1')
+  if [[ -n "$running_sessions" ]]; then
+    local n_running
+    n_running=$(grep -c . <<<"$running_sessions")
+    if ((n_running == 1)); then
+      local rjob rcomment rnode rname=''
+      IFS='|' read -r rjob rcomment rnode <<<"$running_sessions"
+      [[ "$rcomment" =~ ^sinteractive:(.+)$ ]] && rname="${BASH_REMATCH[1]}"
+      if [[ -n "$rname" ]]; then
+        echo 1>&2 "Note: you already have a running session named '${rname}' (job ${rjob} on ${rnode})."
+      else
+        echo 1>&2 "Note: you already have a running session (job ${rjob} on ${rnode})."
+      fi
+      echo 1>&2 "      Reattach with 'sinteractive --attach ${rname:-${rjob}}'; starting a new session..."
+    else
+      echo 1>&2 "Note: you already have ${n_running} running sessions ('sinteractive --list' shows them)."
+      echo 1>&2 "      Starting a new session..."
+    fi
+  fi
+
   # Feature flags to forward to the batch-side tmux setup (start_tmux).
   local tmux_args=()
   ((enable_mouse)) && tmux_args+=(--mouse)
@@ -455,21 +509,67 @@ function main {
   scontrol update JobId="${JOB_ID}" Comment="${job_comment}"
 
   echo 1>&2 "Interactive job with ID ${JOB_ID} submitted, please wait."
-  local state
-  while true; do
-    sleep 5s
 
-    # Check job status
-    state=$(squeue --jobs "${JOB_ID}" --states PENDING,RUNNING --noheader --Format state | xargs)
-    if [[ "${state}" == 'RUNNING' ]]; then
-      break
-    elif [[ "${state}" != 'PENDING' ]]; then
-      echo 1>&2 "${PROG}: job is neither RUNNING nor PENDING. Aborting."
-      scancel --quiet "${JOB_ID}"
-      exit 1
+  # While the job is pending, show why (squeue's pend reason) and Slurm's
+  # estimated start time. The scheduler is polled every 5 seconds; on a TTY a
+  # spinner line redraws in place between polls (Ctrl-C cancels the job — see
+  # cleanup), otherwise the old dot-per-poll trail is kept for logs.
+  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  local state='' reason='' start_str=''
+  local wait_start now spin=0 last_poll=0 is_tty=0
+  [[ -t 2 ]] && is_tty=1
+  printf -v wait_start '%(%s)T' -1
+  while true; do
+    printf -v now '%(%s)T' -1
+    if ((last_poll == 0 || now - last_poll >= 5)); then
+      last_poll=$now
+      IFS='|' read -r state reason start_str < <(squeue --jobs "${JOB_ID}" \
+        --states PENDING,RUNNING --noheader -o '%T|%r|%S' 2>/dev/null)
+      if [[ "${state}" == 'RUNNING' ]]; then
+        ((is_tty)) && printf 1>&2 '\r\033[K'
+        break
+      elif [[ "${state}" != 'PENDING' ]]; then
+        ((is_tty)) && printf 1>&2 '\r\033[K'
+        echo 1>&2 "${PROG}: job is neither RUNNING nor PENDING. Aborting."
+        # Clean up here rather than via the EXIT trap: the job left the queue
+        # on its own (failed or completed), so the trap's "Cancelled job"
+        # message — meant for a user interrupt — would misreport what happened.
+        scancel --quiet "${JOB_ID}"
+        JOB_ID=''
+        exit 1
+      fi
+      ((is_tty)) || echo 1>&2 -n '.'
     fi
 
-    echo 1>&2 -n '.'
+    if ((is_tty)); then
+      local why est=''
+      case "$reason" in
+      Resources) why='waiting for free resources' ;;
+      Priority) why='waiting behind higher-priority jobs' ;;
+      None | '') why='waiting for the job to start' ;;
+      *) why="waiting (${reason})" ;;
+      esac
+      # Slurm's estimate can be absent (N/A) or already in the past just
+      # before the job flips to RUNNING; show it only when it's ahead of now.
+      if [[ -n "${start_str}" && "${start_str}" != 'N/A' ]]; then
+        local start_epoch
+        if start_epoch=$(date -d "${start_str}" +%s 2>/dev/null) &&
+          ((start_epoch > now)); then
+          if ((start_epoch - now < 86400)); then
+            est=" — est. start $(date -d "@${start_epoch}" '+%H:%M')"
+          else
+            est=" — est. start $(date -d "@${start_epoch}" '+%a %H:%M')"
+          fi
+        fi
+      fi
+      printf 1>&2 '\r\033[K %s %s%s (%s elapsed)' \
+        "${frames[spin % 10]}" "$why" "$est" \
+        "$(format_short_duration $((now - wait_start)))"
+      spin=$((spin + 1))
+      sleep 0.5
+    else
+      sleep 5
+    fi
   done
 
   local batchhost
@@ -516,7 +616,7 @@ function main {
     echo 1>&2 "  Attach:   sinteractive --attach ${attach_target}"
     echo 1>&2 "  Status:   sinteractive --status ${attach_target}"
     echo 1>&2 "  Run cmd:  srun --overlap --jobid=${JOB_ID} -- <command>"
-    echo 1>&2 "  Cancel:   scancel ${JOB_ID}"
+    echo 1>&2 "  Cancel:   sinteractive --cancel ${attach_target}"
     return
   fi
 
@@ -679,7 +779,8 @@ function list_sessions {
   done <<<"$lines"
 
   echo ''
-  echo 'To reattach:  sinteractive --attach JOBID  (or NAME if set)'
+  echo 'Reattach:  sinteractive --attach JOBID|NAME'
+  echo 'Cancel:    sinteractive --cancel JOBID|NAME'
   exit 0
 }
 
@@ -1033,9 +1134,65 @@ function resolve_session_jobid {
   echo "${matches}"
 }
 
+# Cancel a session by JOBID or NAME (scancel with name resolution). Reports
+# what was cancelled; exits. Works from inside a session too — cancelling the
+# session you are in ends it, like walltime running out.
+function cancel_session {
+  local target=$1
+  local jobid
+
+  jobid=$(resolve_session_jobid "${target}") || exit 1
+
+  # Describe the session before it disappears from squeue.
+  local line comment node='' name=''
+  line=$(squeue --jobs "${jobid}" --noheader -o '%k|%N' 2>/dev/null)
+  if [[ -n "$line" ]]; then
+    IFS='|' read -r comment node <<<"$line"
+    [[ "$comment" =~ ^sinteractive:(.+)$ ]] && name="${BASH_REMATCH[1]}"
+  fi
+
+  local err
+  if ! err=$(scancel "${jobid}" 2>&1); then
+    echo 1>&2 "${PROG}: could not cancel job ${jobid}: ${err:-scancel failed}"
+    exit 1
+  fi
+
+  local desc="session ${jobid}"
+  [[ -n "$name" ]] && desc+=" (${name})"
+  echo 1>&2 "Cancelled ${desc}${node:+ on ${node}}."
+  exit 0
+}
+
 function reattach {
   local target=$1
   local jobid
+
+  # No target: attach to the only running session. With none, say how to
+  # start one; with several, show the ready-to-run choices.
+  if [[ -z "${target}" ]]; then
+    local lines
+    lines=$(squeue --me --states RUNNING --noheader -o '%i|%k|%N|%M' 2>/dev/null |
+      awk -F'|' '$2 == "sinteractive" || index($2, "sinteractive:") == 1')
+    if [[ -z "$lines" ]]; then
+      echo 1>&2 "${PROG}: no running sinteractive sessions to attach to."
+      echo 1>&2 "Start one with 'sinteractive'."
+      exit 1
+    fi
+    local count
+    count=$(grep -c . <<<"$lines")
+    if ((count > 1)); then
+      echo 1>&2 "${PROG}: you have ${count} running sessions — pick one:"
+      local ljob lcomment lnode lelapsed lname
+      while IFS='|' read -r ljob lcomment lnode lelapsed; do
+        lname=''
+        [[ "$lcomment" =~ ^sinteractive:(.+)$ ]] && lname="${BASH_REMATCH[1]}"
+        printf 1>&2 '  sinteractive --attach %-18s # job %s on %s, up %s\n' \
+          "${lname:-${ljob}}" "$ljob" "$lnode" "$lelapsed"
+      done <<<"$lines"
+      exit 1
+    fi
+    target="${lines%%|*}"
+  fi
 
   jobid=$(resolve_session_jobid "${target}") || exit 1
 
@@ -1582,8 +1739,16 @@ function attach_tmux {
 }
 
 function cleanup {
+  # Disarm first: the exit below re-enters this handler via the EXIT trap,
+  # which would scancel and report the cancellation a second time.
+  trap - SIGINT SIGTERM EXIT
+
   if [[ -n "${JOB_ID}" ]]; then
     scancel --quiet "${JOB_ID}"
+    # Close the loop for a Ctrl-C during the pending wait: without this the
+    # job vanishes silently and users wonder where it went.
+    echo 1>&2 ''
+    echo 1>&2 "Cancelled job ${JOB_ID}."
   fi
 
   exit

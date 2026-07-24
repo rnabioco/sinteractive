@@ -92,5 +92,6 @@ ssh NODE /usr/local/bin/tmux -L sinteractive-JOBID \
 
 ## Cleanup
 
-Cancel sessions you created when the work is done: `scancel JOBID`. Never
+Cancel sessions you created when the work is done: `sinteractive --cancel
+JOBID|NAME` (or `scancel JOBID`). Never
 cancel a session you did not create without asking the user.

@@ -8,6 +8,9 @@ sinteractive \- start an interactive tmux session on a Slurm compute node
 .IR SBATCH_ARGS... ]
 .br
 .B sinteractive \-\-attach
+.RI [ JOBID | NAME ]
+.br
+.B sinteractive \-\-cancel
 .IR JOBID | NAME
 .br
 .B sinteractive \-\-list
@@ -110,12 +113,31 @@ for machine-readable output. Unlike a normal launch,
 is allowed from inside an existing session (it never nests tmux).
 .SS Session management
 .TP
-.BI \-a\fR,\ \fB\-\-attach\  TARGET
+.BI \-a\fR,\ \fB\-\-attach\ [ TARGET ]
 Reattach to a running session by
 .I JOBID
 or
 .IR NAME .
 If multiple sessions share a name, specify the job id.
+.IP
+With no
+.IR TARGET ,
+reattach to your only running session. If several are running, they are
+listed with ready-to-run
+.B \-\-attach
+commands so you can pick one; if none are, the error says how to start
+one.
+.TP
+.BI \-\-cancel\  TARGET
+Cancel a session by
+.I JOBID
+or
+.IR NAME ,
+reporting what was cancelled. Equivalent to
+.BR scancel (1)
+on the job, but accepts session names. Allowed from inside a session
+\(em cancelling the session you are in ends it, like the wall time
+running out.
 .TP
 .BR \-l ,\  \-\-list
 List running sinteractive sessions with job id, name, node, partition,
@@ -177,7 +199,23 @@ partition. Personal defaults can be set with
 environment variables (see
 .BR ENVIRONMENT );
 explicit flags always win.
+.SH WAITING FOR A JOB TO START
+While the submitted job is pending, sinteractive polls the scheduler
+every five seconds and reports why it is waiting \(em the Slurm pend
+reason, e.g. waiting for free resources or behind higher-priority jobs
+\(em together with Slurm's estimated start time, when it has one, and
+how long you have been waiting. On a terminal this is a single line
+that updates in place; when output is redirected (logs, scripts) a dot
+is printed per poll instead.
+.PP
+Pressing
+.B Ctrl\-C
+while waiting cancels the pending job and says so.
 .SH SUBMISSION CHECKS
+Before submitting, sinteractive notes any sessions you already have
+running and how to reattach to them, then continues \(em a reminder
+aimed at the forgotten\-detach case, not a refusal.
+.PP
 Submission is refused, with an explanation, when:
 .IP \(bu 3
 the requested
@@ -316,6 +354,22 @@ Exported inside a session:
 .B SINTERACTIVE_JOB_ID
 and, when the session is named,
 .BR SINTERACTIVE_NAME .
+.SH COMPLETION
+A bash completion is installed by
+.BR make " " install .
+It completes options and, after
+.BR \-\-attach ,
+.BR \-\-status ,
+and
+.BR \-\-cancel ,
+the job ids and names of running sessions. Targets come from the state
+files in
+.I ~/.cache/sinteractive
+(see
+.BR FILES )
+rather than the scheduler, so completion stays instant when
+.BR squeue (1)
+is slow.
 .SH FILES
 .TP
 .I ~/.cache/sinteractive/JOBID.json
@@ -349,6 +403,12 @@ Run on a specific node.
 .TP
 .B sinteractive \-\-attach myproj
 Reconnect after a disconnect or detach.
+.TP
+.B sinteractive \-\-attach
+Reconnect to your only running session.
+.TP
+.B sinteractive \-\-cancel myproj
+Cancel a session by name.
 .TP
 .B sinteractive \-\-detach \-n build \-\-time=8h
 Headless launch for scripts and agents.

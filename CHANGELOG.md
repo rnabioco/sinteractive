@@ -8,6 +8,42 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `--attach` with no target reattaches to your only running session. With
+  several running it lists them with ready-to-run `--attach` commands to
+  pick from; with none it says how to start one.
+- `--cancel JOBID|NAME` cancels a session and reports what it cancelled.
+  Unlike `scancel` it accepts session names, so the whole lifecycle
+  (`--attach`, `--status`, `--cancel`) works by name.
+- Bash completion for options and, after `--attach`/`--status`/`--cancel`,
+  the job ids and names of running sessions. Targets are read from the
+  state files in `~/.cache/sinteractive/` rather than `squeue`, so
+  completion stays instant when the scheduler is slow. Installed by
+  `make install` (and by `make nodes` for system-wide deployments).
+
+### Changed
+
+- The pending-job wait now reports why the job is waiting (Slurm's pend
+  reason) and its estimated start time, on a spinner line that updates in
+  place, instead of printing a bare dot every five seconds. Redirected
+  output keeps the dot-per-poll trail for logs.
+- Interrupting a launch with `Ctrl-C` while the job is pending now
+  confirms the cancellation ("Cancelled job 12345.") instead of exiting
+  silently.
+- Launching while sessions are already running prints a note naming a
+  running session and how to reattach, then proceeds — aimed at the
+  forgotten-detach case. The job-limit check is still what refuses.
+- The `--detach` summary now suggests `sinteractive --cancel NAME` rather
+  than a raw `scancel JOBID`.
+
+### Fixed
+
+- A cancelled launch no longer runs `scancel` twice: the cleanup handler
+  called `exit`, which re-entered it through the `EXIT` trap. Previously
+  silent (`scancel --quiet`), this surfaced as a duplicated cancellation
+  message.
+
 ## [0.1.2] - 2026-07-24
 
 ### Fixed

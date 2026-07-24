@@ -19,7 +19,8 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--detach` | Launch without attaching; print connection info and return | |
 | `--status [TARGET]` | Show session status by JOBID or NAME (state, node, time remaining) | current session |
 | `--json` | With `--list`/`--status`/`--detach`: machine-readable JSON output | |
-| `-a`, `--attach JOBID` | Reattach to a running session | |
+| `-a`, `--attach [TARGET]` | Reattach by JOBID or NAME; with no target, your only session | |
+| `--cancel TARGET` | Cancel a session by JOBID or NAME | |
 | `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 | `-V`, `--version` | Show version | |
@@ -120,6 +121,10 @@ sinteractive --list
 sinteractive --attach 12345
 ```
 
+If you have only one session running, a bare `sinteractive --attach` goes
+straight to it — no need to look up the job id first. With several running,
+it lists them with ready-to-run commands to pick from.
+
 Sessions launched with `-n NAME` can be reattached by name
 (`sinteractive --attach NAME`). Forgot to name one? Press `Ctrl-b $` inside
 the session to name (or rename) it in place — the new name shows up in the
@@ -174,8 +179,40 @@ smoother than mouse selection, especially with the scrollbar active.
 ### Cancelling the job
 
 Exiting the tmux session (type `exit` or `Ctrl-d` in all panes) automatically
-cancels the SLURM job. You can also cancel it directly:
+cancels the SLURM job. You can also cancel it from the login node, by name or
+job id:
 
 ```bash
-scancel <JOBID>
+sinteractive --cancel myproj
+sinteractive --cancel 12345
+scancel 12345              # equivalent, job id only
 ```
+
+Pressing `Ctrl-C` while a launch is still waiting in the queue cancels the
+pending job too.
+
+### Waiting for a job to start
+
+When the cluster is busy your job may sit in the queue. While it does,
+`sinteractive` shows why it is waiting (Slurm's pend reason — free resources,
+higher-priority jobs ahead of you) and, when Slurm can estimate one, the
+expected start time:
+
+```
+ ⠹ waiting for free resources — est. start 14:32 (2m elapsed)
+```
+
+### Tab completion
+
+`make install` installs a bash completion. It completes options, and after
+`--attach`, `--status`, and `--cancel` it completes the job ids and names of
+your running sessions:
+
+```bash
+sinteractive --attach <TAB>
+# 12345  rna-seq  12346  assembly
+```
+
+Session names are read from the state files in `~/.cache/sinteractive/`, not
+from `squeue`, so completion stays instant even when the scheduler is slow.
+Start a new shell after installing to pick it up.
