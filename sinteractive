@@ -18,6 +18,8 @@ set -u
 
 TMUX_BIN="${SINTERACTIVE_TMUX:-/usr/local/bin/tmux}"
 JOB_ID=''
+# Basename for error messages ($0 is the full install path — noisy).
+PROG="${0##*/}"
 
 # Convert time shorthand (e.g. 8h, 30m, 2d, 1d12h, 1h30m) to HH:MM:SS
 function parse_time {
@@ -127,6 +129,7 @@ function main {
 
   # Parse custom flags before passing remaining args to sbatch
   local args=()
+  local passthrough=()
   local reattach_target=''
   local session_name=''
   local enable_mouse=0
@@ -271,8 +274,32 @@ function main {
       args+=(--mem="$2")
       shift 2
       ;;
+    # A single dash followed by two or more letters is almost always a
+    # combined-flags typo (e.g. -la for ls -la muscle memory) or an attached
+    # value (-nfoo); neither is supported here, and forwarding them to sbatch
+    # produces a confusing error. Only intercept bundles starting with one of
+    # our own short flags — anything else may be a valid sbatch attached-value
+    # form (e.g. -wnode01) and still passes through.
+    -[ahjlmnt][A-Za-z]*)
+      local hint=''
+      case "${1:1:1}" in
+      a) hint="-a NAME (--attach)" ;;
+      h) hint="-h (--help)" ;;
+      j) hint="-j N (--threads)" ;;
+      l) hint="-l (--list)" ;;
+      m) hint="-m SIZE" ;;
+      n) hint="-n NAME (--name)" ;;
+      t) hint="-t TIME" ;;
+      esac
+      echo 1>&2 "Error: unrecognized option '$1'."
+      echo 1>&2 "Short options can't be combined or take attached values —"
+      echo 1>&2 "did you mean '${hint}'?"
+      echo 1>&2 "Run 'sinteractive --help' to see all options."
+      exit 1
+      ;;
     *)
       args+=("$1")
+      passthrough+=("$1")
       shift
       ;;
     esac
@@ -379,15 +406,39 @@ function main {
   ((enable_mouse)) && tmux_args+=(--mouse)
   [[ -n "${session_name}" ]] && tmux_args+=(--session-name="${session_name}")
 
-  local output
-  local sbatch_ec
-  output=$(sbatch --output=/dev/null --error=/dev/null "$@" "${BASH_SOURCE[0]}" tmux "${tmux_args[@]}")
+  # Capture stdout and stderr separately: stdout carries the job id, stderr
+  # carries errors (quoted below on failure) or warnings (passed through).
+  local output sbatch_err sbatch_ec sbatch_errf
+  sbatch_errf=$(mktemp)
+  output=$(sbatch --output=/dev/null --error=/dev/null "$@" "${BASH_SOURCE[0]}" tmux "${tmux_args[@]}" 2>"$sbatch_errf")
   sbatch_ec=$?
+  sbatch_err=$(<"$sbatch_errf")
+  rm -f "$sbatch_errf"
+
+  if ((sbatch_ec != 0)); then
+    echo 1>&2 "Error: job submission failed. sbatch said:"
+    echo 1>&2 ''
+    while IFS= read -r line; do
+      echo 1>&2 "  $line"
+    done <<<"${sbatch_err:-(no output)}"
+    echo 1>&2 ''
+    if ((${#passthrough[@]} > 0)); then
+      echo 1>&2 "Note: these options were not recognized by sinteractive and were"
+      echo 1>&2 "passed through to sbatch: ${passthrough[*]}"
+      echo 1>&2 ''
+    fi
+    echo 1>&2 "Run 'sinteractive --help' to see available options."
+    exit "$sbatch_ec"
+  fi
+
+  # Surface any sbatch warnings even on success.
+  [[ -n "$sbatch_err" ]] && echo 1>&2 "$sbatch_err"
 
   JOB_ID=$(grep -Eo -e '\b[0-9]+$' <<<"${output}")
   if [[ -z "${JOB_ID}" ]]; then
-    echo 1>&2 "$0: unable to find job id in sbatch output"
-    exit "$sbatch_ec"
+    echo 1>&2 "${PROG}: sbatch succeeded but its output contained no job id:"
+    echo 1>&2 "  ${output:-(no output)}"
+    exit 1
   fi
 
   local job_comment="sinteractive"
@@ -406,7 +457,7 @@ function main {
     if [[ "${state}" == 'RUNNING' ]]; then
       break
     elif [[ "${state}" != 'PENDING' ]]; then
-      echo 1>&2 "$0: job is neither RUNNING nor PENDING. Aborting."
+      echo 1>&2 "${PROG}: job is neither RUNNING nor PENDING. Aborting."
       scancel --quiet "${JOB_ID}"
       exit 1
     fi
@@ -438,7 +489,7 @@ function main {
 
   if ((connected == 0)); then
     echo 1>&2 ''
-    echo 1>&2 "$0: tmux session did not come up on ${batchhost} within 30s."
+    echo 1>&2 "${PROG}: tmux session did not come up on ${batchhost} within 30s."
     echo 1>&2 "Job ${JOB_ID} may still be starting. Reconnect with:"
     echo 1>&2 "  sinteractive --attach ${JOB_ID}"
     exit 1
@@ -647,7 +698,7 @@ function show_status {
     if ((json)); then
       printf '{"job_id":%s,"state":"NOT_FOUND"}\n' "$jobid"
     else
-      echo 1>&2 "$0: job ${jobid} not found (finished or cancelled)"
+      echo 1>&2 "${PROG}: job ${jobid} not found (finished or cancelled)"
     fi
     exit 1
   fi
@@ -960,11 +1011,11 @@ function resolve_session_jobid {
   local count
   count=$(printf '%s\n' "${matches}" | grep -c .)
   if [[ "${count}" -eq 0 ]]; then
-    echo 1>&2 "$0: no sinteractive session named '${target}'"
+    echo 1>&2 "${PROG}: no sinteractive session named '${target}'"
     echo 1>&2 "Run 'sinteractive --list' to see available sessions."
     return 1
   elif [[ "${count}" -gt 1 ]]; then
-    echo 1>&2 "$0: multiple sinteractive sessions named '${target}':"
+    echo 1>&2 "${PROG}: multiple sinteractive sessions named '${target}':"
     echo 1>&2 "  $(echo ${matches} | xargs)"
     echo 1>&2 "Specify a JOBID instead."
     return 1
@@ -984,7 +1035,7 @@ function reattach {
   local state
   state=$(squeue --jobs "${jobid}" --states RUNNING --noheader --Format state 2>/dev/null | xargs)
   if [[ "${state}" != 'RUNNING' ]]; then
-    echo 1>&2 "$0: job ${jobid} is not running (state: ${state:-unknown})"
+    echo 1>&2 "${PROG}: job ${jobid} is not running (state: ${state:-unknown})"
     exit 1
   fi
 
