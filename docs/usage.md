@@ -22,6 +22,7 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `-a`, `--attach JOBID` | Reattach to a running session | |
 | `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
+| `-V`, `--version` | Show version | |
 
 All other arguments are passed directly to `sbatch`, so you can use any
 `sbatch` option. See `man sinteractive` for full documentation.

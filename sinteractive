@@ -18,6 +18,8 @@ set -u
 
 TMUX_BIN="${SINTERACTIVE_TMUX:-/usr/local/bin/tmux}"
 JOB_ID=''
+# Reported by --version; keep in sync with the release tag (vX.Y.Z).
+VERSION='0.1.0'
 # Basename for error messages ($0 is the full install path — noisy).
 PROG="${0##*/}"
 
@@ -89,6 +91,7 @@ Options:
   -a, --attach TARGET   Reattach to a running session by JOBID or NAME
   -l, --list            List your running sessions
   -h, --help            Show this help message
+  -V, --version         Show version
 
 Unrecognized options pass through to sbatch (e.g. --partition, --gres).
 
@@ -145,6 +148,10 @@ function main {
     case "$1" in
     -h | --help)
       usage
+      ;;
+    -V | --version)
+      echo "sinteractive ${VERSION}"
+      exit 0
       ;;
     --mouse)
       enable_mouse=1
