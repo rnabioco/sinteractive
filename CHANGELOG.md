@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-24
+
 ### Added
 
 - `--attach` with no target reattaches to your only running session. With
@@ -43,6 +45,10 @@ and this project adheres to
   called `exit`, which re-entered it through the `EXIT` trap. Previously
   silent (`scancel --quiet`), this surfaced as a duplicated cancellation
   message.
+- The README now carries the keyboard copy/paste key table added in
+  0.1.1, which had only reached the `Ctrl-b h` popup and the docs site.
+  The GitHub landing page kept a stale one-line "Scroll up" row and never
+  mentioned that copied text reaches the local clipboard over OSC 52.
 
 ## [0.1.2] - 2026-07-24
 
@@ -106,7 +112,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/rnabioco/sinteractive/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/rnabioco/sinteractive/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/rnabioco/sinteractive/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rnabioco/sinteractive/releases/tag/v0.1.0
