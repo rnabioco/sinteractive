@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Copy mode is now always vi-keys (`mode-keys vi`), regardless of
+  `$EDITOR`, so keyboard selection works the same for everyone: `Ctrl+b
+  [`, `Space` to select, `Enter` to copy (into the local clipboard via
+  OSC 52) — a smoother alternative to jumpy mouse/scrollbar selection.
+- The `Ctrl+b h` help popup gained a "Scrollback & copy" section with
+  the copy-mode keys.
+
 ## [0.1.0] - 2026-07-24
 
 First tagged release.

@@ -1098,7 +1098,13 @@ function show_help_popup {
     Split pane (top/bottom)      ${key}Ctrl+b "${rst}
     Split pane (side/side)       ${key}Ctrl+b %${rst}
     Switch panes                 ${key}Ctrl+b arrow-key${rst}
-    Scrollback                   ${key}Ctrl+b [${rst}  ${dim}(q to exit)${rst}
+
+  ${hdr}Scrollback & copy (vi keys)${rst}
+    Enter copy mode              ${key}Ctrl+b [${rst}  ${dim}(q exits)${rst}
+    Start selection              ${key}Space${rst}  ${dim}(V = whole lines)${rst}
+    Copy and exit                ${key}Enter${rst}  ${dim}(lands in your local clipboard)${rst}
+    Paste into pane              ${key}Ctrl+b ]${rst}
+    Search up / down             ${key}?${rst} / ${key}/${rst}
 
   Docs: ${url}${lnk}${docs}${lnk_end}${rst}
 
@@ -1393,6 +1399,12 @@ function start_tmux {
 
   # OSC 52 clipboard integration (copy works over SSH)
   $TMUX_BIN -L "$sock" set-option -t "$session_name" set-clipboard on
+  # vi-style copy mode regardless of $EDITOR (tmux defaults to emacs keys
+  # unless EDITOR contains "vi"), so the keys in the help popup are always
+  # right: Space starts a selection, Enter copies (to the local clipboard
+  # via OSC 52 above). Keyboard selection avoids the jumpy mouse/scrollbar
+  # path entirely.
+  $TMUX_BIN -L "$sock" set-option -g mode-keys vi
   # OSC 8 hyperlinks (docs link in the help popup): tmux only re-emits them to
   # clients whose terminal declares the feature, and it can't detect support
   # from TERM alone, so assert it for all clients. Terminals without OSC 8
@@ -1495,7 +1507,7 @@ function start_tmux {
   # can't leak into other tmux servers. BASH_SOURCE here is Slurm's spooled
   # copy of this script, which stays executable on this node for the job's
   # lifetime, so the popup can re-invoke it as "help-popup JOBID".
-  $TMUX_BIN -L "$sock" bind-key h display-popup -E -w 76 -h 22 \
+  $TMUX_BIN -L "$sock" bind-key h display-popup -E -w 76 -h 28 \
     -T ' sinteractive help ' \
     "'${BASH_SOURCE[0]}' help-popup ${SLURM_JOB_ID}"
 

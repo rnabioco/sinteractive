@@ -207,6 +207,26 @@ Detach from the session; the job keeps running. Reattach later with
 Name (or rename) the session in place. Updates the squeue job name and
 the name used by
 .BR \-\-attach / \-\-status .
+.TP
+.B Ctrl\-b [
+Enter copy mode for scrollback and keyboard selection. Copy mode uses
+vi keys regardless of
+.BR $EDITOR :
+.B Space
+starts a selection
+.RB ( V
+selects whole lines),
+.B Enter
+copies and exits, and
+.B ?
+searches up
+.RB ( /
+searches down). Copied text is pushed to the local system clipboard
+over SSH via OSC 52;
+.B Ctrl\-b ]
+pastes into a pane. Press
+.B q
+to leave copy mode without copying.
 .PP
 Ending the shell in every pane
 .RB ( exit )
