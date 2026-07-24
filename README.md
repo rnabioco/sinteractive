@@ -263,7 +263,23 @@ ends. In-session renames (`Ctrl-b $`) are reflected in the state file,
 | Split pane horizontally | `Ctrl-b "` |
 | Split pane vertically | `Ctrl-b %` |
 | Switch between panes | `Ctrl-b arrow-key` |
-| Scroll up | `Ctrl-b [` then arrow keys (press `q` to exit) |
+
+### Scrollback and keyboard copy/paste
+
+Copy mode uses vi keys (forced, regardless of `$EDITOR`), and copied text
+lands in your **local** system clipboard over SSH via OSC 52 — usually far
+smoother than mouse selection, especially with the scrollbar active.
+
+| Action | Key |
+|---|---|
+| Enter copy mode (scrollback) | `Ctrl-b [` (press `q` to exit) |
+| Move around | arrow keys, `PgUp`/`PgDn`, `g`/`G` for top/bottom |
+| Start selection | `Space` (`V` selects whole lines) |
+| Copy and exit copy mode | `Enter` (also lands in your local clipboard) |
+| Paste into a pane | `Ctrl-b ]` |
+| Search up / down | `?` / `/` (then `n`/`N` for next/previous match) |
+
+The same table is available inside a session at any time with `Ctrl-b h`.
 
 > [!TIP]
 > Start with `sinteractive --mouse` to scroll with the wheel, click to switch
