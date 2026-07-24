@@ -1,0 +1,61 @@
+[project]
+site_name = "sinteractive"
+site_url = "https://rnabioco.github.io/sinteractive/"
+repo_url = "https://github.com/rnabioco/sinteractive"
+repo_name = "rnabioco/sinteractive"
+
+nav = [
+  {"Home" = "index.md"},
+  {"Usage" = "usage.md"},
+  {"Scripting & Agents" = "scripting.md"},
+  {"Deploying on a Cluster" = "deploy.md"},
+]
+
+[project.theme]
+variant = "classic"
+features = [
+  "content.code.copy",
+  "content.tabs.link",
+  "navigation.instant",
+  "navigation.sections",
+  "navigation.top",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[project.markdown_extensions.admonition]
+
+[project.markdown_extensions.pymdownx.details]
+
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" }
+]
+
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+
+[project.markdown_extensions.pymdownx.inlinehilite]
+
+[project.markdown_extensions.tables]
+
+[project.markdown_extensions.toc]
+permalink = true

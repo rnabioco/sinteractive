@@ -2,6 +2,8 @@
 
 Persistent interactive sessions on Slurm compute nodes, built on tmux.
 
+**Docs:** <https://rnabioco.github.io/sinteractive/>
+
 `sinteractive` submits a batch job that starts a detached tmux session on the
 allocated node, then connects you to it. Because the shell lives in tmux, the
 session survives SSH drops and can be reattached later. It is a clean-room
@@ -291,6 +293,20 @@ sudo make nodes       # install sinteractive + man page onto every compute node
 `NODES` defaults to `sinfo -hN -o '%N'`; override with
 `make tmux-push NODES="compute00 compute01"`. Pushes copy to a temp name and
 rename into place so running sessions aren't disturbed.
+
+## Docs development
+
+The [documentation site](https://rnabioco.github.io/sinteractive/) is built
+with [zensical](https://zensical.org) from `docs/` and deploys to GitHub Pages
+on every push to `main`. Requires [pixi](https://pixi.sh):
+
+```bash
+# Serve docs locally at http://localhost:8000
+pixi run docs
+
+# Build the site (strict mode)
+pixi run build
+```
 
 ## License
 
