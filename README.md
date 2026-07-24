@@ -1,6 +1,15 @@
-# Interactive Sessions with `sinteractive`
+# sinteractive
 
-The `sinteractive` script launches a persistent interactive session on a compute node using tmux. It's located at [`scripts/sinteractive`](https://github.com/rnabioco/bodhi-docs/blob/main/scripts/sinteractive) in this repository.
+Persistent interactive sessions on Slurm compute nodes, built on tmux.
+
+`sinteractive` submits a batch job that starts a detached tmux session on the
+allocated node, then connects you to it. Because the shell lives in tmux, the
+session survives SSH drops and can be reattached later. It is a clean-room
+reimplementation inspired by the original `sinteractive` by Pär Andersson
+(NSC, Sweden) and the CU Boulder adaptation by Jonathon Anderson, and is
+developed for the [Bodhi cluster](https://rnabioco.github.io/bodhi-docs/) at
+the RNA Bioscience Initiative — but it is cluster-agnostic: scheduler details
+are driven by `SINTERACTIVE_*` environment variables.
 
 ## Why use `sinteractive` instead of `srun --pty bash`?
 
@@ -11,22 +20,31 @@ The `sinteractive` script launches a persistent interactive session on a compute
 | X11 forwarding | Manual setup | Automatic on connect (`ssh -X`) |
 | Reconnect to session | Not possible | `sinteractive --attach JOBID` |
 
-!!! tip "When to use which"
-    Use `srun --pty bash` for quick, throwaway interactive work. Use `sinteractive` when you need a session that persists through network interruptions or when you want tmux features like split panes.
+> [!TIP]
+> Use `srun --pty bash` for quick, throwaway interactive work. Use
+> `sinteractive` when you need a session that persists through network
+> interruptions or when you want tmux features like split panes.
 
 ## Installation
 
 ```bash
+git clone https://github.com/rnabioco/sinteractive
+cd sinteractive
 make install
 ```
 
-This copies the script to `~/.local/bin/`. Make sure `~/.local/bin` is in your `$PATH` (add `export PATH="$HOME/.local/bin:$PATH"` to your `~/.bashrc` if needed).
-
-To install to a different location:
+As a regular user this copies the script and man page to `~/.local/bin` and
+`~/.local/share/man` (make sure `~/.local/bin` is on your `$PATH`); as root it
+installs to `/usr/local` instead. To install to a different location:
 
 ```bash
 make install PREFIX=~/bin
 ```
+
+Requirements: a Slurm cluster, tmux ≥ 3.7 available **on the compute nodes**
+(path configurable via `SINTERACTIVE_TMUX`), and SSH access to the nodes for
+the initial attach. Admin targets for building tmux and fanning binaries out
+to nodes are described under [Deploying on a cluster](#deploying-on-a-cluster).
 
 ## Usage
 
@@ -53,7 +71,8 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 
-All other arguments are passed directly to `sbatch`, so you can use any `sbatch` option.
+All other arguments are passed directly to `sbatch`, so you can use any
+`sbatch` option. See `man sinteractive` for full documentation.
 
 ### Environment variables
 
@@ -76,12 +95,12 @@ export SINTERACTIVE_MEM=16G
 export SINTERACTIVE_CPUS=4
 ```
 
-### Configuring for CU Alpine
+### Configuring for other clusters (example: CU Alpine)
 
-`sinteractive` is written for Bodhi but is cluster-agnostic — the scheduler
-details are all driven by `SINTERACTIVE_*` variables. To run it on
+The defaults above match Bodhi, but everything scheduler-specific is
+overridable. To run on
 [CU Boulder's Alpine](https://curc.readthedocs.io/en/latest/clusters/alpine/index.html),
-three things differ from the Bodhi defaults:
+three things differ:
 
 - **tmux path** — Alpine ships tmux as a system package at `/usr/bin/tmux`,
   not the source-built `/usr/local/bin/tmux` Bodhi uses.
@@ -154,7 +173,9 @@ sequenceDiagram
 
 ## Reconnecting after a disconnect
 
-If your SSH connection drops or you intentionally detach (`Ctrl-b d`), the tmux session **keeps running** on the compute node and your work is safe. To reconnect from the login node:
+If your SSH connection drops or you intentionally detach (`Ctrl-b d`), the
+tmux session **keeps running** on the compute node and your work is safe. To
+reconnect from the login node:
 
 ```bash
 # List your running sessions
@@ -166,17 +187,27 @@ sinteractive --list
 sinteractive --attach 12345
 ```
 
-Sessions launched with `-n NAME` can be reattached by name (`sinteractive --attach NAME`). Forgot to name one? Press `Ctrl-b $` inside the session to name (or rename) it in place — the new name shows up in the status bar, `squeue`, `--list`, and works with `--attach NAME`.
+Sessions launched with `-n NAME` can be reattached by name
+(`sinteractive --attach NAME`). Forgot to name one? Press `Ctrl-b $` inside
+the session to name (or rename) it in place — the new name shows up in the
+status bar, `squeue`, `--list`, and works with `--attach NAME`.
 
-!!! info "This is the key advantage over `srun --pty bash`"
-    With `srun`, a dropped SSH connection kills your session and any running processes. With `sinteractive`, you just reconnect and pick up where you left off.
+> [!IMPORTANT]
+> This is the key advantage over `srun --pty bash`: with `srun`, a dropped SSH
+> connection kills your session and any running processes. With
+> `sinteractive`, you just reconnect and pick up where you left off.
 
-!!! note "X11 after reattaching"
-    X11 forwarding is set up on the **initial** connection (`ssh -X`). Reattaching with `--attach` reconnects through Slurm (`srun`) rather than a new `ssh -X`, so GUI apps launched **after** a reattach won't have a working `DISPLAY`. If you need X11, keep the original connection, or start a fresh session for GUI work.
+> [!NOTE]
+> X11 forwarding is set up on the **initial** connection (`ssh -X`).
+> Reattaching with `--attach` reconnects through Slurm (`srun`) rather than a
+> new `ssh -X`, so GUI apps launched **after** a reattach won't have a working
+> `DISPLAY`. If you need X11, keep the original connection, or start a fresh
+> session for GUI work.
 
 ## Scripting and agent use
 
-`sinteractive` has a headless mode designed for scripts and coding agents such as [Claude Code](https://code.claude.com/docs/):
+`sinteractive` has a headless mode designed for scripts and coding agents such
+as [Claude Code](https://code.claude.com/docs/):
 
 ```bash
 # Launch without attaching; returns once the session is ready
@@ -193,14 +224,24 @@ sinteractive --status mywork --json
 srun --overlap --jobid=JOBID -- bash -lc 'make test'
 ```
 
-Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`, if named) are exported, and `sinteractive --status` with no argument reports on the current session. A state file at `~/.cache/sinteractive/JOBID.json` is refreshed about every 30 seconds with `remaining_seconds`, so tools can poll the time budget without querying the scheduler; it is removed when the session ends. In-session renames (`Ctrl-b $`) are reflected in the state file, `--status`, and new panes, but shells already running keep their original `SINTERACTIVE_NAME`.
+Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`, if named)
+are exported, and `sinteractive --status` with no argument reports on the
+current session. A state file at `~/.cache/sinteractive/JOBID.json` is
+refreshed about every 30 seconds with `remaining_seconds`, so tools can poll
+the time budget without querying the scheduler; it is removed when the session
+ends. In-session renames (`Ctrl-b $`) are reflected in the state file,
+`--status`, and new panes, but shells already running keep their original
+`SINTERACTIVE_NAME`.
 
-!!! tip "Claude Code skill"
-    The repo ships a [skill](https://code.claude.com/docs/en/skills) that teaches Claude Code cluster etiquette: run heavy work in an allocation (never on the login node), reuse sessions, check the time budget before long jobs, and clean up. Install it per-user from a checkout of this repo:
-
-    ```bash
-    make skill-install   # copies to ~/.claude/skills/bodhi-compute
-    ```
+> [!TIP]
+> This repo ships a [Claude Code skill](https://code.claude.com/docs/en/skills)
+> that teaches agents cluster etiquette: run heavy work in an allocation
+> (never on the login node), reuse sessions, check the time budget before long
+> jobs, and clean up. Install it per-user from a checkout of this repo:
+>
+> ```bash
+> make skill-install   # copies to ~/.claude/skills/bodhi-compute
+> ```
 
 ## Tips
 
@@ -216,22 +257,41 @@ Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`, if named) are 
 | Switch between panes | `Ctrl-b arrow-key` |
 | Scroll up | `Ctrl-b [` then arrow keys (press `q` to exit) |
 
-!!! tip "Mouse support"
-    Start with `sinteractive --mouse` to scroll with the wheel, click to switch
-    panes, and drag borders to resize. Mouse mode captures terminal selection,
-    so hold **Shift** when you want to select text for an OS-level copy (tmux's
-    own mouse selection is copied out over SSH automatically).
+> [!TIP]
+> Start with `sinteractive --mouse` to scroll with the wheel, click to switch
+> panes, and drag borders to resize. Mouse mode captures terminal selection,
+> so hold **Shift** when you want to select text for an OS-level copy (tmux's
+> own mouse selection is copied out over SSH automatically).
 
 ### Cancelling the job
 
-Exiting the tmux session (type `exit` or `Ctrl-d` in all panes) automatically cancels the SLURM job. You can also cancel it directly:
+Exiting the tmux session (type `exit` or `Ctrl-d` in all panes) automatically
+cancels the SLURM job. You can also cancel it directly:
 
 ```bash
 scancel <JOBID>
 ```
 
-!!! warning "Wall time"
-    `sinteractive` defaults to a **1 day** wall time on the `interactive` partition. For longer sessions, switch to the `normal` partition (up to 3 days): `sinteractive --partition=normal --time=2-00:00:00`.
+## Deploying on a cluster
 
-!!! info "Job limit"
-    The `interactive` partition limits each user to **3 concurrent jobs**. If you need more simultaneous sessions, use the `normal` partition.
+`sinteractive` runs tmux **on the allocated compute node**, and `/usr/local`
+is typically node-local, so the tmux binary (and, for a system-wide install,
+the script itself) must exist on every node. The Makefile has root-only admin
+targets for this:
+
+```bash
+sudo make tmux-deps   # build deps (RHEL/Rocky 9: gcc, libevent-devel, ...)
+sudo make tmux        # build tmux from source into /usr/local
+sudo make tmux-push   # fan the binary out to every node Slurm knows about
+sudo make tmux-all    # build + push
+
+sudo make nodes       # install sinteractive + man page onto every compute node
+```
+
+`NODES` defaults to `sinfo -hN -o '%N'`; override with
+`make tmux-push NODES="compute00 compute01"`. Pushes copy to a temp name and
+rename into place so running sessions aren't disturbed.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

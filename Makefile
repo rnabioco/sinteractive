@@ -2,9 +2,8 @@ PREFIX ?= ~/.local/bin
 # man finds ~/.local/share/man automatically when ~/.local/bin is on PATH.
 MANDIR ?= ~/.local/share/man/man1
 
-# When run as root, install system-wide: sinteractive to /usr/local/bin,
-# its man page to /usr/local/share/man, and the splash to /etc/profile.d
-# so it runs for every interactive login.
+# When run as root, install system-wide: sinteractive to /usr/local/bin and
+# its man page to /usr/local/share/man.
 UID := $(shell id -u)
 
 .PHONY: install install-user install-system skill-install
@@ -17,16 +16,13 @@ endif
 
 install-user:
 	mkdir -p $(PREFIX)
-	cp scripts/sinteractive $(PREFIX)/sinteractive
+	cp sinteractive $(PREFIX)/sinteractive
 	chmod +x $(PREFIX)/sinteractive
-	cp scripts/bodhi-splash $(PREFIX)/bodhi-splash
-	chmod +x $(PREFIX)/bodhi-splash
 	mkdir -p $(MANDIR)
 	cp man/sinteractive.1 $(MANDIR)/sinteractive.1
 
 install-system:
-	install -m 0755 scripts/sinteractive /usr/local/bin/sinteractive
-	install -m 0644 scripts/bodhi-splash /etc/profile.d/bodhi-splash.sh
+	install -m 0755 sinteractive /usr/local/bin/sinteractive
 	install -D -m 0644 man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1
 
 # Claude Code skill: teaches agents to run heavy work in a Slurm allocation
@@ -58,7 +54,7 @@ CONFIGURE_FLAGS  ?=
 NODES            ?= $(shell sinfo -hN -o '%N' 2>/dev/null | sort -u)
 SSH_USER         ?= root
 
-.PHONY: tmux-deps tmux tmux-push tmux-all require-root
+.PHONY: tmux-deps tmux tmux-push tmux-all nodes require-root
 
 # The tmux targets install system-wide (into $(TMUX_PREFIX)) and push to other
 # nodes, so they must be run as root.
@@ -97,3 +93,32 @@ tmux-push: require-root
 
 # Build here, then push to every compute node.
 tmux-all: tmux tmux-push
+
+# ---------------------------------------------------------------------------
+# nodes — install sinteractive and its man page onto every compute node.
+#
+# /usr/local is node-local, so the script and man page must be installed on
+# each node individually. If this checkout lives on a cluster-wide mount, with
+# pdsh each node can `install` straight from the shared path — note pdsh runs
+# commands, it does NOT copy files (that's pdcp). Without pdsh, falls back to
+# the same scp/ssh loop as tmux-push. Run as root (sudo make nodes).
+# ---------------------------------------------------------------------------
+NODELIST = $(shell echo $(NODES) | tr ' ' ',')
+
+nodes: require-root
+	@if command -v pdsh >/dev/null 2>&1; then \
+	  pdsh -w $(NODELIST) \
+	    'install -m 0755 $(CURDIR)/sinteractive /usr/local/bin/sinteractive \
+	     && install -D -m 0644 $(CURDIR)/man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1 \
+	     && echo ok'; \
+	else \
+	  for n in $(NODES); do \
+	    printf '==> %s: ' "$$n"; \
+	    scp -q sinteractive man/sinteractive.1 $(SSH_USER)@$$n:/tmp/ \
+	      && ssh $(SSH_USER)@$$n \
+	        'install -m 0755 /tmp/sinteractive /usr/local/bin/sinteractive \
+	         && install -D -m 0644 /tmp/sinteractive.1 /usr/local/share/man/man1/sinteractive.1 \
+	         && rm -f /tmp/sinteractive /tmp/sinteractive.1 && echo ok' \
+	      || echo "FAILED"; \
+	  done; \
+	fi
