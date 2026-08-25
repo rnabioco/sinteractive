@@ -1,0 +1,47 @@
+# Validate the things that can be checked without a Slurm cluster to run
+# against: the script parses, shellcheck is happy, the man page has no groff
+# warnings, and the settings snippet is real JSON.
+#
+# The script runs under `set -u` with no `-e`, so an unset variable or a typo
+# in a rarely-taken branch is a runtime surprise rather than a load error.
+# These checks catch the half of that which is statically visible.
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: |
+          for f in sinteractive claude/hooks/*.sh completions/sinteractive.bash; do
+            bash -n "$f"
+            echo "ok  $f"
+          done
+
+      - name: ShellCheck
+        run: |
+          shellcheck --version
+          shellcheck --severity=warning \
+            sinteractive claude/hooks/*.sh completions/sinteractive.bash
+
+      - name: Man page
+        run: |
+          # groff still exits 0 on warnings, so the output itself is the test.
+          err=$(LC_ALL=C groff -man -Tutf8 -ww -z man/sinteractive.1 2>&1 >/dev/null)
+          if [ -n "$err" ]; then echo "$err"; exit 1; fi
+          echo "ok  man/sinteractive.1"
+
+      - name: JSON
+        run: |
+          python3 -m json.tool claude/settings-snippet.json > /dev/null
+          echo "ok  claude/settings-snippet.json"
