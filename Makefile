@@ -5,6 +5,11 @@ MANDIR ?= ~/.local/share/man/man1
 # $XDG_DATA_DIRS (which includes /usr/local/share) for
 # bash-completion/completions/<command>.
 COMPDIR ?= ~/.local/share/bash-completion/completions
+# Claude Code assets (skill + hooks) ship beside the script so that
+# `sinteractive --install-claude` works from an installed copy and not only
+# from a git checkout. Mirrors the repo layout, so the lookup in the script
+# has one code path for both.
+SHAREDIR ?= ~/.local/share/sinteractive
 
 # When run as root, install system-wide: sinteractive to /usr/local/bin and
 # its man page to /usr/local/share/man.
@@ -26,11 +31,19 @@ install-user:
 	cp man/sinteractive.1 $(MANDIR)/sinteractive.1
 	mkdir -p $(COMPDIR)
 	cp completions/sinteractive.bash $(COMPDIR)/sinteractive
+	mkdir -p $(SHAREDIR)/claude/hooks $(SHAREDIR)/skills/bodhi-compute
+	install -m 0755 claude/hooks/*.sh $(SHAREDIR)/claude/hooks/
+	install -m 0644 claude/settings-snippet.json $(SHAREDIR)/claude/
+	install -m 0644 skills/bodhi-compute/SKILL.md $(SHAREDIR)/skills/bodhi-compute/
 
 install-system:
 	install -m 0755 sinteractive /usr/local/bin/sinteractive
 	install -D -m 0644 man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1
 	install -D -m 0644 completions/sinteractive.bash /usr/local/share/bash-completion/completions/sinteractive
+	install -d -m 0755 /usr/local/share/sinteractive/claude/hooks /usr/local/share/sinteractive/skills/bodhi-compute
+	install -m 0755 claude/hooks/*.sh /usr/local/share/sinteractive/claude/hooks/
+	install -m 0644 claude/settings-snippet.json /usr/local/share/sinteractive/claude/
+	install -m 0644 skills/bodhi-compute/SKILL.md /usr/local/share/sinteractive/skills/bodhi-compute/
 
 # ---------------------------------------------------------------------------
 # Claude Code integration. Two parts:
@@ -51,18 +64,7 @@ install-system:
 CLAUDE_DIR ?= $(HOME)/.claude
 
 claude-install:
-	mkdir -p $(CLAUDE_DIR)/skills/bodhi-compute
-	cp skills/bodhi-compute/SKILL.md $(CLAUDE_DIR)/skills/bodhi-compute/SKILL.md
-	mkdir -p $(CLAUDE_DIR)/hooks
-	install -m 0755 claude/hooks/sinteractive-session-context.sh $(CLAUDE_DIR)/hooks/
-	install -m 0755 claude/hooks/sinteractive-walltime-guard.sh $(CLAUDE_DIR)/hooks/
-	@echo ''
-	@echo 'Installed the bodhi-compute skill and two hooks into $(CLAUDE_DIR).'
-	@echo 'The hooks only take effect once they are registered. Merge this into'
-	@echo '$(CLAUDE_DIR)/settings.json (keep any hooks already there):'
-	@echo ''
-	@sed 's/^/  /' claude/settings-snippet.json
-	@echo ''
+	@CLAUDE_CONFIG_DIR=$(CLAUDE_DIR) SINTERACTIVE_SHARE=$(CURDIR) ./sinteractive --install-claude
 
 # Back-compat alias: this target used to install only the skill.
 skill-install: claude-install
