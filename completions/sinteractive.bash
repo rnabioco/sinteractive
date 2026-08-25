@@ -31,7 +31,10 @@ _sinteractive() {
       name=$(sed -n 's/.*"name":"\([^"]*\)".*/\1/p' "$f" 2>/dev/null)
       [[ -n "$name" ]] && targets+=" ${name}"
     done
-    COMPREPLY=($(compgen -W "$targets" -- "$cur"))
+    # mapfile rather than COMPREPLY=($(...)): the array form re-splits the
+    # results on IFS and glob-expands them, which a session named "*" would
+    # notice. Also what shellcheck asks for (SC2207).
+    mapfile -t COMPREPLY < <(compgen -W "$targets" -- "$cur")
     return
     ;;
   # Options whose value can't be guessed: complete nothing (not filenames).
@@ -41,12 +44,12 @@ _sinteractive() {
   esac
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=($(compgen -W '
+    mapfile -t COMPREPLY < <(compgen -W '
       --name --time --threads --node --partition --mouse --no-mouse
       --attach --list --status --refresh --cancel --detach --json
       --ensure --agent-context
       --help --version
-    ' -- "$cur"))
+    ' -- "$cur")
   fi
 }
 
