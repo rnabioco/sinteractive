@@ -38,11 +38,14 @@ and this project adheres to
   `make nodes`, users can pick up the integration without cloning anything.
   `SINTERACTIVE_SHARE` overrides the lookup, and `make claude-install` is now
   a thin wrapper around the same code path rather than a second copy of it.
-- The yellow rule between the pane and the status bar carries a centred
-  `sinteractive --install-claude` hint while Claude Code is running in a
-  session whose hooks are not yet registered. The rule is full width and
-  otherwise empty, so this costs nothing in the status line, which is already
-  shared by the job info and the Help/Detach keys. The hint is gated on a
+- The yellow rule between the pane and the status bar carries a centred,
+  scrolling `sinteractive --install-claude` notice while Claude Code is
+  running in a session whose hooks are not yet registered. The rule is full
+  width and otherwise empty, so this costs nothing in the status line, which
+  is already shared by the job info and the Help/Detach keys. The notice
+  scrolls through a fixed 44-column window at about three columns a second,
+  held constant across the countdown's phases so the final 10Hz countdown
+  stays fluid; the loop only wakes at that rate while a notice is showing. The hint is gated on a
   live `claude` process rather than on an installed binary, and clears once
   the hooks appear in `settings.json`, so it never nags anyone who does not
   use Claude Code.

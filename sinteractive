@@ -1114,12 +1114,20 @@ function claude_integration_active {
 #
 # Both start_tmux and status_dot_loop set this option, so it lives in one
 # function rather than being mirrored by hand the way status-left has to be.
+# Width of the scrolling window, in columns. Fixed, so the rule reads the
+# same at any terminal width and the notice never swallows the separator.
+HINT_WIDTH=44
 function pane_border_format_string {
-  local hint=${1:-0}
+  local hint=${1:-0} offset=${2:-0}
   ((hint)) || return 0
-  # Kept short: at 80 columns a long notice swallows the whole rule and stops
-  # reading as a separator.
-  printf '%s' '#[align=centre]#[fg=yellow,bold] Claude Code: sinteractive --install-claude #[default]'
+  # Trailing separator so the message reads as a loop rather than colliding
+  # with its own start. ASCII only: the slice below is bash substring
+  # expansion, which counts bytes under a C locale, and a multibyte character
+  # cut in half renders as garbage.
+  local msg='Claude Code: run  sinteractive --install-claude  to enable the skill and hooks  |  '
+  ((offset %= ${#msg}))
+  local window="${msg}${msg}"
+  printf '%s' "#[align=centre]#[fg=yellow,bold] ${window:offset:HINT_WIDTH} #[default]"
 }
 
 # Whether to nag about --install-claude in the status bar: only while Claude
@@ -1786,7 +1794,7 @@ function status_dot_loop {
 
   local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
   local end_epoch='' end_query=0 end_checked=0 spin=0 belled=0 last=''
-  local hint_shown=0 hint_checked=0
+  local hint_shown=0 hint_checked=0 hint_offset=0 hint_tick=0 last_border=''
   while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
     local now remaining
     # printf's builtin strftime — no date fork, which matters at the
@@ -1812,13 +1820,7 @@ function status_dot_loop {
       hint_checked=$now
       local want_hint=0
       claude_hint_wanted && want_hint=1
-      if ((want_hint != hint_shown)); then
-        hint_shown=$want_hint
-        # Global, like the other pane-border options in start_tmux, so panes
-        # and windows opened later show the same rule.
-        $TMUX_BIN -L "$sock" set-option -g pane-border-format \
-          "$(pane_border_format_string "$want_hint")" 2>/dev/null
-      fi
+      hint_shown=$want_hint
     fi
 
     # One cadence for both halves of the state file: ask Slurm for the end
@@ -1948,6 +1950,32 @@ function status_dot_loop {
         "$color" $((remaining / 60)) $((remaining % 60))
       spin=$((spin + 1))
       sleep_for=0.1
+    fi
+
+    # Scroll the border hint. Only while one is showing: an ordinary session
+    # keeps the loop's multi-second sleeps and never pays for this. One
+    # column per ~0.3s, held constant across phases — every tick at the 0.3s
+    # cadence forced below, every third tick during the red phase's 10Hz
+    # countdown, which keeps that countdown fluid.
+    if ((hint_shown)); then
+      hint_tick=$((hint_tick + 1))
+      if [[ "$sleep_for" == 0.1 ]]; then
+        ((hint_tick % 3 == 0)) && hint_offset=$((hint_offset + 1))
+      else
+        hint_offset=$((hint_offset + 1))
+        sleep_for=0.3
+      fi
+      local border
+      border=$(pane_border_format_string 1 "$hint_offset")
+      if [[ "$border" != "$last_border" ]]; then
+        # Global, like the other pane-border options in start_tmux, so panes
+        # and windows opened later show the same rule.
+        $TMUX_BIN -L "$sock" set-option -g pane-border-format "$border" 2>/dev/null
+        last_border="$border"
+      fi
+    elif [[ -n "$last_border" ]]; then
+      $TMUX_BIN -L "$sock" set-option -g pane-border-format '' 2>/dev/null
+      last_border=''
     fi
 
     local left=" ${glyph}${base}${text} "
