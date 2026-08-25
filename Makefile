@@ -50,7 +50,7 @@ skill-install:
 # Bump the version here (or `make tmux TMUX_VERSION=3.8`) — see the release
 # list at https://github.com/tmux/tmux/wiki
 # ---------------------------------------------------------------------------
-TMUX_VERSION     ?= 3.7b
+TMUX_VERSION     ?= 3.7c
 TMUX_PREFIX      ?= /usr/local
 TMUX_URL          = https://github.com/tmux/tmux/releases/download/$(TMUX_VERSION)/tmux-$(TMUX_VERSION).tar.gz
 TMUX_BUILD_DIR   ?= /tmp/tmux-build-$(TMUX_VERSION)

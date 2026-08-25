@@ -8,6 +8,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `make tmux` now builds tmux 3.7c (was 3.7b). It fixes the initial state
+  of scrollbars so they appear on new windows, which affects sessions
+  started with `--mouse`; the rest are a macOS build fix, a redraw-loop
+  timing change, a `message-format` default restored to `message-style`,
+  and an unzoom-before-floating-pane crash fix. Rebuild and fan out with
+  `make tmux && make tmux-push` as root — running sessions keep the tmux
+  server they started with until they end.
+
 ### Added
 
 - `--refresh [TARGET]` re-checks a session's time budget against Slurm and
