@@ -74,6 +74,7 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) | |
 | `--cancel TARGET` | Cancel a session by JOBID or NAME | |
 | `--agent-context` | Brief a coding agent on the session it is running inside | |
+| `--install-claude` | Install the Claude Code skill and hooks into `~/.claude` | |
 | `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 
@@ -279,8 +280,14 @@ and new panes, but shells already running keep their original
 > startup, and warn it when the session is running out of wall time.
 >
 > ```bash
-> make claude-install   # skill + hooks into ~/.claude; prints the settings block
+> sinteractive --install-claude   # from any installed copy
+> make claude-install             # equivalent, from a checkout
 > ```
+>
+> Both print the `settings.json` block to merge; neither edits the file. The
+> assets ship beside the script (`<prefix>/share/sinteractive`), so this works
+> on a cluster where an admin installed sinteractive with `make nodes` and you
+> never cloned the repo.
 >
 > `sinteractive --agent-context` prints the briefing by hand, so you can see
 > exactly what the agent was told.

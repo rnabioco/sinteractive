@@ -90,14 +90,22 @@ and new panes, but shells already running keep their original
 
 ## Claude Code integration
 
-Install the skill and hooks from a checkout of this repo:
+Install the skill and hooks:
 
 ```bash
-make claude-install   # ~/.claude/skills/bodhi-compute + ~/.claude/hooks/
+sinteractive --install-claude   # from any installed copy
+make claude-install             # equivalent, from a checkout
 ```
 
-The target prints a `settings.json` block to merge; it does not edit the file
-itself, since yours probably already has hooks in it.
+Both write `~/.claude/skills/bodhi-compute` and `~/.claude/hooks/`, then print
+a `settings.json` block to merge. Neither edits the file, since yours probably
+already has hooks in it — and a bad merge would silently disable every setting
+in it.
+
+`make install` puts the assets in `<prefix>/share/sinteractive` beside the
+script, and `--install-claude` finds them relative to its own location. So it
+works on a cluster where an admin ran `make nodes` and you never cloned the
+repo. Point `SINTERACTIVE_SHARE` at a checkout to override.
 
 **The [skill](https://code.claude.com/docs/en/skills)** teaches agents cluster
 etiquette: neither the login node nor an sinteractive session is a compute
@@ -120,6 +128,12 @@ Both exit 0 in every case, including outside a session, so they are harmless
 on the login node and in unrelated projects. The guard prefers the cached
 state file and only falls back to the scheduler when it is stale, so a quiet
 session costs nothing.
+
+While Claude Code is running in a session whose hooks are not registered yet,
+the yellow rule between the pane and the status bar carries a centred,
+scrolling `sinteractive --install-claude` notice. It is gated on a live `claude` process,
+so it never appears for people who don't use Claude Code, and it clears once
+the hooks are registered.
 
 Hooks fire at turn and tool boundaries, so work already in flight cannot be
 warned about — put long work in its own allocation, which outlives the

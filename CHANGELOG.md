@@ -30,6 +30,29 @@ and this project adheres to
 
 ### Added
 
+- `--install-claude` installs the Claude Code skill and hooks into
+  `~/.claude` from any installed copy of sinteractive, not just from a git
+  checkout. `make install` now ships the assets beside the script under
+  `<prefix>/share/sinteractive`, and the flag finds them relative to the
+  running script — so on a cluster where an admin installed sinteractive with
+  `make nodes`, users can pick up the integration without cloning anything.
+  `SINTERACTIVE_SHARE` overrides the lookup, and `make claude-install` is now
+  a thin wrapper around the same code path rather than a second copy of it.
+- The yellow rule between the pane and the status bar carries a centred,
+  scrolling `sinteractive --install-claude` notice while Claude Code is
+  running in a session whose hooks are not yet registered. The rule is full
+  width and otherwise empty, so this costs nothing in the status line, which
+  is already shared by the job info and the Help/Detach keys. The notice
+  scrolls through a fixed 44-column window at about three columns a second,
+  held constant across the countdown's phases so the final 10Hz countdown
+  stays fluid; the loop only wakes at that rate while a notice is showing. The hint is gated on a
+  live `claude` process rather than on an installed binary, and clears once
+  the hooks appear in `settings.json`, so it never nags anyone who does not
+  use Claude Code.
+- The in-session help popup (`Ctrl-b h`) now reports the sinteractive
+  version. It comes from Slurm's spooled copy of the script, so it is the
+  version that launched the session, which can differ from what is installed
+  on the login node now.
 - `--agent-context` prints a briefing, for a coding agent running inside a
   session, on which job it is in, how big that allocation is, how much wall
   time is left, and the rule that a session is an orchestration shell rather

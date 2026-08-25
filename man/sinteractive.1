@@ -30,6 +30,8 @@ sinteractive \- start an interactive tmux session on a Slurm compute node
 .RB [ \-\-json ]
 .br
 .B sinteractive \-\-agent\-context
+.br
+.B sinteractive \-\-install\-claude
 .SH DESCRIPTION
 .B sinteractive
 submits a batch job that launches a detached
@@ -257,6 +259,23 @@ hook (see
 .BR "SCRIPTING AND AGENTS" ),
 but useful by hand to see exactly what an agent was told.
 .TP
+.B \-\-install\-claude
+Install the Claude Code skill and hooks into
+.I ~/.claude
+(or
+.BR $CLAUDE_CONFIG_DIR ),
+then print the
+.I settings.json
+block to merge \(em it does not edit that file. The assets are installed
+beside the script by
+.BR "make install" ,
+under
+.IR <prefix>/share/sinteractive ,
+and are found relative to the running script, so this works from an
+installed copy with no checkout present. Set
+.B SINTERACTIVE_SHARE
+to override the location.
+.TP
 .BR \-h ,\  \-\-help
 Show a short help message.
 .TP
@@ -434,11 +453,25 @@ run from inside one create their own allocations rather than steps of the
 session's job.
 .SS Claude Code hooks
 .B \-\-agent\-context
-prints this briefing for the current session. The repository ships a skill
-and two hooks that wire it up \(em one briefing the agent at session start,
-one warning it when the session is running out of wall time \(em installed
-with
-.BR "make claude\-install" .
+prints this briefing for the current session. A skill and two hooks wire it
+up \(em one briefing the agent at session start, one warning it when the
+session is running out of wall time \(em installed with
+.B sinteractive \-\-install\-claude
+from any installed copy, or
+.B make claude\-install
+from a checkout.
+.PP
+While Claude Code is running in a session whose integration is not yet
+registered, the yellow rule between the pane and the status bar carries a
+centred, scrolling
+.B "sinteractive \-\-install\-claude"
+notice. The rule is full width and otherwise empty, so this costs nothing
+in the status line itself; the notice scrolls through a fixed 44-column
+window at about three columns a second, so it reads the same at any
+terminal width. It appears only while a
+.B claude
+process is actually running, and clears once the hooks are registered, so
+it never nags anyone who does not use Claude Code.
 .SH ENVIRONMENT
 Set personal defaults, e.g. in
 .IR ~/.bashrc ;

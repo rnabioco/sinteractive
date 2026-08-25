@@ -93,6 +93,7 @@ Options:
   --cancel TARGET       Cancel a session by JOBID or NAME
   --refresh [TARGET]    Re-check the time budget now (after scontrol)
   --agent-context       Brief a coding agent on the session it is running in
+  --install-claude      Install the Claude Code skill and hooks into ~/.claude
   -l, --list            List your running sessions
   -h, --help            Show this help message
   -V, --version         Show version
@@ -155,6 +156,7 @@ function main {
   local do_refresh=0
   local do_agent_context=0
   local ensure_mode=0
+  local do_install_claude=0
   local status_target=''
   case "${SINTERACTIVE_MOUSE:-}" in
   on | 1 | true | yes) enable_mouse=1 ;;
@@ -218,6 +220,10 @@ function main {
       ;;
     --agent-context)
       do_agent_context=1
+      shift
+      ;;
+    --install-claude)
+      do_install_claude=1
       shift
       ;;
     --ensure | --ensure=*)
@@ -403,6 +409,9 @@ function main {
   fi
   if ((do_agent_context)); then
     agent_context
+  fi
+  if ((do_install_claude)); then
+    install_claude
   fi
   # --ensure: if a session by this name is already there, report it and stop.
   # Deliberately quiet about a miss (unlike resolve_session_jobid) — not
@@ -1080,6 +1089,136 @@ CONTEXT
   exit 0
 }
 
+# Whether the Claude Code integration is live for this user: the hooks are
+# installed AND registered in a settings file. Installed-but-unregistered is
+# the interesting failure — the files sit there doing nothing — so presence
+# alone is not enough.
+#
+# Registration is checked by grepping for the hook's filename rather than
+# parsing JSON. settings.json is the user's file, the hooks may be registered
+# from either the plain or .local variant, and a bash JSON parser here would
+# be likelier to be wrong than the string test. A false "active" (the name
+# appears in a comment-like string) only costs a missing hint.
+function claude_integration_active {
+  local dir="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+  [[ -e "${dir}/hooks/sinteractive-session-context.sh" ]] || return 1
+  grep -qs 'sinteractive-session-context' \
+    "${dir}/settings.json" "${dir}/settings.local.json" || return 1
+  return 0
+}
+
+# The yellow rule between the pane and the status bar, which normally carries
+# no text, doubles as a notice line. It is full width and empty, whereas
+# status-right is 40 columns already shared by the Help and Detach keys — so
+# an occasional hint goes here rather than crowding the primary status line.
+#
+# Both start_tmux and status_dot_loop set this option, so it lives in one
+# function rather than being mirrored by hand the way status-left has to be.
+# Width of the scrolling window, in columns. Fixed, so the rule reads the
+# same at any terminal width and the notice never swallows the separator.
+HINT_WIDTH=44
+function pane_border_format_string {
+  local hint=${1:-0} offset=${2:-0}
+  ((hint)) || return 0
+  # Trailing separator so the message reads as a loop rather than colliding
+  # with its own start. ASCII only: the slice below is bash substring
+  # expansion, which counts bytes under a C locale, and a multibyte character
+  # cut in half renders as garbage.
+  local msg='Claude Code: run  sinteractive --install-claude  to enable the skill and hooks  |  '
+  ((offset %= ${#msg}))
+  local window="${msg}${msg}"
+  printf '%s' "#[align=centre]#[fg=yellow,bold] ${window:offset:HINT_WIDTH} #[default]"
+}
+
+# Whether to nag about --install-claude in the status bar: only while Claude
+# Code is actually running in this session and the integration is not live.
+#
+# The trigger is a running process, not an installed binary or an existing
+# ~/.claude — plenty of people never touch Claude Code, and a permanent hint
+# in every session for a feature they do not want is worse than no hint. It
+# also makes the hint self-timing: it appears within a poll of starting
+# claude, which is exactly when it is actionable, and goes away again when
+# the integration is registered.
+function claude_hint_wanted {
+  pgrep -u "$(id -u)" -x claude >/dev/null 2>&1 || return 1
+  ! claude_integration_active
+}
+
+# Locate the directory holding the Claude Code assets (claude/hooks and
+# skills/), so --install-claude works from an installed copy and not only from
+# a git checkout. Candidates, in order: an explicit SINTERACTIVE_SHARE, the
+# share dir alongside the installed script (bin/../share/sinteractive, which
+# covers both ~/.local and /usr/local), and the script's own directory, which
+# is the checkout case. Echoes the root and returns 0; returns 1 if none has
+# the assets.
+#
+# Both layouts are identical below the root, so there is one code path rather
+# than one per install flavour.
+function find_claude_assets {
+  local self dir candidates=()
+  self=$(realpath "${BASH_SOURCE[0]}" 2>/dev/null) || self="${BASH_SOURCE[0]}"
+  dir=$(dirname "$self")
+
+  [[ -n "${SINTERACTIVE_SHARE:-}" ]] && candidates+=("${SINTERACTIVE_SHARE}")
+  candidates+=("${dir}/../share/sinteractive")
+  candidates+=("${dir}")
+
+  local root
+  for root in "${candidates[@]}"; do
+    if [[ -d "${root}/claude/hooks" && -d "${root}/skills/bodhi-compute" ]]; then
+      printf '%s' "$root"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Install the Claude Code skill and hooks into the user's ~/.claude, from
+# wherever this copy of sinteractive keeps its assets. Skills and hooks are
+# per-user, so this is the same work whoever runs it.
+#
+# settings.json is printed, not edited: it is the user's file and usually
+# already carries hooks of their own. Merging it here would mean parsing and
+# rewriting JSON in bash, and getting that wrong would silently disable every
+# setting in the file.
+function install_claude {
+  local assets
+  if ! assets=$(find_claude_assets); then
+    echo 1>&2 "${PROG}: could not find the Claude Code assets."
+    echo 1>&2 ''
+    echo 1>&2 "Looked for claude/hooks and skills/ beside this script and in"
+    echo 1>&2 "its ../share/sinteractive. If sinteractive was installed without"
+    echo 1>&2 "them, reinstall from a checkout (make install), or point"
+    echo 1>&2 "SINTERACTIVE_SHARE at a checkout:"
+    echo 1>&2 ''
+    echo 1>&2 "  SINTERACTIVE_SHARE=/path/to/sinteractive ${PROG} --install-claude"
+    exit 1
+  fi
+
+  local claude_dir="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+  mkdir -p "${claude_dir}/skills/bodhi-compute" "${claude_dir}/hooks" || exit 1
+
+  cp "${assets}/skills/bodhi-compute/SKILL.md" \
+    "${claude_dir}/skills/bodhi-compute/SKILL.md" || exit 1
+  local hook
+  for hook in "${assets}"/claude/hooks/*.sh; do
+    [[ -e "$hook" ]] || continue
+    install -m 0755 "$hook" "${claude_dir}/hooks/" || exit 1
+  done
+
+  echo "Installed the bodhi-compute skill and hooks into ${claude_dir}"
+  echo "  from ${assets}"
+  echo ''
+  echo 'The hooks only take effect once they are registered. Merge this into'
+  echo "${claude_dir}/settings.json (keeping any hooks already there):"
+  echo ''
+  if [[ -r "${assets}/claude/settings-snippet.json" ]]; then
+    sed 's/^/  /' "${assets}/claude/settings-snippet.json"
+  fi
+  echo ''
+  exit 0
+}
+
 # Extract the effective partition name from the processed argument list.
 function get_partition_from_args {
   while [[ $# -gt 0 ]]; do
@@ -1471,6 +1610,10 @@ function show_help_popup {
   local hdr=$'\e[1;36m' key=$'\e[1;33m'
   # OSC 8 hyperlink so the docs URL is clickable in terminals that support it
   # (needs the hyperlinks terminal-feature set in start_tmux to pass through).
+  #
+  # $VERSION here comes from Slurm's spooled copy of the script, so it reports
+  # the version that LAUNCHED this session — which is the useful number, and
+  # can differ from whatever is installed on the login node now.
   local docs='https://tinyurl.com/2s45khbx'
   local lnk=$'\e]8;;'"$docs"$'\e\\' lnk_end=$'\e]8;;\e\\'
 
@@ -1497,7 +1640,7 @@ function show_help_popup {
     Paste into pane              ${key}Ctrl+b ]${rst}
     Search up / down             ${key}?${rst} / ${key}/${rst}
 
-  Docs: ${url}${lnk}${docs}${lnk_end}${rst}
+  Docs: ${url}${lnk}${docs}${lnk_end}${rst}   ${dim}sinteractive ${VERSION}${rst}
 
   ${dim}Press any key to close.${rst}
 EOF
@@ -1651,6 +1794,7 @@ function status_dot_loop {
 
   local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
   local end_epoch='' end_query=0 end_checked=0 spin=0 belled=0 last=''
+  local hint_shown=0 hint_checked=0 hint_offset=0 hint_tick=0 last_border=''
   while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
     local now remaining
     # printf's builtin strftime — no date fork, which matters at the
@@ -1665,6 +1809,18 @@ function status_dot_loop {
     if [[ -e "${state_file%.json}.poke" ]]; then
       rm -f "${state_file%.json}.poke"
       state_written=0
+    fi
+
+    # Claude Code hint, on the same cadence as the scheduler poll rather than
+    # the loop's tick (which reaches 10Hz in the final countdown). Placed
+    # above the no-deadline `continue` below so the hint still works on a job
+    # whose end time Slurm will not report. Only re-sets the option when the
+    # answer changes, so a steady state costs one pgrep per poll.
+    if ((now - hint_checked >= poll)); then
+      hint_checked=$now
+      local want_hint=0
+      claude_hint_wanted && want_hint=1
+      hint_shown=$want_hint
     fi
 
     # One cadence for both halves of the state file: ask Slurm for the end
@@ -1794,6 +1950,32 @@ function status_dot_loop {
         "$color" $((remaining / 60)) $((remaining % 60))
       spin=$((spin + 1))
       sleep_for=0.1
+    fi
+
+    # Scroll the border hint. Only while one is showing: an ordinary session
+    # keeps the loop's multi-second sleeps and never pays for this. One
+    # column per ~0.3s, held constant across phases — every tick at the 0.3s
+    # cadence forced below, every third tick during the red phase's 10Hz
+    # countdown, which keeps that countdown fluid.
+    if ((hint_shown)); then
+      hint_tick=$((hint_tick + 1))
+      if [[ "$sleep_for" == 0.1 ]]; then
+        ((hint_tick % 3 == 0)) && hint_offset=$((hint_offset + 1))
+      else
+        hint_offset=$((hint_offset + 1))
+        sleep_for=0.3
+      fi
+      local border
+      border=$(pane_border_format_string 1 "$hint_offset")
+      if [[ "$border" != "$last_border" ]]; then
+        # Global, like the other pane-border options in start_tmux, so panes
+        # and windows opened later show the same rule.
+        $TMUX_BIN -L "$sock" set-option -g pane-border-format "$border" 2>/dev/null
+        last_border="$border"
+      fi
+    elif [[ -n "$last_border" ]]; then
+      $TMUX_BIN -L "$sock" set-option -g pane-border-format '' 2>/dev/null
+      last_border=''
     fi
 
     local left=" ${glyph}${base}${text} "
@@ -1940,7 +2122,9 @@ function start_tmux {
   # (hardcoded #F0E442 was ~1.3:1 contrast on white — invisible). Global so
   # windows created later get it too.
   $TMUX_BIN -L "$sock" set-option -g pane-border-status bottom
-  $TMUX_BIN -L "$sock" set-option -g pane-border-format ''
+  # Empty by default; status_dot_loop swaps in the --install-claude hint when
+  # one is wanted (see pane_border_format_string).
+  $TMUX_BIN -L "$sock" set-option -g pane-border-format "$(pane_border_format_string 0)"
   $TMUX_BIN -L "$sock" set-option -g pane-border-lines heavy
   $TMUX_BIN -L "$sock" set-option -g pane-border-style 'fg=yellow'
   $TMUX_BIN -L "$sock" set-option -g pane-active-border-style 'fg=yellow'
