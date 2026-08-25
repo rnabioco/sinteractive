@@ -1065,8 +1065,8 @@ You are inside an sinteractive tmux session on a compute node.
 
 This session is an orchestration shell, NOT a compute target. Editing, git and
 scheduler queries belong here; anything heavier gets its own allocation, so it
-neither competes with the shell the user is typing in nor is capped by the
-small interactive partition.
+neither competes with the shell the user is typing in nor is squeezed into
+this session's small slice of CPU and memory.
 
   one-off     srun -p PART -c N --mem SIZE -t TIME -- CMD
   sustained   salloc --no-shell -p PART -c N --mem SIZE -t TIME   # job id on STDERR
@@ -1077,10 +1077,11 @@ Both stream output and propagate the command's exit code. salloc announces
 itself with "salloc: Granted job allocation ID" on stderr, not stdout, so
 capture it through 2>&1.
 
-Pick PART with \`sinfo\`; the interactive partition is small and underpowered,
-so it is not the right target for work. SLURM_* is stripped from this session,
-so srun and salloc here create their own allocations rather than steps of this
-job — and work in them is bounded by their own -t, not by the budget above.
+Pick PART with \`sinfo\`; the interactive partition has few nodes, caps
+walltime and carries everyone's shells, so it is not the right target for
+work — send it to a compute partition instead. SLURM_* is stripped from this
+session, so srun and salloc create their own allocations rather than steps of
+this job — and work in them is bounded by their own -t, not by the budget above.
 
 Re-check this session with \`sinteractive --status --json\` before long work;
 the number above was read when this briefing was generated, and a walltime can
