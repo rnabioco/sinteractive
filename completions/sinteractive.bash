@@ -1,8 +1,8 @@
 # Bash completion for sinteractive.
 #
-# Completes option flags and, after --attach/--status/--cancel, the job ids
-# and names of running sessions. Targets are read from the state files at
-# ~/.cache/sinteractive/*.json (written by each running session, removed at
+# Completes option flags and, after --attach/--status/--refresh/--cancel, the
+# job ids and names of running sessions. Targets are read from the state files
+# at ~/.cache/sinteractive/*.json (written by each running session, removed at
 # teardown) instead of squeue, so completion stays instant even when the
 # scheduler is slow.
 #
@@ -18,14 +18,16 @@ _sinteractive() {
   prev="${COMP_WORDS[COMP_CWORD - 1]}"
 
   case "$prev" in
-  -a | --attach | --status | --cancel)
+  -a | --attach | --status | --refresh | --cancel)
     local dir="${HOME}/.cache/sinteractive" targets='' f id name
     for f in "$dir"/*.json; do
       [[ -e "$f" ]] || continue
       id="${f##*/}"
       targets+=" ${id%.json}"
       # State files are single-line JSON; pull "name" out with sed (null and
-      # missing names produce no output).
+      # missing names produce no output). The pattern is greedy, so it matches
+      # the LAST "name": on the line — never add a key ending in `name`
+      # (job_name, node_name) after this one or completion silently breaks.
       name=$(sed -n 's/.*"name":"\([^"]*\)".*/\1/p' "$f" 2>/dev/null)
       [[ -n "$name" ]] && targets+=" ${name}"
     done
@@ -41,7 +43,7 @@ _sinteractive() {
   if [[ "$cur" == -* ]]; then
     COMPREPLY=($(compgen -W '
       --name --time --threads --node --partition --mouse --no-mouse
-      --attach --list --status --cancel --detach --json
+      --attach --list --status --refresh --cancel --detach --json
       --help --version
     ' -- "$cur"))
   fi

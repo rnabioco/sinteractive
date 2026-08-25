@@ -8,6 +8,42 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `--refresh [TARGET]` re-checks a session's time budget against Slurm and
+  makes its cached state file agree now rather than at the next poll — one
+  command for "I just changed this job's wall time with `scontrol`". Output
+  is identical to `--status`, including `--json`.
+- `--list --json` now reports `end_epoch` and `remaining_seconds` per
+  session, so one call can rank sessions by remaining wall time instead of
+  a `--status` per job.
+- `SINTERACTIVE_POLL` sets how often a session re-checks its end time and
+  rewrites its state file (default 30 seconds).
+
+### Fixed
+
+- The state file (`~/.cache/sinteractive/JOBID.json`) could advertise a
+  fresh `updated_epoch` over a `remaining_seconds` derived from an end time
+  up to five minutes old, because the end time was re-queried every 300
+  seconds while the file was rewritten every 30. A wall-time change made
+  with `scontrol update JobId=... TimeLimit=...` was therefore invisible to
+  scripts and agents — and looked authoritative while it was wrong, since
+  the documented "older than ~2 minutes means stale" check could never fire.
+  The end time is now confirmed against Slurm immediately before every
+  write, so `updated_epoch` means "confirmed against Slurm at this time".
+- When `squeue` cannot be reached the state file is now left untouched
+  rather than restamped with an unverified budget, so it ages honestly and
+  the documented staleness check detects it. The status-bar countdown keeps
+  running from the last known end time either way.
+- The state file is refreshed every 30 seconds as documented. The status
+  loop's one-minute sleep in the green phase could satisfy the 30-second
+  write gate only once, making the real cadence 60 seconds.
+- The terminal bell and the red final countdown no longer fire off a stale
+  end time: the deadline is confirmed before the bell rings, the same
+  re-check the clean-shutdown path already did. Previously a wall-time
+  change could ring the bell and start the red spinner on a session that
+  had minutes or hours left.
+
 ## [0.1.3] - 2026-07-24
 
 ### Added

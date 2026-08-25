@@ -234,11 +234,17 @@ srun --overlap --jobid=JOBID -- bash -lc 'make test'
 
 Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`, if named)
 are exported, and `sinteractive --status` with no argument reports on the
-current session. A state file at `~/.cache/sinteractive/JOBID.json` is
-refreshed about every 30 seconds with `remaining_seconds`, so tools can poll
-the time budget without querying the scheduler; it is removed when the session
-ends. In-session renames (`Ctrl-b $`) are reflected in the state file,
-`--status`, and new panes, but shells already running keep their original
+current session. A state file at `~/.cache/sinteractive/JOBID.json` carries
+`remaining_seconds`, so tools can poll the time budget without querying the
+scheduler; it is removed when the session ends. The end time is re-checked
+against Slurm immediately before every write, so `updated_epoch` is when the
+whole snapshot was confirmed: if it is more than ~2 minutes old, treat the
+file as stale and fall back to `sinteractive --status`. A walltime change made
+with `scontrol update JobId=... TimeLimit=...` appears within about 30
+seconds, or at once with `sinteractive --refresh`.
+
+In-session renames (`Ctrl-b $`) are reflected in the state file, `--status`,
+and new panes, but shells already running keep their original
 `SINTERACTIVE_NAME`.
 
 > [!TIP]
