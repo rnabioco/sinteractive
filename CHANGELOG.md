@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-25
+
 ### Changed
 
 - `make tmux` now builds tmux 3.7c (was 3.7b). It fixes the initial state
@@ -217,7 +219,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/rnabioco/sinteractive/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/rnabioco/sinteractive/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/rnabioco/sinteractive/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/rnabioco/sinteractive/compare/v0.1.0...v0.1.1
