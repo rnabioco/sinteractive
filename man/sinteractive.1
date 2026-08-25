@@ -1,4 +1,4 @@
-.TH SINTERACTIVE 1 "July 2026" "sinteractive 0.1.3" "User Commands"
+.TH SINTERACTIVE 1 "August 2026" "sinteractive 0.1.3" "User Commands"
 .SH NAME
 sinteractive \- start an interactive tmux session on a Slurm compute node
 .SH SYNOPSIS
@@ -23,6 +23,13 @@ sinteractive \- start an interactive tmux session on a Slurm compute node
 .B sinteractive \-\-refresh
 .RI [ TARGET ]
 .RB [ \-\-json ]
+.br
+.B sinteractive \-\-ensure
+.I NAME
+.RI [ OPTIONS ]
+.RB [ \-\-json ]
+.br
+.B sinteractive \-\-agent\-context
 .SH DESCRIPTION
 .B sinteractive
 submits a batch job that launches a detached
@@ -107,7 +114,7 @@ Disable mouse support (overrides
 .TP
 .B \-\-detach
 Launch without attaching: wait until the session is ready, print
-connection info (attach/status/run/cancel commands), and return.
+connection info (attach/status/cancel commands), and return.
 Attach later with
 .BR \-\-attach .
 Useful for scripts and agents; combine with
@@ -143,13 +150,45 @@ on the job, but accepts session names. Allowed from inside a session
 \(em cancelling the session you are in ends it, like the wall time
 running out.
 .TP
+.BI \-\-ensure\  NAME
+Idempotent get\-or\-create: if a session named
+.I NAME
+is already running, report it and exit 0 without launching anything;
+otherwise launch one and report that. Implies
+.BR \-\-detach ,
+and takes the same launch options as a normal launch (\c
+.BR \-\-time ,
+.BR \-j ,
+.BR \-m ,
+.BR \-\-partition ,
+and any
+.BR sbatch (1)
+flag). With
+.B \-\-json
+the object carries an extra
+.B created
+field \(em
+.B true
+when this call launched the session,
+.B false
+when it found one already running \(em so a caller need not list, parse,
+and recover from a duplicate\-name error.
+.IP
+A
+.B PENDING
+match counts as existing and is returned with its real state rather than
+waited on. The duplicate\-name check happens before submission, so two
+concurrent
+.B \-\-ensure
+calls for the same name can still both launch.
+.TP
 .BR \-l ,\  \-\-list
 List running sinteractive sessions with job id, name, node, partition,
 elapsed time, time limit, and the session's current working directory.
 .TP
 .BI \-\-status\  [TARGET]
-Show session status: state, node, partition, elapsed time, and time
-remaining.
+Show session status: state, node, partition, allocated CPUs and memory,
+elapsed time, and time remaining.
 .I TARGET
 is a
 .I JOBID
@@ -176,11 +215,47 @@ print JSON for scripts and agents.
 .B \-\-status \-\-json
 and
 .B \-\-list \-\-json
-both include
+return the same object shape, except that
+.B \-\-list
+additionally carries
+.BR cwd ,
+which costs an SSH round\-trip per session. Both include
 .BR end_epoch " and " remaining_seconds ,
 so one
 .B \-\-list
-call can rank sessions by remaining wall time.
+call can rank sessions by remaining wall time, and
+.BR cpus ", " memory ", " memory_mb " and " gpus ,
+which describe the session's own allocation.
+.IP
+.B cpus
+is what Slurm
+.I allocated,
+which can exceed what was requested \(em a cluster that hands out whole
+cores will report 2 for a
+.B \-j 1
+session. That is the number you actually have.
+.IP
+Those resource fields are for sizing a
+.I separate
+allocation to run work in, not for sizing work run inside the session;
+see
+.BR \-\-agent\-context .
+They are deliberately not exported into the session environment.
+.TP
+.B \-\-agent\-context
+Print a briefing, on stdout, for a coding agent running inside a session:
+which job it is in, the allocation's size, the wall time remaining, and
+the rule that a session is an orchestration shell rather than a compute
+target \(em with the
+.BR srun (1)
+and
+.BR salloc (1)
+command shapes to use instead. Exits 1 with a short note when run outside
+a session. Intended for a
+.B SessionStart
+hook (see
+.BR "SCRIPTING AND AGENTS" ),
+but useful by hand to see exactly what an agent was told.
 .TP
 .BR \-h ,\  \-\-help
 Show a short help message.
@@ -301,15 +376,15 @@ About ten seconds before the limit, a notice is printed in every pane
 and the session shuts down cleanly, so the job completes instead of
 being killed at timeout.
 .SH SCRIPTING AND AGENTS
-Headless workflows (e.g. Claude Code) can launch, inspect, and use a
-session without attaching:
+Headless workflows (e.g. Claude Code) can launch and inspect sessions
+without attaching:
 .PP
 .nf
 .RS
 sinteractive \-\-detach \-n build \-\-time=8h \-\-json
+sinteractive \-\-ensure build \-\-time=8h \-\-json  # get\-or\-create
 sinteractive \-\-status build \-\-json     # incl. remaining_seconds
 sinteractive \-\-refresh build \-\-json    # same, after a scontrol change
-srun \-\-overlap \-\-jobid=JOBID \-\- CMD...  # run inside the allocation
 .RE
 .fi
 .PP
@@ -326,6 +401,44 @@ the scheduler. Do not trust a budget read earlier in a long-running
 session: wall time can be changed underneath you with
 .BR scontrol (1),
 so re-read it before starting work that has to fit.
+.SS A session is not a compute target
+A session is an orchestration shell. It defaults to the
+.B interactive
+partition \(em the smallest on the cluster \(em and it is shared with the
+shell the user is typing in. Run work in an allocation sized for it
+instead:
+.PP
+.nf
+.RS
+srun \-p PART \-c N \-\-mem SIZE \-t TIME \-\- CMD...   # one\-off
+salloc \-\-no\-shell \-p PART \-c N \-\-mem SIZE \-t TIME  # sustained
+srun \-\-overlap \-\-jobid=ID \-\- CMD...              # ... reused
+scancel ID
+.RE
+.fi
+.PP
+Both stream output and propagate the command's exit code.
+.BR salloc (1)
+prints
+.RB \(dq "Granted job allocation ID" \(dq
+on standard error, not standard output, so capture the id through
+.BR 2>&1 .
+Because every
+.B SLURM_
+variable is stripped from a session (so that tools inside it do not
+believe they are running as a job step),
+.BR srun (1)
+and
+.BR salloc (1)
+run from inside one create their own allocations rather than steps of the
+session's job.
+.SS Claude Code hooks
+.B \-\-agent\-context
+prints this briefing for the current session. The repository ships a skill
+and two hooks that wire it up \(em one briefing the agent at session start,
+one warning it when the session is running out of wall time \(em installed
+with
+.BR "make claude\-install" .
 .SH ENVIRONMENT
 Set personal defaults, e.g. in
 .IR ~/.bashrc ;

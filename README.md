@@ -71,7 +71,9 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--status [TARGET]` | Show session status by JOBID or NAME (state, node, time remaining) | current session |
 | `--json` | With `--list`/`--status`/`--detach`: machine-readable JSON output | |
 | `-a`, `--attach [TARGET]` | Reattach by JOBID or NAME; with no target, your only session | |
+| `--ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) | |
 | `--cancel TARGET` | Cancel a session by JOBID or NAME | |
+| `--agent-context` | Brief a coding agent on the session it is running inside | |
 | `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 
@@ -221,16 +223,39 @@ as [Claude Code](https://code.claude.com/docs/):
 # Launch without attaching; returns once the session is ready
 sinteractive --detach -n mywork --time=8h
 
+# Get-or-create in one idempotent call
+sinteractive --ensure mywork --time=8h --json
+# {..., "created": true}    launched it
+# {..., "created": false}   one was already running
+
 # Machine-readable session info
 sinteractive --list --json
 sinteractive --status mywork --json
 # {"job_id":147845,"name":"mywork","state":"RUNNING","node":"compute20",
-#  "partition":"rna","time_limit":"8:00:00","elapsed":"0:43",
-#  "end_epoch":1783180952,"remaining_seconds":28757}
-
-# Run a command inside the allocation (exit code propagates)
-srun --overlap --jobid=JOBID -- bash -lc 'make test'
+#  "partition":"rna","cpus":8,"memory":"32G","memory_mb":32768,"gpus":0,
+#  "time_limit":"8:00:00","elapsed":"0:43","end_epoch":1783180952,
+#  "remaining_seconds":28757}
 ```
+
+> [!IMPORTANT]
+> **A session is not a compute target.** It is an orchestration shell: the
+> default `interactive` partition is the smallest on the cluster, and anything
+> heavy you run in the session competes with the shell you are typing in. Run
+> work in an allocation sized for it:
+>
+> ```bash
+> # One-off job
+> srun -p rna -c 8 --mem 32G -t 1:00:00 -- make test
+>
+> # Sustained work: hold one allocation and reuse it
+> salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00   # job id on stderr
+> srun --overlap --jobid=ID -- cargo build --release
+> scancel ID
+> ```
+>
+> Every `SLURM_*` variable is stripped from a session, so tools inside it
+> don't believe they are a job step — which also means `srun` and `salloc` run
+> from inside a session create their own allocations.
 
 Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`, if named)
 are exported, and `sinteractive --status` with no argument reports on the
@@ -249,13 +274,16 @@ and new panes, but shells already running keep their original
 
 > [!TIP]
 > This repo ships a [Claude Code skill](https://code.claude.com/docs/en/skills)
-> that teaches agents cluster etiquette: run heavy work in an allocation
-> (never on the login node), reuse sessions, check the time budget before long
-> jobs, and clean up. Install it per-user from a checkout of this repo:
+> plus two hooks, for agents that run **inside** a session. The skill teaches
+> cluster etiquette; the hooks brief the agent on which session it is in at
+> startup, and warn it when the session is running out of wall time.
 >
 > ```bash
-> make skill-install   # copies to ~/.claude/skills/bodhi-compute
+> make claude-install   # skill + hooks into ~/.claude; prints the settings block
 > ```
+>
+> `sinteractive --agent-context` prints the briefing by hand, so you can see
+> exactly what the agent was told.
 
 ## Tips
 

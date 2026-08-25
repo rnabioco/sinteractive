@@ -17,9 +17,45 @@ and this project adheres to
   and an unzoom-before-floating-pane crash fix. Rebuild and fan out with
   `make tmux && make tmux-push` as root — running sessions keep the tmux
   server they started with until they end.
+- The bundled `bodhi-compute` skill, the man page, and the docs no longer
+  present an sinteractive session as somewhere to run work. A session is an
+  orchestration shell: it defaults to the `interactive` partition, the
+  smallest on the cluster, and work run in it competes with the shell the
+  user is typing in. Heavy work belongs in its own allocation — `srun` for a
+  one-off, `salloc --no-shell` plus `srun --overlap` for sustained work — and
+  the guidance now says so, including that `srun`/`salloc` from inside a
+  session create their own allocations because `SLURM_*` is stripped. The
+  previous advice to `srun --overlap` into a session has been retired, and
+  the `--detach` banner no longer prints it.
 
 ### Added
 
+- `--agent-context` prints a briefing, for a coding agent running inside a
+  session, on which job it is in, how big that allocation is, how much wall
+  time is left, and the rule that a session is an orchestration shell rather
+  than a compute target — with the `srun` and `salloc` command shapes to use
+  instead. Exits 1 outside a session. Run it by hand to see exactly what an
+  agent was told.
+- `--ensure NAME` is an idempotent get-or-create: reuse the session named
+  `NAME` if one is running, otherwise launch it. Implies `--detach` and takes
+  the usual launch options; `--json` adds a `created` field. Replaces the
+  list-parse-launch-recover-from-duplicate-name dance callers used to need.
+- Two Claude Code hooks, in `claude/hooks/`, for agents that run **inside** a
+  session: a `SessionStart` hook that emits `--agent-context`, and a
+  `UserPromptSubmit` hook that stays silent until the session drops below
+  `SINTERACTIVE_AGENT_WARN` seconds remaining (default 1800) and then warns
+  that long work will not survive it. Both always exit 0, so they are
+  harmless on the login node and in unrelated projects.
+- `make claude-install` installs the skill and both hooks into `~/.claude`
+  and prints the `settings.json` block to merge (it does not edit the file).
+  `make skill-install` is now an alias for it.
+- `--status --json` and `--list --json` now report `cpus`, `memory`,
+  `memory_mb` and `gpus`. These describe the session's own allocation and are
+  meant for sizing a *separate* allocation to run work in; they are
+  deliberately not exported into the session environment, where a
+  `SINTERACTIVE_CPUS` would invite running `make -j` in the wrong place.
+- `--list --json` now includes `state`, so it returns the same object shape
+  as `--status --json` except for `cwd`.
 - `--refresh [TARGET]` re-checks a session's time budget against Slurm and
   makes its cached state file agree now rather than at the next poll — one
   command for "I just changed this job's wall time with `scontrol`". Output

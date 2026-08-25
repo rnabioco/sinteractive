@@ -10,7 +10,7 @@ COMPDIR ?= ~/.local/share/bash-completion/completions
 # its man page to /usr/local/share/man.
 UID := $(shell id -u)
 
-.PHONY: install install-user install-system skill-install
+.PHONY: install install-user install-system claude-install skill-install
 
 ifeq ($(UID),0)
 install: install-system
@@ -32,12 +32,40 @@ install-system:
 	install -D -m 0644 man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1
 	install -D -m 0644 completions/sinteractive.bash /usr/local/share/bash-completion/completions/sinteractive
 
-# Claude Code skill: teaches agents to run heavy work in a Slurm allocation
-# (sinteractive --detach/--status, srun --overlap, time budgets). Skills are
-# per-user, so this installs into ~/.claude/skills regardless of UID.
-skill-install:
-	mkdir -p $(HOME)/.claude/skills/bodhi-compute
-	cp skills/bodhi-compute/SKILL.md $(HOME)/.claude/skills/bodhi-compute/SKILL.md
+# ---------------------------------------------------------------------------
+# Claude Code integration. Two parts:
+#
+#   - the bodhi-compute skill, which teaches an agent cluster etiquette: the
+#     login node and an sinteractive session are both orchestration shells,
+#     and real work goes into its own allocation;
+#   - two hooks for an agent running INSIDE a session, which tell it at
+#     startup where it is and how big the allocation is, and warn it when the
+#     session is running out of walltime.
+#
+# All per-user, so this installs into ~/.claude regardless of UID.
+#
+# settings.json is printed, not merged: it is the user's file and usually
+# already carries hooks of their own, so clobbering it is not this Makefile's
+# call to make.
+# ---------------------------------------------------------------------------
+CLAUDE_DIR ?= $(HOME)/.claude
+
+claude-install:
+	mkdir -p $(CLAUDE_DIR)/skills/bodhi-compute
+	cp skills/bodhi-compute/SKILL.md $(CLAUDE_DIR)/skills/bodhi-compute/SKILL.md
+	mkdir -p $(CLAUDE_DIR)/hooks
+	install -m 0755 claude/hooks/sinteractive-session-context.sh $(CLAUDE_DIR)/hooks/
+	install -m 0755 claude/hooks/sinteractive-walltime-guard.sh $(CLAUDE_DIR)/hooks/
+	@echo ''
+	@echo 'Installed the bodhi-compute skill and two hooks into $(CLAUDE_DIR).'
+	@echo 'The hooks only take effect once they are registered. Merge this into'
+	@echo '$(CLAUDE_DIR)/settings.json (keep any hooks already there):'
+	@echo ''
+	@sed 's/^/  /' claude/settings-snippet.json
+	@echo ''
+
+# Back-compat alias: this target used to install only the skill.
+skill-install: claude-install
 
 # ---------------------------------------------------------------------------
 # tmux — build the latest release from source and install to $(TMUX_PREFIX).

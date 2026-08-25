@@ -89,8 +89,10 @@ Options:
   -j, --threads N       Number of CPUs (default: 2)
   -m SIZE               Memory (default: 8G; e.g. 16G)
   -a, --attach [TARGET] Reattach: your only session, or one by JOBID or NAME
+  --ensure NAME         Reuse the session named NAME, or launch it if absent
   --cancel TARGET       Cancel a session by JOBID or NAME
   --refresh [TARGET]    Re-check the time budget now (after scontrol)
+  --agent-context       Brief a coding agent on the session it is running in
   -l, --list            List your running sessions
   -h, --help            Show this help message
   -V, --version         Show version
@@ -105,6 +107,11 @@ Examples:
 
 Inside the session, Ctrl-b h opens a help popup; Ctrl-b d detaches
 (the job keeps running).
+
+A session is for orchestration, not compute: it is usually a small
+allocation on the interactive partition, shared with the shell you are
+typing in. Run work in its own allocation instead -- srun for a one-off,
+salloc --no-shell plus srun --overlap for sustained work.
 
 Full documentation, including --detach/--status/--json for scripting,
 --node, --mouse, and SINTERACTIVE_* environment variables:
@@ -146,6 +153,8 @@ function main {
   local do_list=0
   local do_status=0
   local do_refresh=0
+  local do_agent_context=0
+  local ensure_mode=0
   local status_target=''
   case "${SINTERACTIVE_MOUSE:-}" in
   on | 1 | true | yes) enable_mouse=1 ;;
@@ -206,6 +215,31 @@ function main {
       do_refresh=1
       status_target="${1#--refresh=}"
       shift
+      ;;
+    --agent-context)
+      do_agent_context=1
+      shift
+      ;;
+    --ensure | --ensure=*)
+      # Idempotent get-or-create: --name plus --detach, with the
+      # already-running case turned from an error into the success path.
+      if [[ "$1" == --ensure=* ]]; then
+        session_name="${1#--ensure=}"
+        shift
+      else
+        [[ $# -ge 2 && "$2" != -* ]] || {
+          echo 1>&2 "Error: --ensure requires a NAME argument."
+          exit 1
+        }
+        session_name="$2"
+        shift 2
+      fi
+      if [[ -z "${session_name}" ]]; then
+        echo 1>&2 "Error: --ensure requires a NAME argument."
+        exit 1
+      fi
+      ensure_mode=1
+      detach_mode=1
       ;;
     -l | --list)
       do_list=1
@@ -366,6 +400,26 @@ function main {
   fi
   if ((do_status)); then
     show_status "$status_target" "$json_out" "$do_refresh"
+  fi
+  if ((do_agent_context)); then
+    agent_context
+  fi
+  # --ensure: if a session by this name is already there, report it and stop.
+  # Deliberately quiet about a miss (unlike resolve_session_jobid) — not
+  # finding one is the create path, not an error. A PENDING match counts as
+  # existing and is reported with its real state rather than waited on, so the
+  # caller decides whether to poll. The launch below re-checks for duplicates,
+  # so two concurrent --ensure calls can still both create; that race is not
+  # worth a lock.
+  if ((ensure_mode)); then
+    local ensure_existing
+    ensure_existing=$(squeue --me --states RUNNING,PENDING --noheader \
+      --Format=JobID:12,Comment:80 2>/dev/null |
+      awk -v n="sinteractive:${session_name}" '$2 == n {print $1; exit}')
+    if [[ -n "${ensure_existing}" ]]; then
+      ((json_out)) || echo 1>&2 "Reusing existing session '${session_name}'."
+      show_status "${ensure_existing}" "$json_out" 0 false
+    fi
   fi
   if [[ -n "${cancel_target}" ]]; then
     cancel_session "${cancel_target}"
@@ -627,7 +681,7 @@ function main {
   # status object is the whole output; show_status exits.
   if ((detach_mode)); then
     if ((json_out)); then
-      show_status "${JOB_ID}" 1
+      show_status "${JOB_ID}" 1 0 "$( ((ensure_mode)) && echo true )"
     fi
     local attach_target="${session_name:-${JOB_ID}}"
     echo 1>&2 ''
@@ -635,7 +689,6 @@ function main {
     echo 1>&2 ''
     echo 1>&2 "  Attach:   sinteractive --attach ${attach_target}"
     echo 1>&2 "  Status:   sinteractive --status ${attach_target}"
-    echo 1>&2 "  Run cmd:  srun --overlap --jobid=${JOB_ID} -- <command>"
     echo 1>&2 "  Cancel:   sinteractive --cancel ${attach_target}"
     return
   fi
@@ -719,6 +772,37 @@ function json_string_or_null {
   printf '"%s"' "$s"
 }
 
+# Convert a Slurm memory string (squeue %m, e.g. "8G", "96G", "4000M", "512")
+# to whole megabytes. Echoes the integer and returns 0; returns 1 on anything
+# unparseable ("N/A" for a job with no memory request), so the caller can emit
+# null rather than a made-up number. A bare number is already megabytes, which
+# is what --mem means to sbatch.
+function mem_to_mb {
+  local num unit
+  [[ "$1" =~ ^([0-9]+)([KMGT]?)B?[nc]?$ ]] || return 1
+  num="${BASH_REMATCH[1]}"
+  unit="${BASH_REMATCH[2]}"
+  case "$unit" in
+  K) printf '%s' $((num / 1024)) ;;
+  '' | M) printf '%s' "$num" ;;
+  G) printf '%s' $((num * 1024)) ;;
+  T) printf '%s' $((num * 1024 * 1024)) ;;
+  esac
+}
+
+# Count GPUs in a squeue TRES-per-node field (%b): "gres:gpu:2", the typed
+# form "gres:gpu:a100:2", or "N/A" when the job requested none. Always echoes
+# an integer — a GPU-less job is 0, not null, because "no GPUs" is a fact here
+# rather than a gap in what the scheduler told us.
+function gpus_from_tres {
+  [[ "$1" == *gpu* ]] || { printf '0'; return; }
+  if [[ "$1" =~ gpu(:[A-Za-z0-9_.-]+)?:([0-9]+) ]]; then
+    printf '%s' "${BASH_REMATCH[2]}"
+  else
+    printf '1'
+  fi
+}
+
 # Query the current working directory of an sinteractive tmux session by
 # asking tmux on the compute node. Returns empty string on failure.
 function get_session_cwd {
@@ -743,7 +827,7 @@ function list_sessions {
   # Pipe-delimited -o output (not --Format columns) so empty fields can't
   # shift the ones after them during parsing.
   local lines
-  lines=$(squeue --me --states RUNNING --noheader -o '%i|%k|%N|%P|%M|%l|%e' 2>/dev/null |
+  lines=$(squeue --me --states RUNNING --noheader -o '%i|%k|%N|%P|%M|%l|%e|%C|%m|%b' 2>/dev/null |
     awk -F'|' '$2 == "sinteractive" || index($2, "sinteractive:") == 1')
 
   if [[ -z "$lines" ]]; then
@@ -759,17 +843,17 @@ function list_sessions {
   local tmpdir
   tmpdir=$(mktemp -d)
   trap 'rm -rf "$tmpdir"' EXIT
-  local jobid comment node partition elapsed limit end_str
-  while IFS='|' read -r jobid comment node partition elapsed limit end_str; do
+  local jobid comment node partition elapsed limit end_str cpus mem gres
+  while IFS='|' read -r jobid comment node partition elapsed limit end_str cpus mem gres; do
     (get_session_cwd "$node" "$jobid" >"$tmpdir/$jobid") &
   done <<<"$lines"
   wait
 
   local name cwd
   if ((json)); then
-    local out='[' first=1 now end_epoch remaining
+    local out='[' first=1 now end_epoch remaining mem_mb
     printf -v now '%(%s)T' -1
-    while IFS='|' read -r jobid comment node partition elapsed limit end_str; do
+    while IFS='|' read -r jobid comment node partition elapsed limit end_str cpus mem gres; do
       name=''
       if [[ "$comment" =~ ^sinteractive:(.+)$ ]]; then
         name="${BASH_REMATCH[1]}"
@@ -777,8 +861,14 @@ function list_sessions {
       cwd=$(<"$tmpdir/$jobid")
       ((first)) || out+=','
       first=0
+      # squeue was filtered to RUNNING above; the field is here so this shape
+      # matches --status --json, which callers otherwise have to special-case.
+      mem_mb=$(mem_to_mb "$mem") || mem_mb=''
       out+="{\"job_id\":${jobid},\"name\":$(json_string_or_null "$name")"
+      out+=",\"state\":\"RUNNING\""
       out+=",\"node\":\"${node}\",\"partition\":\"${partition}\""
+      out+=",\"cpus\":${cpus},\"memory\":$(json_string_or_null "$mem")"
+      out+=",\"memory_mb\":${mem_mb:-null},\"gpus\":$(gpus_from_tres "$gres")"
       out+=",\"elapsed\":\"${elapsed}\",\"time_limit\":\"${limit}\""
       # %e is N/A or Unknown for a job without a scheduled end; both fields
       # go null together rather than reporting a bogus budget.
@@ -797,7 +887,7 @@ function list_sessions {
 
   printf '%-10s  %-20s  %-14s  %-12s  %-10s  %-10s  %s\n' \
     'JOBID' 'NAME' 'NODE' 'PARTITION' 'ELAPSED' 'TIMELIMIT' 'CWD'
-  while IFS='|' read -r jobid comment node partition elapsed limit end_str; do
+  while IFS='|' read -r jobid comment node partition elapsed limit end_str cpus mem gres; do
     name='-'
     if [[ "$comment" =~ ^sinteractive:(.+)$ ]]; then
       name="${BASH_REMATCH[1]}"
@@ -818,7 +908,12 @@ function list_sessions {
 # when run inside one). Human-readable by default; with json=1 emits a single
 # JSON object for scripts and agents. Exits 0 if the job exists, 1 otherwise.
 function show_status {
-  local target=$1 json=$2 refresh=${3:-0}
+  local target=$1 json=$2 refresh=${3:-0} created=${4:-}
+  # --ensure reports whether it launched the session or found one already
+  # running; every other caller leaves the field off entirely rather than
+  # emitting a meaningless "created":false.
+  local extra=''
+  [[ -n "$created" ]] && extra=",\"created\":${created}"
 
   if [[ -z "$target" ]]; then
     if [[ -n "${SINTERACTIVE_JOB_ID:-}" ]]; then
@@ -843,7 +938,7 @@ function show_status {
   fi
 
   local line
-  line=$(squeue --jobs "$jobid" --noheader -o '%T|%e|%N|%P|%l|%M|%k' 2>/dev/null)
+  line=$(squeue --jobs "$jobid" --noheader -o '%T|%e|%N|%P|%l|%M|%k|%C|%m|%b' 2>/dev/null)
   if [[ -z "$line" ]]; then
     if ((json)); then
       printf '{"job_id":%s,"state":"NOT_FOUND"}\n' "$jobid"
@@ -853,8 +948,15 @@ function show_status {
     exit 1
   fi
 
-  local state end_str node partition limit elapsed comment
-  IFS='|' read -r state end_str node partition limit elapsed comment <<<"$line"
+  local state end_str node partition limit elapsed comment cpus mem gres
+  IFS='|' read -r state end_str node partition limit elapsed comment cpus mem gres <<<"$line"
+
+  # Allocation size, for sizing a separate allocation to run work in — not for
+  # sizing work run inside the session itself. Deliberately absent from the
+  # session environment for that reason; see start_tmux.
+  local mem_mb gpus
+  mem_mb=$(mem_to_mb "$mem") || mem_mb=''
+  gpus=$(gpus_from_tres "$gres")
 
   local name=''
   if [[ "$comment" =~ ^sinteractive:(.+)$ ]]; then
@@ -871,20 +973,110 @@ function show_status {
   fi
 
   if ((json)); then
-    printf '{"job_id":%s,"name":%s,"state":"%s","node":%s,"partition":"%s","time_limit":"%s","elapsed":"%s","end_epoch":%s,"remaining_seconds":%s}\n' \
+    # Same field order as --list --json, which additionally carries "cwd" —
+    # that costs an SSH round-trip per session, and this path is on the hot
+    # path for agents polling a single session, so it stays out.
+    printf '{"job_id":%s,"name":%s,"state":"%s","node":%s,"partition":"%s","cpus":%s,"memory":%s,"memory_mb":%s,"gpus":%s,"time_limit":"%s","elapsed":"%s","end_epoch":%s,"remaining_seconds":%s%s}\n' \
       "$jobid" "$(json_string_or_null "$name")" "$state" \
-      "$(json_string_or_null "$node")" "$partition" "$limit" "$elapsed" \
-      "${end_epoch:-null}" "${remaining:-null}"
+      "$(json_string_or_null "$node")" "$partition" \
+      "${cpus:-null}" "$(json_string_or_null "$mem")" "${mem_mb:-null}" \
+      "$gpus" "$limit" "$elapsed" \
+      "${end_epoch:-null}" "${remaining:-null}" "$extra"
   else
     local title="Session ${jobid}"
     [[ -n "$name" ]] && title+=" (${name})"
     echo "${title}: ${state}${node:+ on ${node}}"
     printf '  %-11s %s\n' 'Partition:' "$partition"
+    local res="${cpus} CPUs, ${mem}"
+    ((gpus > 0)) && res+=", ${gpus} GPU"
+    ((gpus > 1)) && res+='s'
+    printf '  %-11s %s\n' 'Resources:' "$res"
     printf '  %-11s %s (limit %s)\n' 'Elapsed:' "$elapsed" "$limit"
     if [[ -n "$remaining" ]]; then
       printf '  %-11s %s\n' 'Remaining:' "$(format_short_duration "$remaining")"
     fi
   fi
+  exit 0
+}
+
+# Briefing for a coding agent running inside a session (Claude Code and
+# friends), printed on stdout; exits 1 with a one-line note when run outside
+# one. The wording lives here rather than in the SessionStart hook so it is
+# versioned with the tool, and so a human can run the command to see exactly
+# what the agent was told.
+#
+# The load-bearing message is that the session is NOT a compute target: it is
+# usually a small allocation on the interactive partition, and work run in it
+# competes with the shell the user is typing in. That is also why the resource
+# numbers below are reported but never exported as environment variables — a
+# SINTERACTIVE_CPUS in the environment is an invitation to run `make -j` here.
+function agent_context {
+  if [[ -z "${SINTERACTIVE_JOB_ID:-}" ]]; then
+    echo 1>&2 "${PROG}: not inside an sinteractive session (SINTERACTIVE_JOB_ID unset)."
+    exit 1
+  fi
+  local jobid="${SINTERACTIVE_JOB_ID}"
+
+  local line
+  line=$(squeue --jobs "$jobid" --noheader -o '%T|%e|%N|%P|%C|%m|%b|%k' 2>/dev/null)
+  if [[ -z "$line" ]]; then
+    echo 1>&2 "${PROG}: job ${jobid} not found (finished or cancelled)"
+    exit 1
+  fi
+
+  local state end_str node partition cpus mem gres comment
+  IFS='|' read -r state end_str node partition cpus mem gres comment <<<"$line"
+
+  local name=''
+  if [[ "$comment" =~ ^sinteractive:(.+)$ ]]; then
+    name="${BASH_REMATCH[1]}"
+  fi
+
+  local res="${cpus} CPUs, ${mem}"
+  local gpus
+  gpus=$(gpus_from_tres "$gres")
+  ((gpus > 0)) && res+=", ${gpus} GPU"
+  ((gpus > 1)) && res+='s'
+
+  local budget='walltime unknown'
+  local end_epoch remaining
+  if end_epoch=$(date -d "$end_str" +%s 2>/dev/null); then
+    remaining=$((end_epoch - $(date +%s)))
+    ((remaining < 0)) && remaining=0
+    budget="walltime $(format_short_duration "$remaining") remaining"
+  fi
+
+  local ident="job ${jobid}"
+  [[ -n "$name" ]] && ident+=" (${name})"
+
+  cat <<CONTEXT
+You are inside an sinteractive tmux session on a compute node.
+  ${ident} on ${node}, partition ${partition} — ${res}
+  ${budget} (the session self-terminates ~10s before the limit)
+
+This session is an orchestration shell, NOT a compute target. Editing, git and
+scheduler queries belong here; anything heavier gets its own allocation, so it
+neither competes with the shell the user is typing in nor is capped by the
+small interactive partition.
+
+  one-off     srun -p PART -c N --mem SIZE -t TIME -- CMD
+  sustained   salloc --no-shell -p PART -c N --mem SIZE -t TIME   # job id on STDERR
+              srun --overlap --jobid=ID -- CMD                    # repeat as needed
+              scancel ID                                          # when done
+
+Both stream output and propagate the command's exit code. salloc announces
+itself with "salloc: Granted job allocation ID" on stderr, not stdout, so
+capture it through 2>&1.
+
+Pick PART with \`sinfo\`; the interactive partition is small and underpowered,
+so it is not the right target for work. SLURM_* is stripped from this session,
+so srun and salloc here create their own allocations rather than steps of this
+job — and work in them is bounded by their own -t, not by the budget above.
+
+Re-check this session with \`sinteractive --status --json\` before long work;
+the number above was read when this briefing was generated, and a walltime can
+be changed underneath you.
+CONTEXT
   exit 0
 }
 
