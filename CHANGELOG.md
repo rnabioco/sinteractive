@@ -38,11 +38,14 @@ and this project adheres to
   `make nodes`, users can pick up the integration without cloning anything.
   `SINTERACTIVE_SHARE` overrides the lookup, and `make claude-install` is now
   a thin wrapper around the same code path rather than a second copy of it.
-- The status bar shows an `sinteractive --install-claude` hint while Claude
-  Code is running in a session whose hooks are not yet registered. It is
-  gated on a live `claude` process rather than on an installed binary, and
-  clears once the hooks appear in `settings.json`, so it never nags anyone
-  who does not use Claude Code.
+- The yellow rule between the pane and the status bar carries a centred
+  `sinteractive --install-claude` hint while Claude Code is running in a
+  session whose hooks are not yet registered. The rule is full width and
+  otherwise empty, so this costs nothing in the status line, which is already
+  shared by the job info and the Help/Detach keys. The hint is gated on a
+  live `claude` process rather than on an installed binary, and clears once
+  the hooks appear in `settings.json`, so it never nags anyone who does not
+  use Claude Code.
 - The in-session help popup (`Ctrl-b h`) now reports the sinteractive
   version. It comes from Slurm's spooled copy of the script, so it is the
   version that launched the session, which can differ from what is installed

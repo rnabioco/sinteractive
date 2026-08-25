@@ -1107,14 +1107,19 @@ function claude_integration_active {
   return 0
 }
 
-# The status-right string, with or without the --install-claude hint. Both
-# start_tmux and status_dot_loop set this option, so it lives in one function
-# rather than being mirrored by hand the way the status-left string has to be.
-function status_right_string {
-  local hint=${1:-0} out=''
-  ((hint)) && out+=' #[fg=yellow,bold]sinteractive --install-claude#[default] #[dim]|#[default]'
-  out+=' Help: #[fg=yellow,bold]Ctrl+b h#[default] | Detach: #[fg=yellow,bold]Ctrl+b d#[default] '
-  printf '%s' "$out"
+# The yellow rule between the pane and the status bar, which normally carries
+# no text, doubles as a notice line. It is full width and empty, whereas
+# status-right is 40 columns already shared by the Help and Detach keys — so
+# an occasional hint goes here rather than crowding the primary status line.
+#
+# Both start_tmux and status_dot_loop set this option, so it lives in one
+# function rather than being mirrored by hand the way status-left has to be.
+function pane_border_format_string {
+  local hint=${1:-0}
+  ((hint)) || return 0
+  # Kept short: at 80 columns a long notice swallows the whole rule and stops
+  # reading as a separator.
+  printf '%s' '#[align=centre]#[fg=yellow,bold] Claude Code: sinteractive --install-claude #[default]'
 }
 
 # Whether to nag about --install-claude in the status bar: only while Claude
@@ -1809,8 +1814,10 @@ function status_dot_loop {
       claude_hint_wanted && want_hint=1
       if ((want_hint != hint_shown)); then
         hint_shown=$want_hint
-        $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right \
-          "$(status_right_string "$want_hint")" 2>/dev/null
+        # Global, like the other pane-border options in start_tmux, so panes
+        # and windows opened later show the same rule.
+        $TMUX_BIN -L "$sock" set-option -g pane-border-format \
+          "$(pane_border_format_string "$want_hint")" 2>/dev/null
       fi
     fi
 
@@ -2072,11 +2079,9 @@ function start_tmux {
   # Hide the window list (0:bash*) from the center of the status bar
   $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-format ''
   $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-current-format ''
-  # Length reserves room for the --install-claude hint, which status_dot_loop
-  # swaps in later; only the string changes, never the length.
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right \
-    "$(status_right_string 0)"
-  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right-length 80
+    " Help: #[fg=yellow,bold]Ctrl+b h#[default] | Detach: #[fg=yellow,bold]Ctrl+b d#[default] "
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right-length 40
   # Terminal window/tab title (OSC 2): mirror the status-left text so users
   # with several sessions can tell tabs apart at a glance.
   $TMUX_BIN -L "$sock" set-option -t "$session_name" set-titles on
@@ -2089,7 +2094,9 @@ function start_tmux {
   # (hardcoded #F0E442 was ~1.3:1 contrast on white — invisible). Global so
   # windows created later get it too.
   $TMUX_BIN -L "$sock" set-option -g pane-border-status bottom
-  $TMUX_BIN -L "$sock" set-option -g pane-border-format ''
+  # Empty by default; status_dot_loop swaps in the --install-claude hint when
+  # one is wanted (see pane_border_format_string).
+  $TMUX_BIN -L "$sock" set-option -g pane-border-format "$(pane_border_format_string 0)"
   $TMUX_BIN -L "$sock" set-option -g pane-border-lines heavy
   $TMUX_BIN -L "$sock" set-option -g pane-border-style 'fg=yellow'
   $TMUX_BIN -L "$sock" set-option -g pane-active-border-style 'fg=yellow'

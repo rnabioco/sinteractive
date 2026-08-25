@@ -129,6 +129,12 @@ on the login node and in unrelated projects. The guard prefers the cached
 state file and only falls back to the scheduler when it is stale, so a quiet
 session costs nothing.
 
+While Claude Code is running in a session whose hooks are not registered yet,
+the yellow rule between the pane and the status bar carries a centred
+`sinteractive --install-claude` hint. It is gated on a live `claude` process,
+so it never appears for people who don't use Claude Code, and it clears once
+the hooks are registered.
+
 Hooks fire at turn and tool boundaries, so work already in flight cannot be
 warned about — put long work in its own allocation, which outlives the
 session, rather than relying on the guard.
