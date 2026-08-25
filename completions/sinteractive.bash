@@ -1,7 +1,7 @@
 # Bash completion for sinteractive.
 #
-# Completes option flags and, after --attach/--status/--refresh/--cancel, the
-# job ids and names of running sessions. Targets are read from the state files
+# Completes option flags and, after --attach/--status/--refresh/--cancel/
+# --ensure, the job ids and names of running sessions. Targets are read from the state files
 # at ~/.cache/sinteractive/*.json (written by each running session, removed at
 # teardown) instead of squeue, so completion stays instant even when the
 # scheduler is slow.
@@ -18,7 +18,7 @@ _sinteractive() {
   prev="${COMP_WORDS[COMP_CWORD - 1]}"
 
   case "$prev" in
-  -a | --attach | --status | --refresh | --cancel)
+  -a | --attach | --status | --refresh | --cancel | --ensure)
     local dir="${HOME}/.cache/sinteractive" targets='' f id name
     for f in "$dir"/*.json; do
       [[ -e "$f" ]] || continue
@@ -44,6 +44,7 @@ _sinteractive() {
     COMPREPLY=($(compgen -W '
       --name --time --threads --node --partition --mouse --no-mouse
       --attach --list --status --refresh --cancel --detach --json
+      --ensure --agent-context
       --help --version
     ' -- "$cur"))
   fi

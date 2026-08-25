@@ -20,7 +20,9 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--status [TARGET]` | Show session status by JOBID or NAME (state, node, time remaining) | current session |
 | `--json` | With `--list`/`--status`/`--detach`: machine-readable JSON output | |
 | `-a`, `--attach [TARGET]` | Reattach by JOBID or NAME; with no target, your only session | |
+| `--ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) | |
 | `--cancel TARGET` | Cancel a session by JOBID or NAME | |
+| `--agent-context` | Brief a coding agent on the session it is running inside | |
 | `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 | `-V`, `--version` | Show version | |
@@ -82,6 +84,29 @@ Then `sinteractive` launches a 1-day CPU session. For a longer run (up to
 7 days), override the QOS: `sinteractive --time=2d --qos=cpu-long`. The default
 account (`amc-general` for most users) is applied automatically; pass
 `--account=<name>` if you need a different allocation.
+
+## What a session is for
+
+A session is a durable place to *work from* — editing, git, scheduler
+queries, and keeping long-lived state across SSH drops. It is not a compute
+target: the default `interactive` partition is the smallest on the cluster,
+and anything heavy you run in the session competes with the shell you are
+typing in.
+
+Run work in an allocation sized for it instead:
+
+```bash
+# One-off job
+srun -p rna -c 8 --mem 32G -t 1:00:00 -- make test
+
+# Sustained work: hold one allocation and reuse it
+salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00   # job id on stderr
+srun --overlap --jobid=ID -- cargo build --release
+scancel ID
+```
+
+`SLURM_*` is stripped from a session, so `srun` and `salloc` run from inside
+one create their own allocations rather than steps of the session's job.
 
 ## Examples
 
