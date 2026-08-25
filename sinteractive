@@ -19,7 +19,7 @@ set -u
 TMUX_BIN="${SINTERACTIVE_TMUX:-/usr/local/bin/tmux}"
 JOB_ID=''
 # Reported by --version; keep in sync with the release tag (vX.Y.Z).
-VERSION='0.2.0'
+VERSION='0.2.1'
 # Basename for error messages ($0 is the full install path — noisy).
 PROG="${0##*/}"
 
