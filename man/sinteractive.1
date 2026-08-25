@@ -19,6 +19,10 @@ sinteractive \- start an interactive tmux session on a Slurm compute node
 .B sinteractive \-\-status
 .RI [ TARGET ]
 .RB [ \-\-json ]
+.br
+.B sinteractive \-\-refresh
+.RI [ TARGET ]
+.RB [ \-\-json ]
 .SH DESCRIPTION
 .B sinteractive
 submits a batch job that launches a detached
@@ -153,6 +157,15 @@ or
 .IR NAME ;
 inside a session it defaults to the current session.
 .TP
+.BI \-\-refresh\  [TARGET]
+Same output as
+.BR \-\-status ,
+and additionally asks the session to re-check its end time against Slurm
+and rewrite its state file now instead of at its next poll. Use it after
+changing a job's wall time with
+.BR "scontrol update JobId=... TimeLimit=..." ,
+so cached readers agree immediately.
+.TP
 .B \-\-json
 With
 .BR \-\-list ,
@@ -161,8 +174,13 @@ or
 .BR \-\-detach :
 print JSON for scripts and agents.
 .B \-\-status \-\-json
-includes
-.BR end_epoch " and " remaining_seconds .
+and
+.B \-\-list \-\-json
+both include
+.BR end_epoch " and " remaining_seconds ,
+so one
+.B \-\-list
+call can rank sessions by remaining wall time.
 .TP
 .BR \-h ,\  \-\-help
 Show a short help message.
@@ -290,6 +308,7 @@ session without attaching:
 .RS
 sinteractive \-\-detach \-n build \-\-time=8h \-\-json
 sinteractive \-\-status build \-\-json     # incl. remaining_seconds
+sinteractive \-\-refresh build \-\-json    # same, after a scontrol change
 srun \-\-overlap \-\-jobid=JOBID \-\- CMD...  # run inside the allocation
 .RE
 .fi
@@ -303,7 +322,10 @@ if named) are exported, and
 needs no target. A state file (see
 .BR FILES )
 mirrors the countdown so the time budget can be polled without hitting
-the scheduler.
+the scheduler. Do not trust a budget read earlier in a long-running
+session: wall time can be changed underneath you with
+.BR scontrol (1),
+so re-read it before starting work that has to fit.
 .SH ENVIRONMENT
 Set personal defaults, e.g. in
 .IR ~/.bashrc ;
@@ -349,6 +371,12 @@ Default: 600.
 .B SINTERACTIVE_GRACE
 Seconds remaining at which the session shuts down cleanly.
 Default: 10.
+.TP
+.B SINTERACTIVE_POLL
+Seconds between end-time re-checks against Slurm, which is also how often
+the state file is rewritten. Default: 30. Raise it where scheduler traffic
+is a concern, at the cost of a wall-time change taking that much longer to
+reach the cached file.
 .PP
 Exported inside a session:
 .B SINTERACTIVE_JOB_ID
@@ -374,7 +402,9 @@ is slow.
 .TP
 .I ~/.cache/sinteractive/JOBID.json
 Time-remaining state file, refreshed about every 30 seconds while the
-session runs and removed at teardown. Contains
+session runs (see
+.BR SINTERACTIVE_POLL )
+and removed at teardown. Contains
 .BR job_id ,
 .BR name ,
 .BR node ,
@@ -384,6 +414,23 @@ and
 .BR updated_epoch .
 .B $HOME
 is shared, so it is readable from the login node too.
+.IP
+The end time is re-checked against Slurm immediately before every write, so
+.B updated_epoch
+is when the whole snapshot was confirmed: if it is more than about two
+minutes old, treat the file as stale and fall back to
+.BR \-\-status .
+Age it exactly with
+.BR "remaining_seconds \- (now \- updated_epoch)" .
+A wall-time change made with
+.B scontrol update JobId=... TimeLimit=...
+appears within one poll interval, or at once with
+.BR \-\-refresh .
+When
+.BR squeue (1)
+cannot be reached the file is left untouched rather than restamped, so it
+ages honestly instead of vouching for a budget nobody verified; the
+status-bar countdown keeps running from the last known end time.
 .SH EXAMPLES
 .TP
 .B sinteractive

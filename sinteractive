@@ -90,6 +90,7 @@ Options:
   -m SIZE               Memory (default: 8G; e.g. 16G)
   -a, --attach [TARGET] Reattach: your only session, or one by JOBID or NAME
   --cancel TARGET       Cancel a session by JOBID or NAME
+  --refresh [TARGET]    Re-check the time budget now (after scontrol)
   -l, --list            List your running sessions
   -h, --help            Show this help message
   -V, --version         Show version
@@ -144,6 +145,7 @@ function main {
   local json_out=0
   local do_list=0
   local do_status=0
+  local do_refresh=0
   local status_target=''
   case "${SINTERACTIVE_MOUSE:-}" in
   on | 1 | true | yes) enable_mouse=1 ;;
@@ -185,6 +187,24 @@ function main {
     --status=*)
       do_status=1
       status_target="${1#--status=}"
+      shift
+      ;;
+    --refresh)
+      # Same output as --status; additionally pokes the session's status loop
+      # so the cached state file re-checks Slurm now rather than next poll.
+      do_status=1
+      do_refresh=1
+      if [[ -n "${2:-}" && "$2" != -* ]]; then
+        status_target="$2"
+        shift 2
+      else
+        shift
+      fi
+      ;;
+    --refresh=*)
+      do_status=1
+      do_refresh=1
+      status_target="${1#--refresh=}"
       shift
       ;;
     -l | --list)
@@ -345,7 +365,7 @@ function main {
     list_sessions "$json_out"
   fi
   if ((do_status)); then
-    show_status "$status_target" "$json_out"
+    show_status "$status_target" "$json_out" "$do_refresh"
   fi
   if [[ -n "${cancel_target}" ]]; then
     cancel_session "${cancel_target}"
@@ -723,7 +743,7 @@ function list_sessions {
   # Pipe-delimited -o output (not --Format columns) so empty fields can't
   # shift the ones after them during parsing.
   local lines
-  lines=$(squeue --me --states RUNNING --noheader -o '%i|%k|%N|%P|%M|%l' 2>/dev/null |
+  lines=$(squeue --me --states RUNNING --noheader -o '%i|%k|%N|%P|%M|%l|%e' 2>/dev/null |
     awk -F'|' '$2 == "sinteractive" || index($2, "sinteractive:") == 1')
 
   if [[ -z "$lines" ]]; then
@@ -739,16 +759,17 @@ function list_sessions {
   local tmpdir
   tmpdir=$(mktemp -d)
   trap 'rm -rf "$tmpdir"' EXIT
-  local jobid comment node partition elapsed limit
-  while IFS='|' read -r jobid comment node partition elapsed limit; do
+  local jobid comment node partition elapsed limit end_str
+  while IFS='|' read -r jobid comment node partition elapsed limit end_str; do
     (get_session_cwd "$node" "$jobid" >"$tmpdir/$jobid") &
   done <<<"$lines"
   wait
 
   local name cwd
   if ((json)); then
-    local out='[' first=1
-    while IFS='|' read -r jobid comment node partition elapsed limit; do
+    local out='[' first=1 now end_epoch remaining
+    printf -v now '%(%s)T' -1
+    while IFS='|' read -r jobid comment node partition elapsed limit end_str; do
       name=''
       if [[ "$comment" =~ ^sinteractive:(.+)$ ]]; then
         name="${BASH_REMATCH[1]}"
@@ -759,6 +780,15 @@ function list_sessions {
       out+="{\"job_id\":${jobid},\"name\":$(json_string_or_null "$name")"
       out+=",\"node\":\"${node}\",\"partition\":\"${partition}\""
       out+=",\"elapsed\":\"${elapsed}\",\"time_limit\":\"${limit}\""
+      # %e is N/A or Unknown for a job without a scheduled end; both fields
+      # go null together rather than reporting a bogus budget.
+      end_epoch=$(date -d "$end_str" +%s 2>/dev/null) || end_epoch=''
+      remaining=''
+      if [[ -n "$end_epoch" ]]; then
+        remaining=$((end_epoch - now))
+        ((remaining < 0)) && remaining=0
+      fi
+      out+=",\"end_epoch\":${end_epoch:-null},\"remaining_seconds\":${remaining:-null}"
       out+=",\"cwd\":$(json_string_or_null "$cwd")}"
     done <<<"$lines"
     echo "${out}]"
@@ -767,7 +797,7 @@ function list_sessions {
 
   printf '%-10s  %-20s  %-14s  %-12s  %-10s  %-10s  %s\n' \
     'JOBID' 'NAME' 'NODE' 'PARTITION' 'ELAPSED' 'TIMELIMIT' 'CWD'
-  while IFS='|' read -r jobid comment node partition elapsed limit; do
+  while IFS='|' read -r jobid comment node partition elapsed limit end_str; do
     name='-'
     if [[ "$comment" =~ ^sinteractive:(.+)$ ]]; then
       name="${BASH_REMATCH[1]}"
@@ -788,13 +818,13 @@ function list_sessions {
 # when run inside one). Human-readable by default; with json=1 emits a single
 # JSON object for scripts and agents. Exits 0 if the job exists, 1 otherwise.
 function show_status {
-  local target=$1 json=$2
+  local target=$1 json=$2 refresh=${3:-0}
 
   if [[ -z "$target" ]]; then
     if [[ -n "${SINTERACTIVE_JOB_ID:-}" ]]; then
       target="${SINTERACTIVE_JOB_ID}"
     else
-      echo 1>&2 "Error: --status requires a JOBID or NAME outside a session."
+      echo 1>&2 "Error: --status/--refresh requires a JOBID or NAME outside a session."
       echo 1>&2 "Run 'sinteractive --list' to see available sessions."
       exit 1
     fi
@@ -802,6 +832,15 @@ function show_status {
 
   local jobid
   jobid=$(resolve_session_jobid "$target") || exit 1
+
+  # --refresh: nudge the session's status loop to re-check its deadline and
+  # rewrite the cached state file. The live query below already reports the
+  # truth; this is what makes the cached copy agree within a tick, so "I just
+  # extended this job with scontrol" is one command instead of a wait.
+  # Fire-and-forget, like rename_session's poke.
+  if ((refresh)); then
+    touch "${HOME}/.cache/sinteractive/${jobid}.poke" 2>/dev/null || true
+  fi
 
   local line
   line=$(squeue --jobs "$jobid" --noheader -o '%T|%e|%N|%P|%l|%M|%k' 2>/dev/null)
@@ -1333,11 +1372,32 @@ function rename_session {
 
   $TMUX_BIN -L "$sock" set-environment -t "$session" SINTERACTIVE_NAME "$new_name"
 
-  # Poke status_dot_loop so the state-file name refreshes next tick instead
-  # of waiting out its 30s write cache.
+  # Poke status_dot_loop so the state file refreshes next tick instead of
+  # waiting out its write cache. A poke re-checks the deadline too, since a
+  # write is only made from a freshly confirmed end time.
   touch "${HOME}/.cache/sinteractive/${jobid}.poke" 2>/dev/null || true
 
   display_to_clients "$jobid" 2000 "session renamed to '${new_name}'"
+}
+
+# Ask Slurm for this job's end time. Assigns end_epoch, end_checked (when the
+# deadline was last confirmed) and end_query (when it was last attempted) in
+# status_dot_loop, whose locals are visible here through bash's dynamic
+# scoping — this is a helper for that one loop, not a general-purpose
+# function. Recording the attempt separately from the success lets the caller
+# rate-limit a failing scheduler. Returns 0 when the end time was confirmed,
+# 1 on a transient failure (squeue unreachable, EndTime Unknown/UNLIMITED),
+# leaving the previous end_epoch alone so the countdown keeps running.
+function refresh_end_epoch {
+  local now=$1
+  local end_str new_epoch
+  end_query=$now
+  end_str=$(squeue --jobs "${SLURM_JOB_ID}" --noheader --Format EndTime 2>/dev/null | xargs)
+  [[ -n "$end_str" ]] || return 1
+  new_epoch=$(date -d "$end_str" +%s 2>/dev/null) || return 1
+  end_epoch=$new_epoch
+  end_checked=$now
+  return 0
 }
 
 # Background updater for the status-bar glyph: a dot in the terminal's
@@ -1365,6 +1425,17 @@ function status_dot_loop {
   # Env-tunable mainly for testing (e.g. SINTERACTIVE_GRACE=55 --time=1
   # fires the shutdown a few seconds after launch).
   local grace="${SINTERACTIVE_GRACE:-10}"
+  # How often the end time is re-checked against Slurm and the state file
+  # rewritten: two squeue calls a minute per session. Raise it where
+  # scheduler traffic is a concern, at the cost of a walltime extension
+  # taking that much longer to reach the cached file.
+  local poll="${SINTERACTIVE_POLL:-30}"
+  ((poll < 5)) && poll=5
+  # Floor on scheduler queries however often the loop wakes: the final
+  # countdown ticks ten times a second, and a pending write stays pending
+  # until a query succeeds. Doubles as the window in which a confirmed end
+  # time still counts as fresh enough to write.
+  local end_min_gap=5
 
   # State file mirroring the countdown, so scripts and agents can poll the
   # time budget without hitting the scheduler. $HOME is shared, so it is
@@ -1387,30 +1458,30 @@ function status_dot_loop {
   local base=" #[dim]session#[default] #[fg=#2DBFB8,bold]${SLURM_JOB_ID}#[default] #[dim]|#[default] #[fg=#2DBFB8,bold]#{host_short}#[default]#{?SINTERACTIVE_NAME, #[dim]|#[default] #[fg=#2DBFB8#,bold]#{SINTERACTIVE_NAME}#[default],}"
 
   local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-  local end_epoch='' end_query=0 spin=0 belled=0 last=''
+  local end_epoch='' end_query=0 end_checked=0 spin=0 belled=0 last=''
   while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
     local now remaining
     # printf's builtin strftime — no date fork, which matters at the
     # 10 ticks/second cadence of the final countdown.
     printf -v now '%(%s)T' -1
 
-    # A poke file (touched by rename_session) forces an immediate state-file
-    # write instead of waiting out the 30-second cache below.
+    # A poke file (touched by rename_session, or by --refresh from the login
+    # node) makes a write due on this tick instead of waiting out the poll
+    # interval — and because a write is only made from a freshly confirmed
+    # end time, a poke re-checks the deadline too. Zeroing state_written
+    # rather than writing here keeps the request pending until one succeeds.
     if [[ -e "${state_file%.json}.poke" ]]; then
       rm -f "${state_file%.json}.poke"
       state_written=0
     fi
 
-    # (Re-)query the scheduler for the job end time every 5 minutes so a
-    # scontrol timelimit update moves the clock; keep the previous value on
-    # transient squeue failures.
-    if ((now - end_query >= 300)); then
-      end_query=$now
-      local end_str new_epoch
-      end_str=$(squeue --jobs "${SLURM_JOB_ID}" --noheader --Format EndTime 2>/dev/null | xargs)
-      if [[ -n "$end_str" ]]; then
-        new_epoch=$(date -d "$end_str" +%s 2>/dev/null) && end_epoch=$new_epoch
-      fi
+    # One cadence for both halves of the state file: ask Slurm for the end
+    # time immediately before each write, so a `scontrol update TimeLimit`
+    # lands within one poll interval and updated_epoch always means
+    # "confirmed against Slurm at this time". A file that looks fresh while
+    # carrying a five-minute-old deadline is worse than no file at all.
+    if ((now - state_written >= poll && now - end_query >= end_min_gap)); then
+      refresh_end_epoch "$now"
     fi
     # No parseable end time yet (UNLIMITED, squeue hiccup): leave the white
     # dot alone and try again later.
@@ -1422,10 +1493,17 @@ function status_dot_loop {
     remaining=$((end_epoch - now))
     ((remaining < 0)) && remaining=0
 
-    # Refresh the state file at most every 30s (the loop ticks up to ten
-    # times a second during the final countdown); write-then-rename keeps
-    # reads atomic.
-    if ((now - state_written >= 30)); then
+    # Write only on a deadline Slurm just confirmed, so every field in the
+    # file was true as of updated_epoch and consumers can age it exactly
+    # (remaining_seconds - (now - updated_epoch)). When squeue is unreachable
+    # the file is left alone rather than restamped: it then ages honestly and
+    # the documented staleness check (older than ~2 minutes -> fall back to
+    # --status) fires, instead of a fresh timestamp vouching for a budget
+    # nobody verified. The status bar keeps counting down from the last known
+    # end time either way — best effort for humans, honesty for machines.
+    # A failed query leaves state_written unadvanced, so the write stays due
+    # and retries next tick. write-then-rename keeps reads atomic.
+    if ((now - state_written >= poll && now - end_checked <= end_min_gap)); then
       state_written=$now
       # Re-read the name each write so a prefix+$ rename lands in the state
       # file; the tmux session environment is the source of truth. Keep the
@@ -1445,9 +1523,15 @@ function status_dot_loop {
       glyph='#[bold]●#[default]'
       text=''
       # Wake at the yellow boundary when it lands inside the normal cadence,
-      # so the yellow phase starts on time (not up to 59s late — which in
-      # short sessions skipped it entirely).
-      sleep_for=$((remaining - warn_yellow < 60 ? remaining - warn_yellow : 60))
+      # so the yellow phase starts on time (not a full sleep late — which in
+      # short sessions skipped it entirely). Cap the sleep at half the poll
+      # interval so the state file really is rewritten every poll seconds: a
+      # sleep of exactly poll lands a hair late, the comparison reads one
+      # short, and every write slips to the following tick — which is how a
+      # 30-second cache had been behaving as a 60-second one.
+      local green_sleep=$((poll / 2))
+      ((green_sleep < 1)) && green_sleep=1
+      sleep_for=$((remaining - warn_yellow < green_sleep ? remaining - warn_yellow : green_sleep))
       ((sleep_for < 1)) && sleep_for=1
       belled=0
     elif ((remaining > warn_red)); then
@@ -1468,6 +1552,16 @@ function status_dot_loop {
       # attached clients (default bell-action any), so the terminal tab gets
       # an attention badge even when the user is looking at another window.
       if ((!belled)); then
+        # Confirm the deadline before crying wolf: an extension made moments
+        # ago should cancel the alarm, not set it off. The bell cannot be
+        # un-rung, so this one bypasses the rate floor; it fires once per
+        # entry into the red phase and remaining only decreases, so it cannot
+        # loop. A failed query rings — fail loud, not silent. The continue
+        # also drops the spurious red spinner: the next tick recomputes from
+        # the new end_epoch and lands in the yellow or green branch.
+        if refresh_end_epoch "$now" && ((end_epoch - now > warn_red)); then
+          continue
+        fi
         belled=1
         local pane_tty
         while read -r pane_tty; do
@@ -1479,16 +1573,13 @@ function status_dot_loop {
       # COMPLETED via the session-closed hook) instead of Slurm's
       # SIGTERM/SIGKILL tearing tmux down mid-frame.
       if ((remaining <= grace)); then
-        # end_epoch can be up to 5 minutes stale; re-check so a timelimit
-        # extension inside that window is honored rather than cut short.
-        local end_str new_epoch
-        end_str=$(squeue --jobs "${SLURM_JOB_ID}" --noheader --Format EndTime 2>/dev/null | xargs)
-        if [[ -n "$end_str" ]] && new_epoch=$(date -d "$end_str" +%s 2>/dev/null); then
-          end_epoch=$new_epoch
-          end_query=$now
-          if ((end_epoch - now > grace)); then
-            continue
-          fi
+        # end_epoch can be a poll interval old; re-check so a timelimit
+        # extension inside that window is honored rather than cut short. A
+        # failed query leaves end_epoch alone and the session shuts down:
+        # fail safe.
+        refresh_end_epoch "$now"
+        if ((end_epoch - now > grace)); then
+          continue
         fi
         $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left \
           " #[fg=red,bold]●#[default]${base} #[fg=red,bold]| time's up — ending session#[default] "
