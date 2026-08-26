@@ -184,18 +184,21 @@ sequenceDiagram
     Note over C: you work here
 ```
 
-## The notice line
+## Notice lines
 
-The rule between your pane and the status bar is normally empty. When there is
-something you should know, it carries it — full width, so a message is
-readable at a glance rather than crammed next to the clock.
-
-Three things can appear there, ranked, because something you must act on
-outranks something you should know:
+When something about the session needs saying, it gets a line of its own under
+the status bar rather than a corner of one that is already busy. Each line is
+there only while its message is, and takes a row of pane height while it is:
 
 ```
-━━━ ⚠ OVER QUOTA  30.2T / 30T · over by 204.8G │ SHORT SESSION · ends before monthly-maint at Thu 06:00 ━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ● session 245772 | compute07                                     Help: Ctrl+b h | Detach: Ctrl+b d
+ ⚠ OVER QUOTA  30.2T / 30T · over by 204.8G │ SHORT SESSION · ends before monthly-maint at Thu 06:00
+ Claude Code: run sinteractive --install-claude to enable the skills and hooks
 ```
+
+Nearest the session line are the warnings. Both stay true for the whole
+session, so they share their line rather than taking turns.
 
 **Over quota** (red). Checked every 10 minutes against the cluster's quota
 daemons. The check is cached per user, not per session, so having six sessions
@@ -208,13 +211,17 @@ sinteractive --check-quota      # re-checks now, updates every open session
 ```
 
 That is also the command to hand an agent — it clears the warning within a
-tick of the space actually being freed.
+tick of the space actually being freed, and the line goes away with it.
 
 **Short session** (yellow). Shown when the request was trimmed to end before a
 maintenance window — see below.
 
-**Claude Code hint** (yellow, scrolling). Only when nothing more important
-wants the line, and only while `claude` is actually running in the session.
+**Claude Code hint** (yellow). Bottom line, furthest from the session line
+because it is an offer rather than something to act on. Shown only while
+`claude` is running in a session where the hooks are not registered, and gone
+once they are.
+
+The rule between your pane and the status bar carries no text at all.
 
 ## Maintenance windows
 

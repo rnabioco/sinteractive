@@ -67,7 +67,7 @@ script there, so a copy may be executing while you install.
 
 ```bash
 make nodes-check
-# compute00    sinteractive=0.5.0  assets=yes  tmux 3.7c
+# compute00    sinteractive=0.5.1  assets=yes  tmux 3.7c
 # compute01    sinteractive=unknown  assets=no  tmux 3.7b
 # compgpu01    unreachable
 ```

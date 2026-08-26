@@ -19,7 +19,7 @@ set -u
 TMUX_BIN="${SINTERACTIVE_TMUX:-/usr/local/bin/tmux}"
 JOB_ID=''
 # Reported by --version; keep in sync with the release tag (vX.Y.Z).
-VERSION='0.5.0'
+VERSION='0.5.1'
 # Basename for error messages ($0 is the full install path — noisy).
 PROG="${0##*/}"
 
@@ -1173,10 +1173,10 @@ Re-check this session with \`sinteractive --status --json\` before long work;
 the number above was read when this briefing was generated, and a walltime can
 be changed underneath you.
 ${quota_line}
-Storage quota is shown above the status line while it is exceeded. Check it
-with \`sinteractive --check-quota\`, and run that again after deleting
-anything on the user's behalf — it refreshes every open session, so the
-warning clears immediately rather than up to ten minutes later.
+Storage quota is shown on a line below the status bar while it is exceeded.
+Check it with \`sinteractive --check-quota\`, and run that again after
+deleting anything on the user's behalf — it refreshes every open session, so
+the warning clears immediately rather than up to ten minutes later.
 CONTEXT
   exit 0
 }
@@ -1421,43 +1421,21 @@ function check_quota_cmd {
   exit 0
 }
 
-# The yellow rule between the pane and the status bar, which normally carries
-# no text, doubles as a notice line. It is full width and empty, whereas
-# status-right is 40 columns already shared by the Help and Detach keys — so
-# an occasional hint goes here rather than crowding the primary status line.
+# Anything the session has to say about itself goes below the status bar, on
+# tmux status lines of its own — never squeezed into the session line or onto
+# the rule above it. There are two, each present only while it has something
+# to say, and each costing a row of pane height only while it is there:
 #
-# Both start_tmux and status_dot_loop set this option, so it lives in one
-# function rather than being mirrored by hand the way status-left has to be.
-# Width of the scrolling window, in columns. Fixed, so the rule reads the
-# same at any terminal width and the notice never swallows the separator.
-HINT_WIDTH=44
-function pane_border_format_string {
-  local hint=${1:-0} offset=${2:-0}
-  ((hint)) || return 0
-  # Trailing separator so the message reads as a loop rather than colliding
-  # with its own start. ASCII only: the slice below is bash substring
-  # expansion, which counts bytes under a C locale, and a multibyte character
-  # cut in half renders as garbage.
-  local msg='Claude Code: run  sinteractive --install-claude  to enable the skills and hooks  |  '
-  ((offset %= ${#msg}))
-  local window="${msg}${msg}"
-  printf '%s' "#[align=centre]#[fg=yellow,bold] ${window:offset:HINT_WIDTH} #[default]"
-}
-
-# The notice line has three possible tenants, and they are ranked rather than
-# queued: something you must act on outranks something you should know, which
-# outranks an offer to install a feature.
+#   1. warnings — over quota (red) and short session (yellow). Both hold for
+#      the whole session, so they share their line rather than taking turns.
+#   2. the Claude Code hint (yellow) — purely an offer, so it sits furthest
+#      from the session line and is the first thing to go.
 #
-#   1. over quota   — red. Writes are failing or about to.
-#   2. short session — yellow. The allocation is not the length you asked for.
-#   3. Claude hint  — yellow, scrolling. Purely an offer.
-#
-# The first two are static and short enough to read at a glance, which is the
-# point: a marquee is fine for an invitation and wrong for a warning. When
-# both apply they share the line, since between them they still fit a normal
-# terminal and suppressing either would hide something true for the whole
-# session.
-function quota_border_string {
+# All of it used to live on the pane border, one line carrying three
+# unrelated things and, for the hint, scrolling them past. Full-width lines
+# of their own need no marquee: the hint fits a normal terminal whole, which
+# also drops the 0.3s redraw the scroll cost every session that showed it.
+function quota_notice_string {
   local over="$1" used="$2" hard="$3" over_kb="$4"
   ((over)) || return 1
   printf '#[fg=red,bold] ⚠ OVER QUOTA  %s / %s · over by %s #[default]' \
@@ -1465,24 +1443,66 @@ function quota_border_string {
     "$(quota_kb_to_size "$over_kb")"
 }
 
-function maint_border_string {
+function maint_notice_string {
   local name="$1" start_epoch="$2"
   [[ -n "$start_epoch" ]] || return 1
   printf '#[fg=yellow,bold] SHORT SESSION · ends before %s at %s #[default]' \
     "$name" "$(date -d "@$start_epoch" '+%a %H:%M' 2>/dev/null)"
 }
 
-function compose_border {
-  local quota_part="$1" maint_part="$2" hint_part="$3"
+# The hint is one line whether or not it fits: at a narrow width tmux cuts
+# the tail, and the command — the only part that has to be read — is early
+# enough to survive that.
+function hint_notice_string {
+  local wanted="$1"
+  ((wanted)) || return 1
+  printf '#[fg=yellow] Claude Code: run #[bold]sinteractive --install-claude#[nobold] to enable the skills and hooks #[default]'
+}
+
+# Left-aligned, so a notice starts directly under the session glyph rather
+# than floating in the middle of a line whose neighbour above it is flush
+# left. Every part already carries its own padding.
+function compose_notice {
+  local quota_part="$1" maint_part="$2"
   if [[ -n "$quota_part" && -n "$maint_part" ]]; then
-    printf '%s' "#[align=centre]${quota_part}#[fg=yellow]│#[default]${maint_part}"
+    printf '%s' "#[align=left]${quota_part}#[fg=yellow]│#[default]${maint_part}"
   elif [[ -n "$quota_part" ]]; then
-    printf '%s' "#[align=centre]${quota_part}"
+    printf '%s' "#[align=left]${quota_part}"
   elif [[ -n "$maint_part" ]]; then
-    printf '%s' "#[align=centre]${maint_part}"
-  else
-    printf '%s' "$hint_part"
+    printf '%s' "#[align=left]${maint_part}"
   fi
+}
+
+# Put the given lines below the status bar, in order, and size the status bar
+# to hold them. Callers pass only the lines that have something on them, so
+# the hint moves up to line 1 when there is no warning and there is never a
+# blank row between the session line and a notice.
+#
+# Formats are set before the status bar grows, so tmux never draws a frame of
+# its own default line 1 (the window list) on the way in. Shrinking leaves
+# the stale formats in place: they are not rendered, and clearing them would
+# cost a round trip each.
+#
+# status-format is set globally and status per session, which looks
+# inconsistent and is not. Setting one element of an option array at session
+# scope replaces the whole array for that session rather than overlaying the
+# global one, so a session-scoped status-format[1] leaves status-format[0]
+# empty — and the session line, the thing these are meant to sit under,
+# silently disappears. Setting the extra indices globally leaves the default
+# index 0 alone. (Every job has its own tmux server, so global here is still
+# one session's worth of scope.)
+function apply_notice_lines {
+  local sock="$1" session_name="$2"
+  shift 2
+  local lines=("$@") i
+  for i in "${!lines[@]}"; do
+    $TMUX_BIN -L "$sock" set-option -g "status-format[$((i + 1))]" \
+      "${lines[i]}" 2>/dev/null
+  done
+  # tmux spells a one-line status bar "on" and taller ones as a count.
+  local height=on
+  ((${#lines[@]})) && height=$((${#lines[@]} + 1))
+  $TMUX_BIN -L "$sock" set-option -t "$session_name" status "$height" 2>/dev/null
 }
 
 # Whether to nag about --install-claude in the status bar: only while Claude
@@ -2368,9 +2388,9 @@ function status_dot_loop {
 
   local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
   local end_epoch='' end_query=0 end_checked=0 spin=0 belled=0 last=''
-  local hint_shown=0 hint_checked=0 hint_offset=0 hint_tick=0 last_border=''
+  local hint_shown=0 hint_checked=0 last_notice=''
   local quota_checked=0 quota_part='' maint_part=''
-  maint_part=$(maint_border_string "$maint_name" "$maint_start") || maint_part=''
+  maint_part=$(maint_notice_string "$maint_name" "$maint_start") || maint_part=''
   while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
     local now remaining
     # printf's builtin strftime — no date fork, which matters at the
@@ -2406,21 +2426,35 @@ function status_dot_loop {
         quota_probe >/dev/null 2>&1 &&
           read -r q_over q_used q_hard q_over_kb _ q_age < <(quota_cached)
       fi
-      quota_part=$(quota_border_string \
+      quota_part=$(quota_notice_string \
         "${q_over:-0}" "${q_used:-0}" "${q_hard:-0}" "${q_over_kb:-0}") ||
         quota_part=''
     fi
 
     # Claude Code hint, on the same cadence as the scheduler poll rather than
-    # the loop's tick (which reaches 10Hz in the final countdown). Placed
-    # above the no-deadline `continue` below so the hint still works on a job
-    # whose end time Slurm will not report. Only re-sets the option when the
-    # answer changes, so a steady state costs one pgrep per poll.
+    # the loop's tick (which reaches 10Hz in the final countdown). Only
+    # re-read when the poll comes round, so a steady state costs one pgrep
+    # per poll.
     if ((now - hint_checked >= poll)); then
       hint_checked=$now
-      local want_hint=0
-      claude_hint_wanted && want_hint=1
-      hint_shown=$want_hint
+      hint_shown=0
+      claude_hint_wanted && hint_shown=1
+    fi
+
+    # The lines below the status bar, applied here rather than further down
+    # so they are up on the first tick and stay up on a job whose end time
+    # Slurm will not report (the no-deadline `continue` below). Only touched
+    # when the text changes: growing and shrinking the status bar resizes
+    # every pane in the session, so a steady state must not keep re-setting
+    # it.
+    local notice_lines=() line
+    line=$(compose_notice "$quota_part" "$maint_part")
+    [[ -n "$line" ]] && notice_lines+=("$line")
+    line=$(hint_notice_string "$hint_shown") && notice_lines+=("$line")
+    local notice="${notice_lines[*]}"
+    if [[ "$notice" != "$last_notice" ]]; then
+      apply_notice_lines "$sock" "$session_name" "${notice_lines[@]}"
+      last_notice="$notice"
     fi
 
     # One cadence for both halves of the state file: ask Slurm for the end
@@ -2550,34 +2584,6 @@ function status_dot_loop {
         "$color" $((remaining / 60)) $((remaining % 60))
       spin=$((spin + 1))
       sleep_for=0.1
-    fi
-
-    # The notice line. A warning wins the line outright; only the Claude hint
-    # scrolls, and only when it has the line to itself — so a session showing
-    # a static warning keeps the loop's multi-second sleeps and never pays for
-    # the redraw, which the marquee below otherwise forces.
-    local hint_part=''
-    if ((hint_shown)) && [[ -z "$quota_part" && -z "$maint_part" ]]; then
-      hint_tick=$((hint_tick + 1))
-      # One column per ~0.3s, held constant across phases — every tick at the
-      # 0.3s cadence forced below, every third tick during the red phase's
-      # 10Hz countdown, which keeps that countdown fluid.
-      if [[ "$sleep_for" == 0.1 ]]; then
-        ((hint_tick % 3 == 0)) && hint_offset=$((hint_offset + 1))
-      else
-        hint_offset=$((hint_offset + 1))
-        sleep_for=0.3
-      fi
-      hint_part=$(pane_border_format_string 1 "$hint_offset")
-    fi
-
-    local border
-    border=$(compose_border "$quota_part" "$maint_part" "$hint_part")
-    if [[ "$border" != "$last_border" ]]; then
-      # Global, like the other pane-border options in start_tmux, so panes
-      # and windows opened later show the same rule.
-      $TMUX_BIN -L "$sock" set-option -g pane-border-format "$border" 2>/dev/null
-      last_border="$border"
     fi
 
     local left=" ${glyph}${base}${text} "
@@ -2728,10 +2734,12 @@ function start_tmux {
   # yellow to a darker amber keep the rule visible on white backgrounds
   # (hardcoded #F0E442 was ~1.3:1 contrast on white — invisible). Global so
   # windows created later get it too.
+  #
+  # It stays empty for the life of the session. Everything the session has to
+  # say goes below the status bar instead (see apply_notice_lines), where a
+  # message gets a whole line rather than a gap cut into the rule.
   $TMUX_BIN -L "$sock" set-option -g pane-border-status bottom
-  # Empty by default; status_dot_loop swaps in the --install-claude hint when
-  # one is wanted (see pane_border_format_string).
-  $TMUX_BIN -L "$sock" set-option -g pane-border-format "$(pane_border_format_string 0)"
+  $TMUX_BIN -L "$sock" set-option -g pane-border-format ''
   $TMUX_BIN -L "$sock" set-option -g pane-border-lines heavy
   $TMUX_BIN -L "$sock" set-option -g pane-border-style 'fg=yellow'
   $TMUX_BIN -L "$sock" set-option -g pane-active-border-style 'fg=yellow'
