@@ -58,6 +58,12 @@ below keeps: what belongs in the file is the structure — which partitions
 exist, how big they are, what you may ask for, and the limits on it. Anything
 about right now gets run live, every time.
 
+Maintenance reservations are the tempting exception, and they are weather too:
+they recur monthly but each one has a date, and a stale window in a file is
+exactly the sort of thing that gets trusted. `scontrol show reservation` is
+one call — run it, do not cache it. See `bodhi-compute` for what to do with
+the answer.
+
 ## The survey
 
 **What partitions exist, and how big are they?**
@@ -159,6 +165,7 @@ The reason names the wall you hit:
 | `QOSMaxCpuPerUserLimit`, `AssocMaxJobsLimit` | Your own running jobs are holding the budget. |
 | `PartitionTimeLimit`, `PartitionConfig` | The request cannot fit the partition at all. |
 | `ReqNodeNotAvail` | Named nodes are down or drained — check `sinfo -R`. |
+| `ReqNodeNotAvail, Reserved for maintenance` | `-t` reaches past a maintenance window, so the job is deferred until after it. Shorten it — see `bodhi-compute`. |
 
 For a job already rejected at submit, re-run with `--test-only` to get the
 verdict without queueing anything:
