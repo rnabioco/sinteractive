@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-26
+
 ### Changed
 
 - `--install-claude` now registers the hooks for you instead of printing a
@@ -291,7 +293,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/rnabioco/sinteractive/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/rnabioco/sinteractive/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/rnabioco/sinteractive/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/rnabioco/sinteractive/compare/v0.1.3...v0.2.0
