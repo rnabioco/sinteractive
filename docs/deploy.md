@@ -52,7 +52,14 @@ without `<prefix>/share/sinteractive` beside it that call fails.
 If the checkout lives on a cluster-wide mount and `pdsh` is available, each
 node installs straight from the shared path; otherwise it falls back to
 piping a tar to each node in turn. `NODES` and `SSH_USER` are overridable as
-above. The script is renamed into place rather than written over, for the
+above.
+
+The `pdsh` call asks for the ssh rcmd module by name (`-R ssh`). pdsh's own
+default is `rsh`, which on a cluster with nothing listening on port 514
+answers `connect: Connection refused` for every node at once — and a
+`PDSH_RCMD_TYPE=ssh` exported in root's shell does not rescue `sudo make
+nodes`, because sudo resets the environment. Override with
+`make nodes PDSH_RCMD=<module>`; `pdsh -V` lists what is compiled in. The script is renamed into place rather than written over, for the
 same reason `tmux-push` does it: `--attach` SSHes into a node and runs the
 script there, so a copy may be executing while you install.
 

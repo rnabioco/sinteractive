@@ -155,9 +155,17 @@ tmux-all: tmux tmux-push
 # ---------------------------------------------------------------------------
 NODELIST = $(shell echo $(NODES) | tr ' ' ',')
 
+# pdsh's built-in default rcmd module is rsh, and nothing listens on 514 here,
+# so an unqualified pdsh answers with "connect: Connection refused" for every
+# node. A PDSH_RCMD_TYPE=ssh in the admin's own environment does not save this
+# target either: sudo resets the environment, so the value never arrives. Ask
+# for the module by name instead. Override if a cluster wants another one
+# (`make nodes PDSH_RCMD=exec`); `pdsh -V` lists what is compiled in.
+PDSH_RCMD ?= ssh
+
 nodes: require-root
 	@if command -v pdsh >/dev/null 2>&1; then \
-	  pdsh -w $(NODELIST) \
+	  pdsh -R $(PDSH_RCMD) -w $(NODELIST) \
 	    'install -m 0755 $(CURDIR)/sinteractive /usr/local/bin/sinteractive.new \
 	     && mv /usr/local/bin/sinteractive.new /usr/local/bin/sinteractive \
 	     && install -D -m 0644 $(CURDIR)/man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1 \

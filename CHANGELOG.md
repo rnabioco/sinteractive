@@ -41,6 +41,11 @@ and this project adheres to
 - `make nodes` renames the script into place instead of writing over it, for
   the reason `tmux-push` does: `--attach` SSHes into a node and runs the
   script there, so a copy can be executing while you install.
+- `make nodes` asks pdsh for the ssh rcmd module by name (`-R ssh`, override
+  with `PDSH_RCMD`). pdsh defaults to `rsh`, so on a cluster with nothing on
+  port 514 the target failed with `connect: Connection refused` for every
+  node — and exporting `PDSH_RCMD_TYPE=ssh` did not help under `sudo make`,
+  which resets the environment.
 
 ### Added
 
