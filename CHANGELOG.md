@@ -8,6 +8,67 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Storage quota in the notice line. A session shows a red `OVER QUOTA` warning
+  above its status line, with the overage, while the user is past their hard
+  limit, re-checked every `SINTERACTIVE_QUOTA_POLL` seconds (default 600).
+
+  Both halves are readable from a compute node, which is what makes this
+  possible without a head-node round trip: the hard limit comes from the
+  shared quota file, and usage from the quota daemons, which answer
+  `QUOTA <uid>` with `OK <kilobytes>` per target. Bodhi's own `quota_check`
+  lives only on the head node, so the obvious implementation is
+  `ssh head quota_check` — but the daemons listen to the compute nodes
+  directly, so a session can just ask. The whole probe is bash and
+  `/dev/tcp`, takes about a second, and reproduces `quota_check -b`'s numbers
+  exactly.
+
+  The result is cached per user rather than per session, so six open sessions
+  still cost one probe per interval. Every input is overridable
+  (`SINTERACTIVE_QUOTA_FILE`, `_HOSTS`, `_PORT`, `_TIMEOUT`) and every failure
+  is silent, so a cluster without these daemons simply never shows the notice.
+
+- `--check-quota`, which re-checks now, rewrites the shared cache and tells
+  every running session to re-read it, so the warning clears within a tick
+  instead of up to ten minutes later. This is the command to hand an agent
+  that has just deleted something on the user's behalf: leaving a stale
+  warning on screen makes it look like the deletion failed. Exits 0 whether or
+  not the user is over — being over quota is a fact to report, not a failure
+  of the check — and 1 only when the quota cannot be read. `--json` for
+  scripting. The `bodhi-storage` skill and `--agent-context` both now tell
+  agents to use it.
+
+### Changed
+
+- A session whose walltime would run into a maintenance window is now
+  **shortened to fit, rather than refused**. Slurm will not start a job that
+  overlaps the reservation — it defers it until the window closes, which can
+  be a day or more — so at the default day-long request a session simply stops
+  starting as maintenance approaches. The previous behaviour caught that and
+  printed the shorter command to run instead, which is correct but hands the
+  arithmetic back to the user at exactly the moment they wanted a shell.
+
+  The launch now says what it did, and the session carries a yellow
+  `SHORT SESSION` notice for its whole life so the shortened allocation stays
+  visible after the launch output has scrolled away:
+
+  ```console
+  $ sinteractive -n analysis
+  Maintenance (monthly-maint) starts Thu Aug 27 06:00.
+  Shortened the request from 24:00:00 to 17:10:43 so the session ends before it.
+  ```
+
+  A launch is still refused when under 10 minutes remain before the window,
+  since the session would die almost immediately, and an explicit
+  `--reservation` is still left alone.
+
+- The notice line is now ranked rather than single-purpose: over-quota (red)
+  outranks a short session (yellow), which outranks the scrolling Claude Code
+  hint. The first two are static — a marquee is right for an invitation and
+  wrong for a warning — and share the line when both apply. A session showing
+  a static warning also stops paying for the marquee's 0.3s redraw.
+
 ## [0.4.0] - 2026-08-26
 
 ### Added

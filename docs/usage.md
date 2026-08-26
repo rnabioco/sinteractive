@@ -22,6 +22,7 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `-a`, `--attach [TARGET]` | Reattach by JOBID or NAME; with no target, your only session | |
 | `--ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) | |
 | `--cancel TARGET` | Cancel a session by JOBID or NAME | |
+| `--check-quota` | Re-check storage quota now and update every running session | |
 | `--agent-context` | Brief a coding agent on the session it is running inside | |
 | `--install-claude` | Install the Claude Code skills and hooks, and register them | |
 | `-l`, `--list` | List running sinteractive sessions | |

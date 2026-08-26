@@ -75,12 +75,39 @@ summarising everything:
 find ~/ -xdev -type f -size +5G -printf '%s\t%p\n' 2>/dev/null | sort -rn | head
 ```
 
+## Your own quota
+
+`df` shows the filesystem; it says nothing about your personal limit, which is
+what actually stops your writes:
+
+```bash
+sinteractive --check-quota
+# OVER QUOTA: 30.2T of 30T used (100.7%), over by 204.8G
+# Quota OK: 24.1T of 30T used (80.3%)
+
+sinteractive --check-quota --json      # same, machine-readable
+```
+
+A session shows a red `OVER QUOTA` notice above its status line while this
+holds, refreshed every ten minutes.
+
+**After deleting anything on the user's behalf, run `--check-quota`.** It
+re-checks immediately and pushes the result to every open session, so the
+warning clears within a tick instead of at the end of the poll interval. The
+user asked for the space back; leaving a stale warning on their screen makes
+it look like the deletion did not work.
+
+Being over quota is not an error in the check — the command exits 0 either
+way, and exits 1 only when the quota genuinely cannot be read.
+
 ## Before writing something large
 
-Estimate the output, check `df -h /beevol`, and say so if the run would take a
-visible bite out of the remaining 139T. Ask the user before writing hundreds
-of gigabytes to shared storage — on a filesystem this full that is a decision
-about other people's work, not just theirs.
+Estimate the output, check `df -h /beevol` **and** `sinteractive
+--check-quota`, and say so if the run would take a visible bite out of either.
+Ask the user before writing hundreds of gigabytes to shared storage — on a
+filesystem this full that is a decision about other people's work, not just
+theirs. If they are already over quota, say so before starting rather than
+after the writes fail.
 
 Sizing an allocation for the job that does the writing is the `bodhi-compute`
 skill; finding out which partition you may use is `slurm-discovery`.
