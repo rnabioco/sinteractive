@@ -57,9 +57,12 @@ install-system:
 #   - skills, which teach an agent how work is done here. bodhi-compute
 #     covers cluster etiquette: the login node and an sinteractive session are
 #     both orchestration shells, and real work goes into its own allocation.
-#     git-workflow covers the git conventions — semantic versioning,
-#     Conventional Commits, a worktree per branch, landing through a pull
-#     request — and is about the repository in the session, not the cluster;
+#     slurm-discovery covers finding out what the cluster offers — partitions,
+#     accounts, QOS and which combinations submit — and caching that map per
+#     cluster rather than rediscovering it. git-workflow covers the git
+#     conventions — semantic versioning, Conventional Commits, a worktree per
+#     branch, landing through a pull request — and is about the repository in
+#     the session, not the cluster;
 #   - two hooks for an agent running INSIDE a session, which tell it at
 #     startup where it is and how big the allocation is, and warn it when the
 #     session is running out of walltime.

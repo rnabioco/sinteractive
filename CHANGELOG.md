@@ -10,6 +10,24 @@ and this project adheres to
 
 ### Added
 
+- A `slurm-discovery` skill, for finding out what the cluster actually offers
+  instead of assuming it: what the partitions are and how big, which accounts
+  and QOS the user holds, and the rule that decides whether a combination is
+  submittable — your account in the partition's `AllowAccounts`, and the QOS
+  you ask for in both its `AllowQos` and your own association. That
+  intersection is the part nobody guesses right: on Bodhi the `gpu` partition
+  takes `gpu_rbi`/`gpu_devbio`/`gpu_scb` and not the default `rbi` account, so
+  the request is refused however many GPUs are idle, and the error names
+  neither half. It also covers reading the QOS limit columns, and `squeue`'s
+  reason column when a job is rejected or sits `PENDING`.
+
+  The survey's answers are cached to
+  `~/.cache/sinteractive/slurm-map-<cluster>.md` and re-read rather than
+  re-run. Keyed by `ClusterName` because one `$HOME` is often mounted on
+  several clusters, and a map from the wrong one is worse than none. Only the
+  structure is cached — node states and queue depth are re-read live every
+  time, so the cached `sinfo` deliberately drops the state column.
+
 - A second Claude Code skill, `git-workflow`, installed alongside
   `bodhi-compute` by `--install-claude`. Where `bodhi-compute` is about the
   cluster, this one is about the repository open in the session: semantic

@@ -279,9 +279,11 @@ and new panes, but shells already running keep their original
 `SINTERACTIVE_NAME`.
 
 > [!TIP]
-> This repo ships two [Claude Code skills](https://code.claude.com/docs/en/skills)
+> This repo ships three [Claude Code skills](https://code.claude.com/docs/en/skills)
 > plus two hooks, for agents that run **inside** a session. `bodhi-compute`
-> teaches cluster etiquette; `git-workflow` teaches the git conventions —
+> teaches cluster etiquette; `slurm-discovery` teaches how to find out what
+> the cluster actually offers you — partitions, accounts, QOS, and which
+> combinations you may submit; `git-workflow` teaches the git conventions —
 > semantic versioning, Conventional Commits, a worktree per branch, landing
 > through a pull request. The hooks brief the agent on which session it is in
 > at startup, and warn it when the session is running out of wall time.

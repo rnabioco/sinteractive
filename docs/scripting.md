@@ -148,13 +148,20 @@ need them too, since running `--install-claude` from inside a session runs
 the node's copy of the script. Point `SINTERACTIVE_SHARE` at a checkout to
 override, and `make nodes-check` to see which nodes actually have them.
 
-**Two [skills](https://code.claude.com/docs/en/skills)** teach agents how work
-is done here.
+**Three [skills](https://code.claude.com/docs/en/skills)** teach agents how
+work is done here.
 
 `bodhi-compute` covers cluster etiquette: neither the login node nor an
 sinteractive session is a compute target, real work goes into an allocation
 sized for it, reuse sessions rather than piling them up, check the time budget
 before long jobs, and clean up.
+
+`slurm-discovery` covers finding out what the cluster offers rather than
+assuming it: what the partitions are and how big, which accounts and QOS you
+hold, and the rule that decides whether a given combination is submittable —
+your account in the partition's `AllowAccounts`, your QOS in both its
+`AllowQos` and your own association. It also covers reading `squeue`'s reason
+column when a job is refused or sits `PENDING`.
 
 `git-workflow` covers the git conventions, and is about the repository open in
 the session rather than the cluster: semantic versioning with annotated
