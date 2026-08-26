@@ -47,7 +47,7 @@ _sinteractive() {
     mapfile -t COMPREPLY < <(compgen -W '
       --name --time --threads --node --partition --mouse --no-mouse
       --attach --list --status --refresh --cancel --detach --json
-      --ensure --agent-context --install-claude
+      --ensure --agent-context --install-claude --check-quota
       --help --version
     ' -- "$cur")
   fi

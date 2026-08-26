@@ -73,6 +73,7 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `-a`, `--attach [TARGET]` | Reattach by JOBID or NAME; with no target, your only session | |
 | `--ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) | |
 | `--cancel TARGET` | Cancel a session by JOBID or NAME | |
+| `--check-quota` | Re-check storage quota now and update every running session | |
 | `--agent-context` | Brief a coding agent on the session it is running inside | |
 | `--install-claude` | Install the Claude Code skills and hooks, and register them | |
 | `-l`, `--list` | List running sinteractive sessions | |
@@ -177,6 +178,60 @@ sequenceDiagram
     L->>C: ssh -X (attach to tmux)
     Note over C: you work here
 ```
+
+## The notice line
+
+The rule between your pane and the status bar is normally empty. When there is
+something you should know, it carries it — full width, so a message is
+readable at a glance rather than crammed next to the clock.
+
+Three things can appear there, ranked, because something you must act on
+outranks something you should know:
+
+```
+━━━ ⚠ OVER QUOTA  30.2T / 30T · over by 204.8G │ SHORT SESSION · ends before monthly-maint at Thu 06:00 ━━━
+```
+
+**Over quota** (red). Checked every 10 minutes against the cluster's quota
+daemons. The check is cached per user, not per session, so having six sessions
+open does not mean six times the polling.
+
+After deleting something, don't wait out the interval:
+
+```bash
+sinteractive --check-quota      # re-checks now, updates every open session
+```
+
+That is also the command to hand an agent — it clears the warning within a
+tick of the space actually being freed.
+
+**Short session** (yellow). Shown when the request was trimmed to end before a
+maintenance window — see below.
+
+**Claude Code hint** (yellow, scrolling). Only when nothing more important
+wants the line, and only while `claude` is actually running in the session.
+
+## Maintenance windows
+
+Slurm will not start a job that runs into a maintenance reservation. It defers
+it until the window closes, which can be a day or more — so a session asked
+for at the default day length simply stops starting as maintenance approaches,
+with no obvious reason why.
+
+sinteractive trims the request to fit instead, and says so:
+
+```console
+$ sinteractive -n analysis
+Maintenance (monthly-maint) starts Thu Aug 27 06:00.
+Shortened the request from 24:00:00 to 17:10:43 so the session ends before it.
+```
+
+The session then carries a `SHORT SESSION` notice for its whole life, so the
+shortened allocation stays visible long after the launch output has scrolled
+away. If less than 10 minutes remains before the window, the launch is refused
+rather than handing you a session that dies immediately. An explicit
+`--reservation` is left alone — that is you arranging to run inside the
+window on purpose.
 
 ## Reconnecting after a disconnect
 

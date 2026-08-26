@@ -259,6 +259,34 @@ hook (see
 .BR "SCRIPTING AND AGENTS" ),
 but useful by hand to see exactly what an agent was told.
 .TP
+.B \-\-check\-quota
+Re-check storage usage against the hard quota now, rewrite the shared cache,
+and tell every running session to re-read it. Prints a one-line summary, or
+JSON with
+.BR \-\-json .
+Exits 0 whether or not the user is over: being over quota is a fact to
+report, not a failure of the check. Exits 1 only when the quota cannot be
+read at all.
+.IP
+Sessions poll this on their own every
+.B $SINTERACTIVE_QUOTA_POLL
+seconds (default 600) and show a red
+.B OVER QUOTA
+notice above the status line while it holds. Running
+.B \-\-check\-quota
+after freeing space clears that notice within a tick rather than at the end
+of the poll interval, which is what makes it useful to an agent that has just
+deleted something.
+.IP
+Usage comes from the quota daemons named by
+.BR $SINTERACTIVE_QUOTA_HOSTS ,
+on
+.BR $SINTERACTIVE_QUOTA_PORT ,
+and the hard limit from
+.BR $SINTERACTIVE_QUOTA_FILE .
+Where those are absent the notice never appears, so a cluster that does its
+quotas differently is unaffected.
+.TP
 .B \-\-install\-claude
 Install the Claude Code skills and hooks into
 .I ~/.claude
@@ -574,6 +602,26 @@ Seconds between end-time re-checks against Slurm, which is also how often
 the state file is rewritten. Default: 30. Raise it where scheduler traffic
 is a concern, at the cost of a wall-time change taking that much longer to
 reach the cached file.
+.TP
+.B SINTERACTIVE_QUOTA_POLL
+Seconds between storage-quota checks. Default: 600. The result is cached per
+user rather than per session, so one poll serves every session open.
+.TP
+.B SINTERACTIVE_QUOTA_FILE
+Pipe-delimited file of hard quotas
+.RI ( user | size | email ).
+Default:
+.IR /cluster/scripts/quota_current.txt .
+.TP
+.B SINTERACTIVE_QUOTA_HOSTS
+Space-separated quota daemons to sum usage across. Default: the nine Bodhi
+daemons on 172.20.8.110\-118.
+.TP
+.B SINTERACTIVE_QUOTA_PORT
+Port those daemons listen on. Default: 9878.
+.TP
+.B SINTERACTIVE_QUOTA_TIMEOUT
+Seconds to wait for each daemon's reply. Default: 5.
 .PP
 Exported inside a session:
 .B SINTERACTIVE_JOB_ID

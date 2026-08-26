@@ -92,6 +92,7 @@ Options:
   --ensure NAME         Reuse the session named NAME, or launch it if absent
   --cancel TARGET       Cancel a session by JOBID or NAME
   --refresh [TARGET]    Re-check the time budget now (after scontrol)
+  --check-quota         Re-check storage quota now and update every session
   --agent-context       Brief a coding agent on the session it is running in
   --install-claude      Install the Claude Code skills and hooks, and register them
   -l, --list            List your running sessions
@@ -157,6 +158,7 @@ function main {
   local do_agent_context=0
   local ensure_mode=0
   local do_install_claude=0
+  local do_check_quota=0
   local status_target=''
   case "${SINTERACTIVE_MOUSE:-}" in
   on | 1 | true | yes) enable_mouse=1 ;;
@@ -224,6 +226,10 @@ function main {
       ;;
     --install-claude)
       do_install_claude=1
+      shift
+      ;;
+    --check-quota)
+      do_check_quota=1
       shift
       ;;
     --ensure | --ensure=*)
@@ -413,6 +419,13 @@ function main {
   if ((do_install_claude)); then
     install_claude
   fi
+  if ((do_check_quota)); then
+    if ((json_out)); then
+      check_quota_cmd --json
+    else
+      check_quota_cmd
+    fi
+  fi
   # --ensure: if a session by this name is already there, report it and stop.
   # Deliberately quiet about a miss (unlike resolve_session_jobid) — not
   # finding one is the create path, not an error. A PENDING match counts as
@@ -507,9 +520,25 @@ function main {
     set -- --mem="${SINTERACTIVE_MEM:-8G}" "$@"
   fi
 
-  # Refuse to submit if --time would overlap an upcoming MAINT reservation
-  if ! check_maintenance_window "$@"; then
+  # Trim --time to end before the next MAINT reservation, rather than letting
+  # Slurm defer the job past the window. maint_* stay empty when there is no
+  # conflict; when set they are both announced here and carried into the
+  # session, which keeps the shortened allocation visible for its whole life
+  # rather than only in the launch output that scrolls away.
+  local maint_fit='' maint_name='' maint_start='' maint_orig=''
+  local fit_out
+  if ! fit_out=$(fit_maintenance_window "$@"); then
     exit 1
+  fi
+  if [[ -n "$fit_out" ]]; then
+    read -r maint_fit maint_name maint_start maint_orig <<<"$fit_out"
+    local fitted rewritten=()
+    fitted=$(seconds_to_slurm_time "$maint_fit")
+    mapfile -d '' -t rewritten < <(replace_time_in_args "$fitted" "$@")
+    set -- "${rewritten[@]}"
+    echo "Maintenance (${maint_name}) starts $(date -d "@$maint_start" '+%a %b %-d %H:%M')."
+    echo "Shortened the request from ${maint_orig} to ${fitted} so the session ends before it."
+    echo ''
   fi
 
   # Check interactive job limit before submitting
@@ -549,6 +578,11 @@ function main {
   local tmux_args=()
   ((enable_mouse)) && tmux_args+=(--mouse)
   [[ -n "${session_name}" ]] && tmux_args+=(--session-name="${session_name}")
+  # Carried rather than recomputed in the session: the reservation is read
+  # once, at submit time, and the session should say the same thing about its
+  # own allocation for its whole life even if the reservation is later moved.
+  [[ -n "$maint_start" ]] &&
+    tmux_args+=(--maint="${maint_name}@${maint_start}")
 
   # Capture stdout and stderr separately: stdout carries the job id, stderr
   # carries errors (quoted below on failure) or warnings (passed through).
@@ -1058,6 +1092,17 @@ function agent_context {
   local ident="job ${jobid}"
   [[ -n "$name" ]] && ident+=" (${name})"
 
+  # Only stated when it is true and already known. The briefing runs at every
+  # session start, so it reads the cache rather than probing nine daemons —
+  # and says nothing at all when there is no cache or the user is under.
+  local quota_line='' q_over q_used q_hard q_over_kb q_pct
+  if read -r q_over q_used q_hard q_over_kb q_pct _ < <(quota_cached) &&
+    [[ "${q_over:-0}" == 1 ]]; then
+    quota_line=$(printf '\nOVER STORAGE QUOTA: %s of %s used (%s%%), over by %s.\n' \
+      "$(quota_kb_to_size "$q_used")" "$(quota_kb_to_size "$q_hard")" \
+      "$q_pct" "$(quota_kb_to_size "$q_over_kb")")
+  fi
+
   cat <<CONTEXT
 You are inside an sinteractive tmux session on a compute node.
   ${ident} on ${node}, partition ${partition} — ${res}
@@ -1092,6 +1137,11 @@ this job — and work in them is bounded by their own -t, not by the budget abov
 Re-check this session with \`sinteractive --status --json\` before long work;
 the number above was read when this briefing was generated, and a walltime can
 be changed underneath you.
+${quota_line}
+Storage quota is shown above the status line while it is exceeded. Check it
+with \`sinteractive --check-quota\`, and run that again after deleting
+anything on the user's behalf — it refreshes every open session, so the
+warning clears immediately rather than up to ten minutes later.
 CONTEXT
   exit 0
 }
@@ -1112,6 +1162,228 @@ function claude_integration_active {
   grep -qs 'sinteractive-session-context' \
     "${dir}/settings.json" "${dir}/settings.local.json" || return 1
   return 0
+}
+
+# ---------------------------------------------------------------------------
+# Storage quota.
+#
+# Two halves, both readable from a compute node, which is what lets a session
+# answer this itself:
+#
+#   - the hard limit, from a shared pipe-delimited file (user|size|email);
+#   - current usage, from the quota daemons. Each answers "QUOTA <uid>" with
+#     "OK <kilobytes>" for the storage targets it owns, and a user's total is
+#     the sum across all of them.
+#
+# This mirrors what Bodhi's own quota_check does. That script lives only on
+# the head node, so the obvious implementation is `ssh head quota_check` — but
+# the daemons listen to the compute nodes directly and the quota file is on
+# shared storage, so a session can ask for itself. No ssh, no head node, and
+# nothing to install: the whole probe is bash and /dev/tcp, and costs about a
+# second.
+#
+# Every default here is overridable, and every failure is silent. A cluster
+# without these daemons or that file simply never shows a quota notice, which
+# is the right outcome for one that does its quotas differently.
+# ---------------------------------------------------------------------------
+QUOTA_FILE_DEFAULT='/cluster/scripts/quota_current.txt'
+QUOTA_HOSTS_DEFAULT='172.20.8.110 172.20.8.111 172.20.8.112 172.20.8.113 172.20.8.114 172.20.8.115 172.20.8.116 172.20.8.117 172.20.8.118'
+QUOTA_PORT_DEFAULT=9878
+
+# Parse a size like "30.0TiB", "4T" or "512M" into kilobytes. Mirrors
+# quota_check's parse_size_to_kb, IEC suffixes included, because the numbers
+# have to agree with what the cluster's own tool reports or nobody will trust
+# either. Bash has no floats, so awk does the multiply.
+function quota_size_to_kb {
+  awk -v s="${1:-}" 'BEGIN {
+    if (match(s, /^[0-9.]+/) == 0) { exit 1 }
+    n = substr(s, RSTART, RLENGTH)
+    u = toupper(substr(s, RSTART + RLENGTH))
+    sub(/^[ \t]+/, "", u); sub(/IB$/, "", u); sub(/B$/, "", u)
+    m[""] = 1; m["K"] = 1; m["M"] = 1024
+    m["G"] = 1024 ^ 2; m["T"] = 1024 ^ 3; m["P"] = 1024 ^ 4
+    if (!(u in m)) { exit 1 }
+    printf "%d", n * m[u]
+  }' || return 1
+}
+
+# Kilobytes back to a short human string, the same ladder quota_check uses.
+function quota_kb_to_size {
+  awk -v k="${1:-0}" 'BEGIN {
+    split("K M G T P", u, " ")
+    i = 1
+    while (k >= 1024 && i < 5) { k /= 1024; i++ }
+    if (k == int(k)) { printf "%d%s", k, u[i] } else { printf "%.1f%s", k, u[i] }
+  }'
+}
+
+# This user's hard limit, in KB. Fails when the file is absent or has no row
+# for them — an unlimited or unlisted user gets no notice rather than a wrong
+# one.
+function quota_hard_kb {
+  local file="${SINTERACTIVE_QUOTA_FILE:-$QUOTA_FILE_DEFAULT}"
+  [[ -r "$file" ]] || return 1
+  local size
+  size=$(awk -F'|' -v u="${USER:-$(id -un)}" \
+    '$1 == u { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit }' "$file") || return 1
+  [[ -n "$size" ]] || return 1
+  quota_size_to_kb "$size"
+}
+
+# Current usage in KB, summed over the daemons. One short-lived TCP connection
+# each, done in series: nine sub-100ms round-trips inside a poll that runs
+# every ten minutes is not worth backgrounding, and series keeps the failure
+# handling legible.
+#
+# A daemon that is down is skipped rather than fatal, but if none answers we
+# fail — a partial sum would understate usage and could silently clear a real
+# over-quota warning, which is worse than showing nothing.
+function quota_used_kb {
+  local port="${SINTERACTIVE_QUOTA_PORT:-$QUOTA_PORT_DEFAULT}"
+  local uid total=0 answered=0 host line kb
+  uid=$(id -u)
+  for host in ${SINTERACTIVE_QUOTA_HOSTS:-$QUOTA_HOSTS_DEFAULT}; do
+    exec {qfd}<>"/dev/tcp/${host}/${port}" 2>/dev/null || continue
+    printf 'QUOTA %s\n' "$uid" >&"$qfd" || true
+    line=''
+    read -r -t "${SINTERACTIVE_QUOTA_TIMEOUT:-5}" line <&"$qfd" || true
+    exec {qfd}<&- 2>/dev/null
+    exec {qfd}>&- 2>/dev/null
+    case "$line" in
+    'OK '*)
+      kb=${line#OK }
+      kb=${kb%%[!0-9]*}
+      [[ -n "$kb" ]] || continue
+      total=$((total + kb))
+      answered=$((answered + 1))
+      ;;
+    esac
+  done
+  ((answered)) || return 1
+  printf '%s' "$total"
+}
+
+# Probe both halves and rewrite the cache. Echoes "used_kb hard_kb" on
+# success.
+#
+# The cache is per user rather than per job: quota is a property of the
+# account, a user often has several sessions open, and there is no sense in
+# each of them interrogating nine daemons on its own schedule. Written through
+# a temp file in the same directory so a session reading it never sees a
+# half-written one, and named without a job id so status_dot_loop's teardown
+# (which removes files by job id) leaves it alone.
+function quota_probe {
+  # Hard limit first, deliberately. It is a local file read that fails
+  # instantly on a cluster without one, and it gates the network half —
+  # bash's /dev/tcp has no connect timeout, so nine attempts at unroutable
+  # addresses could stall the status loop for minutes. Somewhere without the
+  # quota file never opens a socket at all.
+  local used hard
+  hard=$(quota_hard_kb) || return 1
+  ((hard > 0)) || return 1
+  used=$(quota_used_kb) || return 1
+
+  local dir="${HOME}/.cache/sinteractive"
+  mkdir -p "$dir" 2>/dev/null || return 1
+  local file="${dir}/quota.json" tmp
+  tmp=$(mktemp "${file}.XXXXXX" 2>/dev/null) || return 1
+
+  local over=0 over_kb=0
+  if ((used > hard)); then
+    over=1
+    over_kb=$((used - hard))
+  fi
+  local now
+  printf -v now '%(%s)T' -1
+  local pct
+  pct=$(awk -v u="$used" -v h="$hard" 'BEGIN { printf "%.1f", (u * 100) / h }')
+
+  printf '{"user":"%s","used_kb":%s,"hard_kb":%s,"over_kb":%s,"pct":%s,"over":%s,"checked_epoch":%s}\n' \
+    "${USER:-$(id -un)}" "$used" "$hard" "$over_kb" "$pct" \
+    "$((over ? 1 : 0))" "$now" >"$tmp" 2>/dev/null || {
+    rm -f "$tmp"
+    return 1
+  }
+  chmod 0644 "$tmp" 2>/dev/null
+  mv -f "$tmp" "$file" 2>/dev/null || {
+    rm -f "$tmp"
+    return 1
+  }
+  printf '%s %s' "$used" "$hard"
+}
+
+# Read the cached probe, echoing "over used_kb hard_kb over_kb pct age_secs".
+# Fails when there is no cache — the caller then shows nothing.
+function quota_cached {
+  local file="${HOME}/.cache/sinteractive/quota.json"
+  [[ -r "$file" ]] || return 1
+  local now
+  printf -v now '%(%s)T' -1
+  awk -v now="$now" '{
+    for (i = 1; i <= 6; i++) v[i] = 0
+    if (match($0, /"used_kb":[0-9]+/))  v[2] = substr($0, RSTART + 10, RLENGTH - 10)
+    if (match($0, /"hard_kb":[0-9]+/))  v[3] = substr($0, RSTART + 10, RLENGTH - 10)
+    if (match($0, /"over_kb":[0-9]+/))  v[4] = substr($0, RSTART + 10, RLENGTH - 10)
+    if (match($0, /"pct":[0-9.]+/))     v[5] = substr($0, RSTART + 6, RLENGTH - 6)
+    if (match($0, /"over":[01]/))       v[1] = substr($0, RSTART + 7, RLENGTH - 7)
+    if (match($0, /"checked_epoch":[0-9]+/)) v[6] = now - substr($0, RSTART + 16, RLENGTH - 16)
+    print v[1], v[2], v[3], v[4], v[5], v[6]
+    exit
+  }' "$file"
+}
+
+# Poke every live session so a fresh probe reaches their notice lines on the
+# next tick rather than at the end of the ten-minute poll. This is what makes
+# `--check-quota` feel immediate after deleting something.
+function poke_all_sessions {
+  local dir="${HOME}/.cache/sinteractive" f jobid
+  [[ -d "$dir" ]] || return 0
+  for f in "$dir"/*.json; do
+    [[ -e "$f" ]] || continue
+    jobid=$(basename "$f" .json)
+    [[ "$jobid" == quota ]] && continue
+    touch "${dir}/${jobid}.poke" 2>/dev/null || true
+  done
+}
+
+# --check-quota: probe now, rewrite the cache, tell every session to re-read
+# it, and report. Exits 0 whether or not the user is over — being over quota
+# is a fact to report, not an error in the check.
+function check_quota_cmd {
+  local json=0
+  [[ "${1:-}" == --json ]] && json=1
+
+  if ! quota_probe >/dev/null; then
+    if ((json)); then
+      echo '{"error":"quota unavailable"}'
+    else
+      echo 1>&2 "${PROG}: could not read quota."
+      echo 1>&2 ''
+      echo 1>&2 "Needs the quota file (${SINTERACTIVE_QUOTA_FILE:-$QUOTA_FILE_DEFAULT})"
+      echo 1>&2 'and at least one reachable quota daemon. Override with'
+      echo 1>&2 'SINTERACTIVE_QUOTA_FILE, SINTERACTIVE_QUOTA_HOSTS and'
+      echo 1>&2 'SINTERACTIVE_QUOTA_PORT.'
+    fi
+    exit 1
+  fi
+  poke_all_sessions
+
+  if ((json)); then
+    cat "${HOME}/.cache/sinteractive/quota.json"
+    exit 0
+  fi
+
+  local over used hard over_kb pct
+  read -r over used hard over_kb pct _ < <(quota_cached)
+  if ((over)); then
+    printf 'OVER QUOTA: %s of %s used (%s%%), over by %s\n' \
+      "$(quota_kb_to_size "$used")" "$(quota_kb_to_size "$hard")" \
+      "$pct" "$(quota_kb_to_size "$over_kb")"
+  else
+    printf 'Quota OK: %s of %s used (%s%%)\n' \
+      "$(quota_kb_to_size "$used")" "$(quota_kb_to_size "$hard")" "$pct"
+  fi
+  exit 0
 }
 
 # The yellow rule between the pane and the status bar, which normally carries
@@ -1135,6 +1407,47 @@ function pane_border_format_string {
   ((offset %= ${#msg}))
   local window="${msg}${msg}"
   printf '%s' "#[align=centre]#[fg=yellow,bold] ${window:offset:HINT_WIDTH} #[default]"
+}
+
+# The notice line has three possible tenants, and they are ranked rather than
+# queued: something you must act on outranks something you should know, which
+# outranks an offer to install a feature.
+#
+#   1. over quota   — red. Writes are failing or about to.
+#   2. short session — yellow. The allocation is not the length you asked for.
+#   3. Claude hint  — yellow, scrolling. Purely an offer.
+#
+# The first two are static and short enough to read at a glance, which is the
+# point: a marquee is fine for an invitation and wrong for a warning. When
+# both apply they share the line, since between them they still fit a normal
+# terminal and suppressing either would hide something true for the whole
+# session.
+function quota_border_string {
+  local over="$1" used="$2" hard="$3" over_kb="$4"
+  ((over)) || return 1
+  printf '#[fg=red,bold] ⚠ OVER QUOTA  %s / %s · over by %s #[default]' \
+    "$(quota_kb_to_size "$used")" "$(quota_kb_to_size "$hard")" \
+    "$(quota_kb_to_size "$over_kb")"
+}
+
+function maint_border_string {
+  local name="$1" start_epoch="$2"
+  [[ -n "$start_epoch" ]] || return 1
+  printf '#[fg=yellow,bold] SHORT SESSION · ends before %s at %s #[default]' \
+    "$name" "$(date -d "@$start_epoch" '+%a %H:%M' 2>/dev/null)"
+}
+
+function compose_border {
+  local quota_part="$1" maint_part="$2" hint_part="$3"
+  if [[ -n "$quota_part" && -n "$maint_part" ]]; then
+    printf '%s' "#[align=centre]${quota_part}#[fg=yellow]│#[default]${maint_part}"
+  elif [[ -n "$quota_part" ]]; then
+    printf '%s' "#[align=centre]${quota_part}"
+  elif [[ -n "$maint_part" ]]; then
+    printf '%s' "#[align=centre]${maint_part}"
+  else
+    printf '%s' "$hint_part"
+  fi
 }
 
 # Whether to nag about --install-claude in the status bar: only while Claude
@@ -1415,6 +1728,52 @@ function extract_time_from_args {
   return 1
 }
 
+# Whole seconds back to the D-HH:MM:SS Slurm accepts, dropping the day field
+# when there is none. The inverse of slurm_time_to_seconds, used when a
+# request is trimmed to fit before maintenance.
+function seconds_to_slurm_time {
+  local s=${1:-0} d h m
+  ((s < 0)) && s=0
+  d=$((s / 86400))
+  s=$((s % 86400))
+  h=$((s / 3600))
+  m=$(((s % 3600) / 60))
+  s=$((s % 60))
+  if ((d > 0)); then
+    printf '%d-%02d:%02d:%02d' "$d" "$h" "$m" "$s"
+  else
+    printf '%02d:%02d:%02d' "$h" "$m" "$s"
+  fi
+}
+
+# Rewrite the effective walltime in an already-processed argument list,
+# NUL-delimited so values with spaces survive the round trip.
+#
+# Both spellings have to be handled: --time collapses to --time=VALUE during
+# normalisation, but -t keeps its value as a separate argument, so a
+# substitution over the array would silently miss half the callers.
+function replace_time_in_args {
+  local new="$1"
+  shift
+  local rebuilt=() skip=0 a
+  for a in "$@"; do
+    if ((skip)); then
+      skip=0
+      continue
+    fi
+    case "$a" in
+    --time=*) rebuilt+=("--time=${new}") ;;
+    -t)
+      rebuilt+=(-t "$new")
+      skip=1
+      ;;
+    -t=*) rebuilt+=("-t=${new}") ;;
+    *) rebuilt+=("$a") ;;
+    esac
+  done
+  printf '%s\0' "${rebuilt[@]}"
+}
+
 # Convert a SLURM time string to whole seconds. Echoes the integer and returns
 # 0 on success; returns 1 if the format isn't recognized (caller should fail
 # open).
@@ -1463,23 +1822,15 @@ function format_short_duration {
   echo "${out% }"
 }
 
-# Refuse to submit if the requested --time would overlap an upcoming MAINT
-# reservation. Returns 0 to proceed, 1 to abort. Fails open silently when
-# scontrol is unavailable, no MAINT reservation is queued, or the time string
-# can't be parsed (the scheduler will still apply its own constraints).
-function check_maintenance_window {
-  # User explicitly opted into a reservation — trust them
-  local arg
-  for arg in "$@"; do
-    case "$arg" in
-    --reservation=* | --reservation) return 0 ;;
-    esac
-  done
-
+# The earliest MAINT reservation still in the future, as "name start_epoch".
+# Fails when scontrol is unavailable, none is queued, or none parses — every
+# caller then behaves as if there were no window, which is what a cluster
+# without maintenance reservations should see.
+function next_maintenance_window {
   local resv_out
-  resv_out=$(scontrol show reservation -o 2>/dev/null) || return 0
-  [[ -z "$resv_out" ]] && return 0
-  [[ "$resv_out" == "No reservations"* ]] && return 0
+  resv_out=$(scontrol show reservation -o 2>/dev/null) || return 1
+  [[ -z "$resv_out" ]] && return 1
+  [[ "$resv_out" == "No reservations"* ]] && return 1
 
   local now_epoch best_epoch=0 best_name=""
   now_epoch=$(date +%s)
@@ -1499,50 +1850,77 @@ function check_maintenance_window {
     fi
   done <<<"$resv_out"
 
-  ((best_epoch == 0)) && return 0
+  ((best_epoch == 0)) && return 1
+  # Newline-terminated: the caller reads this with `read`, which reports
+  # failure on an unterminated final line even after setting the variables —
+  # and the caller treats that failure as "no maintenance window".
+  printf '%s %s\n' "${best_name:-maintenance}" "$best_epoch"
+}
 
-  local time_str time_secs
+# Smallest session worth starting when maintenance is close. Below this the
+# allocation is more nuisance than help, so the launch is refused instead.
+MAINT_MIN_SESSION=600
+# Margin between the session's end and the reservation's start. Slurm will not
+# schedule a job that runs into the window at all, so asking for the whole gap
+# is a race against the seconds spent submitting.
+MAINT_MARGIN=300
+
+# Right-size --time so the session ends before the next maintenance window.
+#
+# This used to refuse the launch and print the shorter command to run instead,
+# which is correct but hands the arithmetic back to the user at exactly the
+# moment they wanted a shell. Slurm will not start a job that overlaps the
+# reservation — it defers it until the window closes, which can be a day or
+# more — so a session asked for at the default day length simply stops working
+# as maintenance approaches, with no obvious reason.
+#
+# Now the request is trimmed to fit and the session says so, in the notice
+# line and at launch. Echoes "fitted_secs name start_epoch original_time" when
+# it trimmed, nothing when there was no conflict. Returns 1 only when the
+# remaining gap is too small to be worth a session at all.
+function fit_maintenance_window {
+  # An explicit --reservation means the user has arranged to run inside the
+  # window; that is theirs to get right.
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+    --reservation=* | --reservation) return 0 ;;
+    esac
+  done
+
+  local name start_epoch
+  read -r name start_epoch < <(next_maintenance_window) || return 0
+  [[ -n "${start_epoch:-}" ]] || return 0
+
+  local time_str time_secs now_epoch
   time_str=$(extract_time_from_args "$@") || return 0
   time_secs=$(slurm_time_to_seconds "$time_str") || return 0
+  now_epoch=$(date +%s)
 
   local job_end=$((now_epoch + time_secs))
-  ((job_end <= best_epoch)) && return 0
+  ((job_end <= start_epoch)) && return 0
 
-  local gap_secs=$((best_epoch - now_epoch))
-  local overlap_secs=$((job_end - best_epoch))
-  local fit_secs=$((gap_secs - 300))
+  local gap_secs=$((start_epoch - now_epoch))
+  local fit_secs=$((gap_secs - MAINT_MARGIN))
 
-  local maint_when end_when
-  maint_when=$(date -d "@$best_epoch" "+%a %b %-d %H:%M")
-  end_when=$(date -d "@$job_end" "+%a %b %-d %H:%M")
-
-  local suggestion=""
-  if ((fit_secs >= 3600)); then
-    suggestion="sinteractive --time=$((fit_secs / 3600))h"
-  elif ((fit_secs >= 60)); then
-    suggestion="sinteractive --time=$((fit_secs / 60))m"
-  fi
-
-  echo 1>&2 ""
-  echo 1>&2 "Error: --time=${time_str} conflicts with scheduled maintenance."
-  echo 1>&2 ""
-  echo 1>&2 "  Reservation: ${best_name:-<unnamed>}"
-  echo 1>&2 "  Starts:      ${maint_when} (in $(format_short_duration $gap_secs))"
-  echo 1>&2 "  Job would end: ${end_when} ($(format_short_duration $overlap_secs) past start)"
-  echo 1>&2 ""
-  if [[ -n "$suggestion" ]]; then
-    echo 1>&2 "Slurm won't schedule this job until after the reservation ends. To start"
-    echo 1>&2 "a session now, shorten --time to fit before maintenance:"
+  if ((fit_secs < MAINT_MIN_SESSION)); then
+    local maint_when
+    maint_when=$(date -d "@$start_epoch" "+%a %b %-d %H:%M")
     echo 1>&2 ""
-    echo 1>&2 "  ${suggestion}"
-  else
-    echo 1>&2 "The window before maintenance is too short for a useful session."
-    echo 1>&2 "Wait until after the reservation ends."
+    echo 1>&2 "Error: maintenance starts too soon to open a session."
+    echo 1>&2 ""
+    echo 1>&2 "  Reservation: ${name}"
+    echo 1>&2 "  Starts:      ${maint_when} (in $(format_short_duration $gap_secs))"
+    echo 1>&2 ""
+    echo 1>&2 "Slurm won't schedule a job that runs into the window, and what is"
+    echo 1>&2 "left before it is under $(format_short_duration $MAINT_MIN_SESSION). Wait for the reservation to end."
+    echo 1>&2 ""
+    echo 1>&2 "See 'scontrol show reservation' for full details."
+    echo 1>&2 ""
+    return 1
   fi
-  echo 1>&2 ""
-  echo 1>&2 "See 'scontrol show reservation' for full details."
-  echo 1>&2 ""
-  return 1
+
+  printf '%s %s %s %s' "$fit_secs" "$name" "$start_epoch" "$time_str"
 }
 
 # Check if submitting another job would exceed the QOS MaxJobsPerUser limit.
@@ -1898,7 +2276,22 @@ function refresh_end_epoch {
 function status_dot_loop {
   local session_name="$1"
   local disp_name="${2:-}"
+  local maint_spec="${3:-}"
   local sock="sinteractive-${SLURM_JOB_ID}"
+
+  # Fixed for the life of the session: set at submit time when the request was
+  # trimmed, empty otherwise.
+  local maint_name='' maint_start=''
+  if [[ -n "$maint_spec" ]]; then
+    maint_name="${maint_spec%@*}"
+    maint_start="${maint_spec##*@}"
+  fi
+
+  # How often the quota daemons are asked. Ten minutes by default: quota moves
+  # slowly, the probe is nine TCP round-trips, and the cache is shared by every
+  # session this user has open, so one of them polling is enough for all.
+  local quota_poll="${SINTERACTIVE_QUOTA_POLL:-600}"
+  ((quota_poll < 30)) && quota_poll=30
 
   local warn_yellow="${SINTERACTIVE_WARN_YELLOW:-3600}"
   local warn_red="${SINTERACTIVE_WARN_RED:-600}"
@@ -1941,6 +2334,8 @@ function status_dot_loop {
   local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
   local end_epoch='' end_query=0 end_checked=0 spin=0 belled=0 last=''
   local hint_shown=0 hint_checked=0 hint_offset=0 hint_tick=0 last_border=''
+  local quota_checked=0 quota_part='' maint_part=''
+  maint_part=$(maint_border_string "$maint_name" "$maint_start") || maint_part=''
   while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
     local now remaining
     # printf's builtin strftime — no date fork, which matters at the
@@ -1955,6 +2350,30 @@ function status_dot_loop {
     if [[ -e "${state_file%.json}.poke" ]]; then
       rm -f "${state_file%.json}.poke"
       state_written=0
+      # A poke also means "re-read the quota cache now". --check-quota writes
+      # a fresh one and pokes every session, so an agent that has just deleted
+      # something sees the warning clear on the next tick rather than at the
+      # end of the ten-minute poll.
+      quota_checked=0
+    fi
+
+    # Quota. The probe itself is only run when the shared cache has gone
+    # stale, so N sessions still cost one probe per interval; reading the
+    # cache is a file read and happens on the same slow cadence.
+    if ((now - quota_checked >= quota_poll)); then
+      quota_checked=$now
+      local q_over=0 q_used=0 q_hard=0 q_over_kb=0 q_age=0
+      if read -r q_over q_used q_hard q_over_kb _ q_age < <(quota_cached) &&
+        [[ -n "${q_over:-}" ]]; then
+        ((q_age >= quota_poll)) && quota_probe >/dev/null 2>&1 &&
+          read -r q_over q_used q_hard q_over_kb _ q_age < <(quota_cached)
+      else
+        quota_probe >/dev/null 2>&1 &&
+          read -r q_over q_used q_hard q_over_kb _ q_age < <(quota_cached)
+      fi
+      quota_part=$(quota_border_string \
+        "${q_over:-0}" "${q_used:-0}" "${q_hard:-0}" "${q_over_kb:-0}") ||
+        quota_part=''
     fi
 
     # Claude Code hint, on the same cadence as the scheduler poll rather than
@@ -2098,30 +2517,32 @@ function status_dot_loop {
       sleep_for=0.1
     fi
 
-    # Scroll the border hint. Only while one is showing: an ordinary session
-    # keeps the loop's multi-second sleeps and never pays for this. One
-    # column per ~0.3s, held constant across phases — every tick at the 0.3s
-    # cadence forced below, every third tick during the red phase's 10Hz
-    # countdown, which keeps that countdown fluid.
-    if ((hint_shown)); then
+    # The notice line. A warning wins the line outright; only the Claude hint
+    # scrolls, and only when it has the line to itself — so a session showing
+    # a static warning keeps the loop's multi-second sleeps and never pays for
+    # the redraw, which the marquee below otherwise forces.
+    local hint_part=''
+    if ((hint_shown)) && [[ -z "$quota_part" && -z "$maint_part" ]]; then
       hint_tick=$((hint_tick + 1))
+      # One column per ~0.3s, held constant across phases — every tick at the
+      # 0.3s cadence forced below, every third tick during the red phase's
+      # 10Hz countdown, which keeps that countdown fluid.
       if [[ "$sleep_for" == 0.1 ]]; then
         ((hint_tick % 3 == 0)) && hint_offset=$((hint_offset + 1))
       else
         hint_offset=$((hint_offset + 1))
         sleep_for=0.3
       fi
-      local border
-      border=$(pane_border_format_string 1 "$hint_offset")
-      if [[ "$border" != "$last_border" ]]; then
-        # Global, like the other pane-border options in start_tmux, so panes
-        # and windows opened later show the same rule.
-        $TMUX_BIN -L "$sock" set-option -g pane-border-format "$border" 2>/dev/null
-        last_border="$border"
-      fi
-    elif [[ -n "$last_border" ]]; then
-      $TMUX_BIN -L "$sock" set-option -g pane-border-format '' 2>/dev/null
-      last_border=''
+      hint_part=$(pane_border_format_string 1 "$hint_offset")
+    fi
+
+    local border
+    border=$(compose_border "$quota_part" "$maint_part" "$hint_part")
+    if [[ "$border" != "$last_border" ]]; then
+      # Global, like the other pane-border options in start_tmux, so panes
+      # and windows opened later show the same rule.
+      $TMUX_BIN -L "$sock" set-option -g pane-border-format "$border" 2>/dev/null
+      last_border="$border"
     fi
 
     local left=" ${glyph}${base}${text} "
@@ -2141,6 +2562,7 @@ function start_tmux {
   # Optional feature flags passed after "tmux" on the sbatch command line.
   local enable_mouse=0
   local disp_name=''
+  local maint_spec=''
   while [[ $# -gt 0 ]]; do
     case "$1" in
     --mouse)
@@ -2149,6 +2571,10 @@ function start_tmux {
       ;;
     --session-name=*)
       disp_name="${1#--session-name=}"
+      shift
+      ;;
+    --maint=*)
+      maint_spec="${1#--maint=}"
       shift
       ;;
     *) shift ;;
@@ -2306,7 +2732,7 @@ function start_tmux {
     "run-shell '$TMUX_BIN -L $sock wait-for -S $wait_channel'"
 
   # Keep the status-bar glyph in sync with the job's time remaining.
-  status_dot_loop "$session_name" "$disp_name" &
+  status_dot_loop "$session_name" "$disp_name" "$maint_spec" &
 
   # Ignore USR1: nothing traps it anymore (the old warning banner did), and
   # the default disposition would kill this batch shell if the user submits
