@@ -8,6 +8,26 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `--install-claude` now registers the hooks for you instead of printing a
+  `settings.json` block and leaving the merge to you. The merge is done with
+  `jq` and only with `jq` — rewriting the user's settings with string surgery
+  in bash could silently disable every setting in the file. It is additive
+  (appended to whatever `.hooks` already holds, other keys and their order
+  untouched), idempotent (a hook already registered in `settings.json` or
+  `settings.local.json` is skipped, matched by script name so a hand-edited
+  path or a dropped `bash ` prefix still counts, and a half-registered pair
+  gets only its missing half), and it writes nothing when the result would be
+  unchanged. The file it replaces is kept as `settings.json.bak-STAMP`, a
+  symlinked `settings.json` is resolved first so a dotfiles repo gets its
+  target edited rather than its link replaced, and one that does not parse is
+  reported and left alone.
+
+  Without `jq` on `$PATH` the block is printed to merge by hand exactly as
+  before, with a note that installing one (`pixi global install jq`) lets
+  sinteractive do it. `jq` stays an optional dependency.
+
 ## [0.2.2] - 2026-08-26
 
 ### Changed

@@ -74,7 +74,7 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) | |
 | `--cancel TARGET` | Cancel a session by JOBID or NAME | |
 | `--agent-context` | Brief a coding agent on the session it is running inside | |
-| `--install-claude` | Install the Claude Code skill and hooks into `~/.claude` | |
+| `--install-claude` | Install the Claude Code skill and hooks, and register them | |
 | `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 
@@ -289,7 +289,10 @@ and new panes, but shells already running keep their original
 > make claude-install             # equivalent, from a checkout
 > ```
 >
-> Both print the `settings.json` block to merge; neither edits the file. The
+> Both copy the assets, then register the hooks in your `settings.json` with
+> jq: additive, idempotent, and the file it replaces is kept beside it as
+> `settings.json.bak-<stamp>`. Without jq they print the block to merge by
+> hand instead, and a `settings.json` that does not parse is left alone. The
 > assets ship beside the script (`<prefix>/share/sinteractive`), so this works
 > on a cluster where an admin installed sinteractive with `make nodes` and you
 > never cloned the repo.

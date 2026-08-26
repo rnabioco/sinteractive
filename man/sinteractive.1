@@ -264,9 +264,26 @@ Install the Claude Code skill and hooks into
 .I ~/.claude
 (or
 .BR $CLAUDE_CONFIG_DIR ),
-then print the
+then register the hooks in
+.IR settings.json .
+That merge is done with
+.BR jq (1)
+and only with it: it is additive (appended to whatever
+.B .hooks
+already holds), idempotent (a hook already registered in
 .I settings.json
-block to merge \(em it does not edit that file. The assets are installed
+or
+.IR settings.local.json ,
+matched by script name, is skipped, and an unchanged result is not
+written), and it keeps the file it replaces as
+.IR settings.json.bak\- STAMP.
+A symlinked
+.I settings.json
+is resolved first, so a dotfiles repo gets its target edited rather than
+its link replaced, and one that does not parse is reported and left
+alone. Without
+.BR jq (1)
+the block is printed to merge by hand instead. The assets are installed
 beside the script by
 .BR "make install" ,
 under
@@ -475,7 +492,12 @@ session is running out of wall time \(em installed with
 .B sinteractive \-\-install\-claude
 from any installed copy, or
 .B make claude\-install
-from a checkout.
+from a checkout. Both also register the hooks in
+.I settings.json
+when
+.BR jq (1)
+is available; see
+.BR \-\-install\-claude .
 .PP
 While Claude Code is running in a session whose integration is not yet
 registered, the yellow rule between the pane and the status bar carries a
@@ -593,6 +615,21 @@ When
 cannot be reached the file is left untouched rather than restamped, so it
 ages honestly instead of vouching for a budget nobody verified; the
 status-bar countdown keeps running from the last known end time.
+.TP
+.I ~/.claude
+Written by
+.BR \-\-install\-claude :
+the skill under
+.IR skills/bodhi\-compute/ ,
+the hooks under
+.IR hooks/ ,
+and their registration merged into
+.IR settings.json ,
+whose previous version is kept as
+.IR settings.json.bak\- STAMP.
+Set
+.B $CLAUDE_CONFIG_DIR
+to use a different directory.
 .SH EXAMPLES
 .TP
 .B sinteractive
@@ -629,7 +666,8 @@ cannot be found or is ambiguous, or the session fails to start.
 .BR srun (1),
 .BR squeue (1),
 .BR scancel (1),
-.BR tmux (1)
+.BR tmux (1),
+.BR jq (1)
 .PP
 Bodhi cluster documentation:
 .UR https://rnabioco.github.io/bodhi\-docs/sinteractive/

@@ -114,10 +114,28 @@ sinteractive --install-claude   # from any installed copy
 make claude-install             # equivalent, from a checkout
 ```
 
-Both write `~/.claude/skills/bodhi-compute` and `~/.claude/hooks/`, then print
-a `settings.json` block to merge. Neither edits the file, since yours probably
-already has hooks in it — and a bad merge would silently disable every setting
-in it.
+Both write `~/.claude/skills/bodhi-compute` and `~/.claude/hooks/`, then
+register the hooks in `~/.claude/settings.json`. That file is yours and
+usually already has hooks in it, so the merge is done by `jq` and only by
+`jq` — string surgery on it in bash could silently disable every setting in
+the file. What the merge guarantees:
+
+- **Additive.** Entries are appended to whatever `.hooks` already holds;
+  nothing else in the file is touched, and key order survives.
+- **Idempotent.** A hook is skipped when a script of that name is already
+  registered in `settings.json` or `settings.local.json` — matched by script
+  name, so a hand-edited path or a dropped `bash ` prefix still counts, and a
+  half-registered pair gets only its missing half. When the merge changes
+  nothing, nothing is written.
+- **Recoverable.** The new file is written through a temp file beside the
+  original, and the version it replaces is kept as
+  `settings.json.bak-<stamp>`. A symlinked `settings.json` is resolved first,
+  so a dotfiles repo gets its target edited rather than its link replaced.
+- **Cautious.** A `settings.json` that does not parse is reported and left
+  alone rather than merged into.
+
+Without `jq` on `$PATH` the block is printed to merge by hand, as before
+(`pixi global install jq` is one way to get one).
 
 `make install` puts the assets in `<prefix>/share/sinteractive` beside the
 script, and `--install-claude` finds them relative to its own location. So it

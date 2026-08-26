@@ -93,7 +93,7 @@ Options:
   --cancel TARGET       Cancel a session by JOBID or NAME
   --refresh [TARGET]    Re-check the time budget now (after scontrol)
   --agent-context       Brief a coding agent on the session it is running in
-  --install-claude      Install the Claude Code skill and hooks into ~/.claude
+  --install-claude      Install the Claude Code skill and hooks, and register them
   -l, --list            List your running sessions
   -h, --help            Show this help message
   -V, --version         Show version
@@ -1180,14 +1180,123 @@ function find_claude_assets {
   return 1
 }
 
+# Register the hooks in the user's Claude Code settings, additively.
+#
+# Editing settings.json is only safe with a real JSON parser: it is the user's
+# file, it usually carries hooks and settings of their own, and a rewrite that
+# got it wrong would silently disable all of them. So jq does this merge or
+# nobody does — returning 1 without it, which the caller turns back into the
+# printed block.
+#
+# The merge is additive and idempotent. Entries are appended to whatever
+# .hooks already holds, and one is skipped when a hook script of that name is
+# already registered in settings.json or settings.local.json. Matching is by
+# script name rather than by the whole command, so a hand-edited path or a
+# dropped `bash ` prefix still counts as registered, and a half-registered
+# pair gets only its missing half. When the merge changes nothing, nothing is
+# written.
+#
+# Return codes: 0 merged (or already registered), 1 no jq, 2 refused.
+function register_claude_hooks {
+  local claude_dir="$1" snippet="$2"
+  local settings="${claude_dir}/settings.json"
+  local other="${claude_dir}/settings.local.json"
+
+  command -v jq >/dev/null 2>&1 || return 1
+  [[ -r "$snippet" ]] || return 1
+
+  # A settings.json that does not parse is not something to rewrite: the user
+  # has an editing problem already, and merging into it would bury it.
+  if [[ -s "$settings" ]] && ! jq -e . "$settings" >/dev/null 2>&1; then
+    echo 1>&2 "${PROG}: ${settings} is not valid JSON, so it was left alone."
+    return 2
+  fi
+  # The .local variant is read only to see what is already registered there,
+  # so an unreadable one costs nothing but that knowledge.
+  if [[ ! -s "$other" ]] || ! jq -e . "$other" >/dev/null 2>&1; then
+    other=/dev/null
+  fi
+
+  # Follow a symlinked settings.json (dotfile repos do this) so the merge
+  # lands on the real file instead of replacing the link with a copy.
+  if [[ -L "$settings" ]]; then
+    local target
+    target=$(readlink -f "$settings" 2>/dev/null)
+    [[ -n "$target" ]] && settings="$target"
+  fi
+
+  local base
+  if [[ -s "$settings" ]]; then
+    base=$(cat "$settings") || return 2
+  else
+    base='{}'
+  fi
+
+  # $add is the snippet, $other the .local settings; $registered is every
+  # sinteractive hook script named anywhere in either existing file.
+  local program='
+    def hookscripts:
+      [ .. | objects | .command? | strings
+        | select(test("sinteractive-[A-Za-z0-9._-]*\\.sh"))
+        | capture("(?<n>sinteractive-[A-Za-z0-9._-]*\\.sh)").n ];
+    ( [ (.hooks // {} | hookscripts)[] ]
+      + [ ($other[0].hooks // {} | hookscripts)[] ] ) as $registered
+    | reduce ($add[0].hooks | to_entries[]) as $event (.;
+        [ $event.value[]
+          | select( (hookscripts
+                     | any(. as $s | ($registered | index($s)) != null)) | not ) ] as $new
+        | if ($new | length) == 0 then .
+          else .hooks[$event.key] = ((.hooks[$event.key] // []) + $new) end )'
+
+  local tmp
+  tmp=$(mktemp "${settings}.XXXXXX") || return 2
+
+  if ! jq --slurpfile add "$snippet" --slurpfile other "$other" \
+       "$program" <<<"$base" >"$tmp" 2>/dev/null ||
+     ! jq -e 'type == "object"' "$tmp" >/dev/null 2>&1; then
+    rm -f "$tmp"
+    echo 1>&2 "${PROG}: could not merge into ${settings}, so it was left alone."
+    return 2
+  fi
+
+  # Compared as JSON rather than as text, so reformatting alone never counts
+  # as a change worth writing.
+  if jq -e --slurpfile new "$tmp" '. == $new[0]' <<<"$base" >/dev/null 2>&1; then
+    rm -f "$tmp"
+    echo 'The hooks are already registered; your settings were left alone.'
+    return 0
+  fi
+
+  local backup=''
+  if [[ -f "$settings" ]]; then
+    backup="${settings}.bak-$(date +%Y%m%d%H%M%S)"
+    if ! cp -p "$settings" "$backup"; then
+      rm -f "$tmp"
+      return 2
+    fi
+    chmod --reference="$settings" "$tmp" 2>/dev/null || chmod 0644 "$tmp"
+  else
+    chmod 0644 "$tmp"
+  fi
+
+  if ! mv "$tmp" "$settings"; then
+    rm -f "$tmp"
+    return 2
+  fi
+
+  echo "Registered the hooks in ${settings}"
+  [[ -n "$backup" ]] && echo "  the previous version is at ${backup}"
+  return 0
+}
+
 # Install the Claude Code skill and hooks into the user's ~/.claude, from
 # wherever this copy of sinteractive keeps its assets. Skills and hooks are
 # per-user, so this is the same work whoever runs it.
 #
-# settings.json is printed, not edited: it is the user's file and usually
-# already carries hooks of their own. Merging it here would mean parsing and
-# rewriting JSON in bash, and getting that wrong would silently disable every
-# setting in the file.
+# The hooks are registered for you when jq is available (see
+# register_claude_hooks); without it the block is printed to merge by hand,
+# because rewriting the user's settings.json with string surgery in bash would
+# risk silently disabling every setting in it.
 function install_claude {
   local assets
   if ! assets=$(find_claude_assets); then
@@ -1216,6 +1325,15 @@ function install_claude {
   echo "Installed the bodhi-compute skill and hooks into ${claude_dir}"
   echo "  from ${assets}"
   echo ''
+
+  local rc=0
+  register_claude_hooks "${claude_dir}" \
+    "${assets}/claude/settings-snippet.json" || rc=$?
+  if ((rc == 0)); then
+    echo ''
+    exit 0
+  fi
+
   echo 'The hooks only take effect once they are registered. Merge this into'
   echo "${claude_dir}/settings.json (keeping any hooks already there):"
   echo ''
@@ -1223,6 +1341,11 @@ function install_claude {
     sed 's/^/  /' "${assets}/claude/settings-snippet.json"
   fi
   echo ''
+  if ((rc == 1)); then
+    echo 'With jq installed (`pixi global install jq`, or your package'
+    echo 'manager) --install-claude does that merge for you.'
+    echo ''
+  fi
   exit 0
 }
 
