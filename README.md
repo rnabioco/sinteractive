@@ -74,7 +74,7 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) | |
 | `--cancel TARGET` | Cancel a session by JOBID or NAME | |
 | `--agent-context` | Brief a coding agent on the session it is running inside | |
-| `--install-claude` | Install the Claude Code skill and hooks, and register them | |
+| `--install-claude` | Install the Claude Code skills and hooks, and register them | |
 | `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 
@@ -279,10 +279,12 @@ and new panes, but shells already running keep their original
 `SINTERACTIVE_NAME`.
 
 > [!TIP]
-> This repo ships a [Claude Code skill](https://code.claude.com/docs/en/skills)
-> plus two hooks, for agents that run **inside** a session. The skill teaches
-> cluster etiquette; the hooks brief the agent on which session it is in at
-> startup, and warn it when the session is running out of wall time.
+> This repo ships two [Claude Code skills](https://code.claude.com/docs/en/skills)
+> plus two hooks, for agents that run **inside** a session. `bodhi-compute`
+> teaches cluster etiquette; `git-workflow` teaches the git conventions —
+> semantic versioning, Conventional Commits, a worktree per branch, landing
+> through a pull request. The hooks brief the agent on which session it is in
+> at startup, and warn it when the session is running out of wall time.
 >
 > ```bash
 > sinteractive --install-claude   # from any installed copy

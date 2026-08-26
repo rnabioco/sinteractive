@@ -23,7 +23,7 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `--ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) | |
 | `--cancel TARGET` | Cancel a session by JOBID or NAME | |
 | `--agent-context` | Brief a coding agent on the session it is running inside | |
-| `--install-claude` | Install the Claude Code skill and hooks, and register them | |
+| `--install-claude` | Install the Claude Code skills and hooks, and register them | |
 | `-l`, `--list` | List running sinteractive sessions | |
 | `-h`, `--help` | Show help message | |
 | `-V`, `--version` | Show version | |

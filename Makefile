@@ -5,11 +5,17 @@ MANDIR ?= ~/.local/share/man/man1
 # $XDG_DATA_DIRS (which includes /usr/local/share) for
 # bash-completion/completions/<command>.
 COMPDIR ?= ~/.local/share/bash-completion/completions
-# Claude Code assets (skill + hooks) ship beside the script so that
+# Claude Code assets (skills + hooks) ship beside the script so that
 # `sinteractive --install-claude` works from an installed copy and not only
 # from a git checkout. Mirrors the repo layout, so the lookup in the script
 # has one code path for both.
 SHAREDIR ?= ~/.local/share/sinteractive
+
+# Every skill under skills/ ships, discovered rather than listed: adding one
+# is a matter of dropping a directory in, with no install target to update.
+# The paths are relative and mirror the repo layout, so `install -D` into a
+# destination root reproduces skills/<name>/SKILL.md underneath it.
+SKILLS := $(wildcard skills/*/SKILL.md)
 
 # When run as root, install system-wide: sinteractive to /usr/local/bin and
 # its man page to /usr/local/share/man.
@@ -31,26 +37,29 @@ install-user:
 	cp man/sinteractive.1 $(MANDIR)/sinteractive.1
 	mkdir -p $(COMPDIR)
 	cp completions/sinteractive.bash $(COMPDIR)/sinteractive
-	mkdir -p $(SHAREDIR)/claude/hooks $(SHAREDIR)/skills/bodhi-compute
+	mkdir -p $(SHAREDIR)/claude/hooks
 	install -m 0755 claude/hooks/*.sh $(SHAREDIR)/claude/hooks/
 	install -m 0644 claude/settings-snippet.json $(SHAREDIR)/claude/
-	install -m 0644 skills/bodhi-compute/SKILL.md $(SHAREDIR)/skills/bodhi-compute/
+	for s in $(SKILLS); do install -D -m 0644 $$s $(SHAREDIR)/$$s; done
 
 install-system:
 	install -m 0755 sinteractive /usr/local/bin/sinteractive
 	install -D -m 0644 man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1
 	install -D -m 0644 completions/sinteractive.bash /usr/local/share/bash-completion/completions/sinteractive
-	install -d -m 0755 /usr/local/share/sinteractive/claude/hooks /usr/local/share/sinteractive/skills/bodhi-compute
+	install -d -m 0755 /usr/local/share/sinteractive/claude/hooks
 	install -m 0755 claude/hooks/*.sh /usr/local/share/sinteractive/claude/hooks/
 	install -m 0644 claude/settings-snippet.json /usr/local/share/sinteractive/claude/
-	install -m 0644 skills/bodhi-compute/SKILL.md /usr/local/share/sinteractive/skills/bodhi-compute/
+	for s in $(SKILLS); do install -D -m 0644 $$s /usr/local/share/sinteractive/$$s; done
 
 # ---------------------------------------------------------------------------
 # Claude Code integration. Two parts:
 #
-#   - the bodhi-compute skill, which teaches an agent cluster etiquette: the
-#     login node and an sinteractive session are both orchestration shells,
-#     and real work goes into its own allocation;
+#   - skills, which teach an agent how work is done here. bodhi-compute
+#     covers cluster etiquette: the login node and an sinteractive session are
+#     both orchestration shells, and real work goes into its own allocation.
+#     git-workflow covers the git conventions — semantic versioning,
+#     Conventional Commits, a worktree per branch, landing through a pull
+#     request — and is about the repository in the session, not the cluster;
 #   - two hooks for an agent running INSIDE a session, which tell it at
 #     startup where it is and how big the allocation is, and warn it when the
 #     session is running out of walltime.
@@ -170,26 +179,26 @@ nodes: require-root
 	     && mv /usr/local/bin/sinteractive.new /usr/local/bin/sinteractive \
 	     && install -D -m 0644 $(CURDIR)/man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1 \
 	     && install -D -m 0644 $(CURDIR)/completions/sinteractive.bash /usr/local/share/bash-completion/completions/sinteractive \
-	     && install -d -m 0755 /usr/local/share/sinteractive/claude/hooks /usr/local/share/sinteractive/skills/bodhi-compute \
+	     && install -d -m 0755 /usr/local/share/sinteractive/claude/hooks \
 	     && install -m 0755 $(CURDIR)/claude/hooks/*.sh /usr/local/share/sinteractive/claude/hooks/ \
 	     && install -m 0644 $(CURDIR)/claude/settings-snippet.json /usr/local/share/sinteractive/claude/ \
-	     && install -m 0644 $(CURDIR)/skills/bodhi-compute/SKILL.md /usr/local/share/sinteractive/skills/bodhi-compute/ \
+	     && for s in $(SKILLS); do install -D -m 0644 $(CURDIR)/$$s /usr/local/share/sinteractive/$$s || exit 1; done \
 	     && echo ok'; \
 	else \
 	  for n in $(NODES); do \
 	    printf '==> %s: ' "$$n"; \
 	    tar cf - sinteractive man/sinteractive.1 completions/sinteractive.bash \
-	          claude/hooks claude/settings-snippet.json skills/bodhi-compute/SKILL.md \
+	          claude/hooks claude/settings-snippet.json $(SKILLS) \
 	      | ssh $(SSH_USER)@$$n \
 	        'set -e; d=$$(mktemp -d); trap "rm -rf $$d" EXIT; tar xf - -C "$$d"; \
 	         install -m 0755 "$$d/sinteractive" /usr/local/bin/sinteractive.new; \
 	         mv /usr/local/bin/sinteractive.new /usr/local/bin/sinteractive; \
 	         install -D -m 0644 "$$d/man/sinteractive.1" /usr/local/share/man/man1/sinteractive.1; \
 	         install -D -m 0644 "$$d/completions/sinteractive.bash" /usr/local/share/bash-completion/completions/sinteractive; \
-	         install -d -m 0755 /usr/local/share/sinteractive/claude/hooks /usr/local/share/sinteractive/skills/bodhi-compute; \
+	         install -d -m 0755 /usr/local/share/sinteractive/claude/hooks; \
 	         install -m 0755 "$$d"/claude/hooks/*.sh /usr/local/share/sinteractive/claude/hooks/; \
 	         install -m 0644 "$$d/claude/settings-snippet.json" /usr/local/share/sinteractive/claude/; \
-	         install -m 0644 "$$d/skills/bodhi-compute/SKILL.md" /usr/local/share/sinteractive/skills/bodhi-compute/; \
+	         cd "$$d" && for s in skills/*/SKILL.md; do install -D -m 0644 "$$s" "/usr/local/share/sinteractive/$$s"; done; \
 	         echo ok' \
 	      || echo "FAILED"; \
 	  done; \
@@ -211,7 +220,7 @@ nodes-check:
 	    v=$$(sed -n "s/^VERSION=.\(.*\)./\1/p" /usr/local/bin/sinteractive 2>/dev/null | head -1); \
 	    [ -e /usr/local/bin/sinteractive ] || v=missing; \
 	    [ -n "$$v" ] || v=unknown; \
-	    a=no; [ -d /usr/local/share/sinteractive/skills/bodhi-compute ] && a=yes; \
+	    a=no; [ -d /usr/local/share/sinteractive/skills ] && a=yes; \
 	    t=$$(/usr/local/bin/tmux -V 2>/dev/null) || t="tmux missing"; \
 	    echo "sinteractive=$$v  assets=$$a  $$t"' 2>/dev/null \
 	    || echo "unreachable"; \

@@ -93,7 +93,7 @@ Options:
   --cancel TARGET       Cancel a session by JOBID or NAME
   --refresh [TARGET]    Re-check the time budget now (after scontrol)
   --agent-context       Brief a coding agent on the session it is running in
-  --install-claude      Install the Claude Code skill and hooks, and register them
+  --install-claude      Install the Claude Code skills and hooks, and register them
   -l, --list            List your running sessions
   -h, --help            Show this help message
   -V, --version         Show version
@@ -1131,7 +1131,7 @@ function pane_border_format_string {
   # with its own start. ASCII only: the slice below is bash substring
   # expansion, which counts bytes under a C locale, and a multibyte character
   # cut in half renders as garbage.
-  local msg='Claude Code: run  sinteractive --install-claude  to enable the skill and hooks  |  '
+  local msg='Claude Code: run  sinteractive --install-claude  to enable the skills and hooks  |  '
   ((offset %= ${#msg}))
   local window="${msg}${msg}"
   printf '%s' "#[align=centre]#[fg=yellow,bold] ${window:offset:HINT_WIDTH} #[default]"
@@ -1172,6 +1172,9 @@ function find_claude_assets {
 
   local root
   for root in "${candidates[@]}"; do
+    # bodhi-compute is the probe rather than skills/ itself: an empty skills/
+    # directory left behind by a half-finished install would otherwise pass,
+    # and this one has shipped since the assets existed.
     if [[ -d "${root}/claude/hooks" && -d "${root}/skills/bodhi-compute" ]]; then
       printf '%s' "$root"
       return 0
@@ -1289,7 +1292,7 @@ function register_claude_hooks {
   return 0
 }
 
-# Install the Claude Code skill and hooks into the user's ~/.claude, from
+# Install the Claude Code skills and hooks into the user's ~/.claude, from
 # wherever this copy of sinteractive keeps its assets. Skills and hooks are
 # per-user, so this is the same work whoever runs it.
 #
@@ -1312,17 +1315,30 @@ function install_claude {
   fi
 
   local claude_dir="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
-  mkdir -p "${claude_dir}/skills/bodhi-compute" "${claude_dir}/hooks" || exit 1
+  mkdir -p "${claude_dir}/hooks" || exit 1
 
-  cp "${assets}/skills/bodhi-compute/SKILL.md" \
-    "${claude_dir}/skills/bodhi-compute/SKILL.md" || exit 1
+  # Every skill shipped beside the script, rather than a list to keep in sync
+  # here: adding one is then a matter of dropping a directory into skills/.
+  local skill name names=()
+  for skill in "${assets}"/skills/*/SKILL.md; do
+    [[ -e "$skill" ]] || continue
+    name=$(basename "$(dirname "$skill")")
+    mkdir -p "${claude_dir}/skills/${name}" || exit 1
+    cp "$skill" "${claude_dir}/skills/${name}/SKILL.md" || exit 1
+    names+=("$name")
+  done
   local hook
   for hook in "${assets}"/claude/hooks/*.sh; do
     [[ -e "$hook" ]] || continue
     install -m 0755 "$hook" "${claude_dir}/hooks/" || exit 1
   done
 
-  echo "Installed the bodhi-compute skill and hooks into ${claude_dir}"
+  # Name what landed rather than counting it: the point of the line is to say
+  # which skills this copy of sinteractive carries, which is what differs
+  # between a current install and a stale one.
+  local list=''
+  ((${#names[@]})) && printf -v list ', %s' "${names[@]}"
+  echo "Installed the Claude Code hooks and skills (${list:2}) into ${claude_dir}"
   echo "  from ${assets}"
   echo ''
 

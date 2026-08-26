@@ -107,15 +107,18 @@ and new panes, but shells already running keep their original
 
 ## Claude Code integration
 
-Install the skill and hooks:
+Install the skills and hooks:
 
 ```bash
 sinteractive --install-claude   # from any installed copy
 make claude-install             # equivalent, from a checkout
 ```
 
-Both write `~/.claude/skills/bodhi-compute` and `~/.claude/hooks/`, then
-register the hooks in `~/.claude/settings.json`. That file is yours and
+Both write every skill under `~/.claude/skills/` and the hooks to
+`~/.claude/hooks/`, then register the hooks in `~/.claude/settings.json`.
+Skills are discovered from what ships beside the script rather than named in
+the installer, so a new one arrives with an upgrade and needs no new flag.
+That settings file is yours and
 usually already has hooks in it, so the merge is done by `jq` and only by
 `jq` — string surgery on it in bash could silently disable every setting in
 the file. What the merge guarantees:
@@ -145,10 +148,19 @@ need them too, since running `--install-claude` from inside a session runs
 the node's copy of the script. Point `SINTERACTIVE_SHARE` at a checkout to
 override, and `make nodes-check` to see which nodes actually have them.
 
-**The [skill](https://code.claude.com/docs/en/skills)** teaches agents cluster
-etiquette: neither the login node nor an sinteractive session is a compute
-target, real work goes into an allocation sized for it, reuse sessions rather
-than piling them up, check the time budget before long jobs, and clean up.
+**Two [skills](https://code.claude.com/docs/en/skills)** teach agents how work
+is done here.
+
+`bodhi-compute` covers cluster etiquette: neither the login node nor an
+sinteractive session is a compute target, real work goes into an allocation
+sized for it, reuse sessions rather than piling them up, check the time budget
+before long jobs, and clean up.
+
+`git-workflow` covers the git conventions, and is about the repository open in
+the session rather than the cluster: semantic versioning with annotated
+`vX.Y.Z` tags, Conventional Commit messages, one worktree per branch under
+`.claude/worktrees/`, landing work through a pull request rather than
+committing to `main`, and running the repo's own CI gates before pushing.
 
 **`sinteractive --agent-context`** prints a briefing on the current session —
 job, node, partition, allocation size, walltime remaining, and the rules
