@@ -8,6 +8,35 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Everything the session has to say about itself moved below the status bar,
+  onto lines of its own. The pane border was carrying three unrelated things
+  at once — `OVER QUOTA`, `SHORT SESSION`, and a scrolling offer to install
+  the Claude Code hooks — sharing one rule and taking turns for it. The line
+  you glance at for the job id was busy enough to stop reading.
+
+  There are now up to two lines under the session line, each present only
+  while it has something on it: warnings nearest (the two share a line, since
+  both hold for the whole session), then the Claude Code hint, furthest away
+  because it is an offer rather than something to act on. The pane border is
+  back to being a plain rule with no text. The status bar grows and shrinks
+  with the notices, so a session with nothing to say is exactly as tall as it
+  was before.
+
+  The hint no longer scrolls. It scrolled because a 44-column window was all
+  the border could give it without swallowing the rule; a full-width line of
+  its own fits the whole sentence in an 80-column terminal. That also retires
+  the 0.3s redraw the marquee forced on every session that showed it.
+
+  One tmux subtlety, found by rendering it rather than by reading: setting one
+  element of an option array at session scope replaces the whole array for
+  that session instead of overlaying the global one, so a session-scoped
+  `status-format[1]` leaves `status-format[0]` empty and the session line —
+  the thing the notices are meant to sit under — silently disappears. The
+  extra indices are set globally instead, which leaves the default index 0
+  alone.
+
 ## [0.5.0] - 2026-08-26
 
 ### Added
