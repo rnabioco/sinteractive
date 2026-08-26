@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-26
+
 ### Changed
 
 - Everything the session has to say about itself moved below the status bar,
@@ -500,7 +502,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/rnabioco/sinteractive/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/rnabioco/sinteractive/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rnabioco/sinteractive/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/rnabioco/sinteractive/compare/v0.2.2...v0.3.0
