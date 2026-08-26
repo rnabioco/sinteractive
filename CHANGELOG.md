@@ -8,6 +8,35 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- A second Claude Code skill, `git-workflow`, installed alongside
+  `bodhi-compute` by `--install-claude`. Where `bodhi-compute` is about the
+  cluster, this one is about the repository open in the session: semantic
+  versioning with annotated `vX.Y.Z` tags, Conventional Commit messages, one
+  worktree per branch under `.claude/worktrees/`, landing work through a pull
+  request rather than committing to `main`, and running the repo's own CI
+  gates before pushing. It is deliberately general — it names no project, and
+  defers to a repository that documents something stricter of its own.
+
+  Sessions are where this work actually happens, and an agent that starts with
+  no standing guidance re-derives the conventions every time, or guesses. The
+  skill rides the rails `bodhi-compute` already established, so it reaches
+  every session on every node with no per-session setup.
+
+### Changed
+
+- The installer no longer names the skills it ships. `--install-claude` copies
+  every `skills/*/SKILL.md` found beside the script, and `make install`,
+  `make install-system` and `make nodes` install the whole `skills/` tree
+  rather than one path each. Adding a skill is now dropping a directory into
+  `skills/`, with no install target, fan-out recipe, or copy loop to update in
+  step — the previous shape hardcoded `skills/bodhi-compute` in six places,
+  and any one of them missed would have shipped a partial set to the nodes.
+
+  `make nodes-check` reports assets present based on the `skills/` directory
+  rather than `skills/bodhi-compute`, so it stays true as the set grows.
+
 ## [0.3.0] - 2026-08-26
 
 ### Changed

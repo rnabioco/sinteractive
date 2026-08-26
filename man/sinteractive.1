@@ -260,7 +260,7 @@ hook (see
 but useful by hand to see exactly what an agent was told.
 .TP
 .B \-\-install\-claude
-Install the Claude Code skill and hooks into
+Install the Claude Code skills and hooks into
 .I ~/.claude
 (or
 .BR $CLAUDE_CONFIG_DIR ),
@@ -486,9 +486,14 @@ run from inside one create their own allocations rather than steps of the
 session's job.
 .SS Claude Code hooks
 .B \-\-agent\-context
-prints this briefing for the current session. A skill and two hooks wire it
-up \(em one briefing the agent at session start, one warning it when the
-session is running out of wall time \(em installed with
+prints this briefing for the current session. Two skills and two hooks wire
+it up \(em
+.I bodhi\-compute
+for cluster etiquette and
+.I git\-workflow
+for the git conventions, plus one hook briefing the agent at session start
+and one warning it when the session is running out of wall time \(em
+installed with
 .B sinteractive \-\-install\-claude
 from any installed copy, or
 .B make claude\-install
@@ -619,8 +624,8 @@ status-bar countdown keeps running from the last known end time.
 .I ~/.claude
 Written by
 .BR \-\-install\-claude :
-the skill under
-.IR skills/bodhi\-compute/ ,
+the skills under
+.IR skills/ ,
 the hooks under
 .IR hooks/ ,
 and their registration merged into
