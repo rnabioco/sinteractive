@@ -10,6 +10,51 @@ and this project adheres to
 
 ### Added
 
+- Three more skills covering the things an agent hits in the first ten minutes
+  of real work on the cluster:
+
+  `bodhi-storage` — `/beevol` is one shared BeeGFS mount and the compute
+  node's `/tmp` is a 423G local disk, so inputs are read from the former and
+  scratch written to the latter and cleaned up with a `trap`. Slurm hands out
+  no private temp directory here (`TMPDIR` is plain `/tmp`, `SLURM_TMPDIR` is
+  unset), which is why uncleaned job directories accumulate. It also records
+  that `du` on a home directory can run for minutes on BeeGFS, and that at 84%
+  full a large write is somebody else's problem too.
+
+  `bodhi-software` — the order is module, then container, then `pixi`/`uv`.
+  The tree at `/cluster/software/modules-sw` carries around 137 packages, so
+  most of a genomics pipeline is a `module load` away and building it from
+  source is wasted time. Pin the version rather than taking `(default)`, load
+  inside the job script because `sbatch` starts from a clean login shell, and
+  note that `module avail` writes to stderr so grepping it needs `2>&1`.
+
+  `slurm-batch` — for work that is per-sample rather than one command:
+  `sbatch` scripts, arrays throttled with `%N`, `--parsable` dependency
+  chains, and sizing the next run from `sacct`. Records the local numbers that
+  bite: `DefMemPerCPU` is 4000 MB so omitting `--mem` is not "unlimited",
+  `MaxArraySize` is 1001 so longer lists need chunking, `kill_invalid_depend`
+  is set so a dependent job vanishes rather than hangs when its upstream
+  fails, and `MaxRSS` is reported on the step rows where `sacct -X` will not
+  show it.
+
+- A `slurm-discovery` skill, for finding out what the cluster actually offers
+  instead of assuming it: what the partitions are and how big, which accounts
+  and QOS the user holds, and the rule that decides whether a combination is
+  submittable — your account in the partition's `AllowAccounts`, and the QOS
+  you ask for in both its `AllowQos` and your own association. That
+  intersection is the part nobody guesses right: on Bodhi the `gpu` partition
+  takes `gpu_rbi`/`gpu_devbio`/`gpu_scb` and not the default `rbi` account, so
+  the request is refused however many GPUs are idle, and the error names
+  neither half. It also covers reading the QOS limit columns, and `squeue`'s
+  reason column when a job is rejected or sits `PENDING`.
+
+  The survey's answers are cached to
+  `~/.cache/sinteractive/slurm-map-<cluster>.md` and re-read rather than
+  re-run. Keyed by `ClusterName` because one `$HOME` is often mounted on
+  several clusters, and a map from the wrong one is worse than none. Only the
+  structure is cached — node states and queue depth are re-read live every
+  time, so the cached `sinfo` deliberately drops the state column.
+
 - A second Claude Code skill, `git-workflow`, installed alongside
   `bodhi-compute` by `--install-claude`. Where `bodhi-compute` is about the
   cluster, this one is about the repository open in the session: semantic

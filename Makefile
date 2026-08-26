@@ -54,12 +54,18 @@ install-system:
 # ---------------------------------------------------------------------------
 # Claude Code integration. Two parts:
 #
-#   - skills, which teach an agent how work is done here. bodhi-compute
-#     covers cluster etiquette: the login node and an sinteractive session are
-#     both orchestration shells, and real work goes into its own allocation.
-#     git-workflow covers the git conventions — semantic versioning,
-#     Conventional Commits, a worktree per branch, landing through a pull
-#     request — and is about the repository in the session, not the cluster;
+#   - skills, which teach an agent how work is done here, loaded on demand
+#     from their descriptions rather than all at once:
+#
+#       bodhi-compute    cluster etiquette; a session is not a compute target
+#       slurm-discovery  partitions, accounts, QOS, and what you may submit
+#       bodhi-storage    /beevol vs node-local /tmp, and where output belongs
+#       bodhi-software   modules first, then containers, then pixi/uv
+#       slurm-batch      sbatch, arrays, dependencies, sizing from sacct
+#       git-workflow     semver, Conventional Commits, worktrees, PRs
+#
+#     The first five are about the cluster; git-workflow is about the
+#     repository open in the session;
 #   - two hooks for an agent running INSIDE a session, which tell it at
 #     startup where it is and how big the allocation is, and warn it when the
 #     session is running out of walltime.

@@ -486,10 +486,18 @@ run from inside one create their own allocations rather than steps of the
 session's job.
 .SS Claude Code hooks
 .B \-\-agent\-context
-prints this briefing for the current session. Two skills and two hooks wire
+prints this briefing for the current session. Six skills and two hooks wire
 it up \(em
 .I bodhi\-compute
-for cluster etiquette and
+for cluster etiquette,
+.I slurm\-discovery
+for partitions, accounts and QOS,
+.I bodhi\-storage
+for where data belongs,
+.I bodhi\-software
+for modules and environments,
+.I slurm\-batch
+for array jobs and dependencies, and
 .I git\-workflow
 for the git conventions, plus one hook briefing the agent at session start
 and one warning it when the session is running out of wall time \(em

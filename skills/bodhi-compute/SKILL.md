@@ -101,6 +101,11 @@ for sinteractive sessions and is the smallest partition on the cluster
 Request only what the task needs, and ask the user before requesting more than
 a day of walltime or a whole node's worth of resources.
 
+`gpu` and some other partitions restrict which accounts and QOS may submit to
+them, so the right `-p` can still be rejected under the wrong `-A`. The
+`slurm-discovery` skill covers mapping that out, and reading the reason when a
+job is refused or stuck `PENDING`.
+
 ## sinteractive sessions
 
 These are the user's persistent interactive shells. You mostly *observe* them;
@@ -210,3 +215,10 @@ ssh NODE "${SINTERACTIVE_TMUX:-/usr/local/bin/tmux}" -L sinteractive-JOBID \
 Cancel allocations you created as soon as the work is done — `scancel ID` for
 an `salloc`, `sinteractive --cancel JOBID|NAME` for a session. Never cancel a
 session you did not create without asking the user.
+
+## Related skills
+
+- `slurm-discovery` — which partitions, accounts and QOS you may actually use.
+- `bodhi-storage` — read from `/beevol`, scratch on node-local `/tmp`.
+- `bodhi-software` — check `module avail` before building or installing.
+- `slurm-batch` — `sbatch`, arrays and dependencies, when it is not one job.
