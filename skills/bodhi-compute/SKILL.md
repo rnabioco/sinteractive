@@ -28,10 +28,29 @@ from inside one create their own allocations rather than steps of the
 session's job. Both stream stdout/stderr back and propagate the command's exit
 code.
 
+**Name every job in both fields.** Give each `srun` and `salloc` a short,
+descriptive name and pass it twice — `-J NAME` and `--comment=NAME`, the same
+value in both:
+
+```bash
+squeue --me -o "%.10i %.20j %.20P %.10M %k"   # %j is the name, %k the comment
+```
+
+Name the work, not the tool: `bwa-align`, not `job1` or `bash`. Left unset,
+the job takes the command's basename and an empty comment, so a queue full of
+`bash` and `uv` tells nobody sharing the partition what is running or why.
+This mirrors how sinteractive tags its own sessions (`sint-NAME` as the job
+name, `sinteractive:NAME` as the comment).
+
+Bodhi's `AccountingStoreFlags` does not include `job_comment`, so the comment
+is readable on a live job (`squeue`, `scontrol show job ID`) but comes back
+empty from `sacct` history — the name is the half that survives there. That is
+the reason to fill both rather than picking one.
+
 **One-off job** — blocks until it finishes:
 
 ```bash
-srun -p rna -c 8 --mem 32G -t 1:00:00 -- make test
+srun -p rna -c 8 --mem 32G -t 1:00:00 -J make-test --comment=make-test -- make test
 ```
 
 Use the Bash tool's background mode for long ones; `srun` stays attached for
@@ -41,17 +60,21 @@ the duration.
 queueing separately for every command:
 
 ```bash
-salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00
+salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00 -J cargo-ci --comment=cargo-ci
 # salloc: Granted job allocation 244001      <- on STDERR, not stdout
 srun --overlap --jobid=244001 -- cargo build --release
 srun --overlap --jobid=244001 -- cargo test
 scancel 244001                                # when done
 ```
 
+Name and comment live on the allocation, so naming the `salloc` covers every
+`srun --overlap` step run inside it.
+
 `salloc --no-shell` returns immediately. Capture the job id through `2>&1`:
 
 ```bash
-ID=$(salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00 2>&1 |
+ID=$(salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00 \
+       -J cargo-ci --comment=cargo-ci 2>&1 |
      sed -n 's/.*Granted job allocation \([0-9]*\).*/\1/p')
 ```
 

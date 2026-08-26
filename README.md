@@ -246,13 +246,18 @@ sinteractive --status mywork --json
 >
 > ```bash
 > # One-off job
-> srun -p rna -c 8 --mem 32G -t 1:00:00 -- make test
+> srun -p rna -c 8 --mem 32G -t 1:00:00 -J make-test --comment=make-test -- make test
 >
 > # Sustained work: hold one allocation and reuse it
-> salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00   # job id on stderr
+> salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00 -J cargo-ci --comment=cargo-ci
 > srun --overlap --jobid=ID -- cargo build --release
 > scancel ID
 > ```
+>
+> Name every job in both fields — `-J NAME` and `--comment=NAME`, the same
+> short descriptive value — so `squeue --me -o "%.10i %.20j %.10M %k"` says
+> what is running and why. Name and comment belong to the allocation, so
+> naming the `salloc` covers its `srun --overlap` steps.
 >
 > Every `SLURM_*` variable is stripped from a session, so tools inside it
 > don't believe they are a job step — which also means `srun` and `salloc` run

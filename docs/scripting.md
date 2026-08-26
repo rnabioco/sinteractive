@@ -38,10 +38,10 @@ allocation:
 
 ```bash
 # One-off job — blocks, streams output, propagates the exit code
-srun -p rna -c 8 --mem 32G -t 1:00:00 -- make test
+srun -p rna -c 8 --mem 32G -t 1:00:00 -J make-test --comment=make-test -- make test
 
 # Sustained work — hold one allocation and reuse it
-salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00
+salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00 -J cargo-ci --comment=cargo-ci
 # salloc: Granted job allocation 244001    <- on STDERR, not stdout
 srun --overlap --jobid=244001 -- cargo build --release
 srun --overlap --jobid=244001 -- cargo test
@@ -51,9 +51,26 @@ scancel 244001
 Capture the allocation id through `2>&1`:
 
 ```bash
-ID=$(salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00 2>&1 |
+ID=$(salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00 \
+       -J cargo-ci --comment=cargo-ci 2>&1 |
      sed -n 's/.*Granted job allocation \([0-9]*\).*/\1/p')
 ```
+
+Give every job a short descriptive name in both Slurm fields — `-J NAME` and
+`--comment=NAME`, the same value — so a queue shared with other people says
+what is running and why:
+
+```bash
+squeue --me -o "%.10i %.20j %.20P %.10M %k"   # %j is the name, %k the comment
+```
+
+Left unset, a job takes the command's basename and an empty comment, which is
+how a partition ends up full of jobs called `bash`. Both fields are worth
+filling because they survive differently: the comment is readable on a live
+job (`squeue`, `scontrol show job ID`) but is only kept in accounting when the
+cluster sets `AccountingStoreFlags=job_comment` — Bodhi does not, so `sacct`
+history shows the name alone. Name and comment belong to the allocation, so
+naming the `salloc` covers every `srun --overlap` step run inside it.
 
 Every `SLURM_*` variable is stripped from a session, so that tools inside it
 (snakemake, nextflow) don't believe they are running as a job step. A useful

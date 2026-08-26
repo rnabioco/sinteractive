@@ -429,12 +429,28 @@ instead:
 .PP
 .nf
 .RS
-srun \-p PART \-c N \-\-mem SIZE \-t TIME \-\- CMD...   # one\-off
-salloc \-\-no\-shell \-p PART \-c N \-\-mem SIZE \-t TIME  # sustained
+srun \-p PART \-c N \-\-mem SIZE \-t TIME \-J NAME \-\-comment=NAME \-\- CMD...
+salloc \-\-no\-shell \-p PART \-c N \-\-mem SIZE \-t TIME \-J NAME \-\-comment=NAME
 srun \-\-overlap \-\-jobid=ID \-\- CMD...              # ... reused
 scancel ID
 .RE
 .fi
+.PP
+Give every job a short descriptive name in both Slurm fields \(em
+.B \-J NAME
+and
+.BR \-\-comment= NAME ,
+the same value \(em so a shared queue says what is running and why:
+.B squeue
+shows the name in
+.B %j
+and the comment in
+.BR %k .
+Both belong to the allocation, so naming the
+.BR salloc (1)
+covers every
+.B srun \-\-overlap
+step run inside it.
 .PP
 Both stream output and propagate the command's exit code.
 .BR salloc (1)

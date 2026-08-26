@@ -98,13 +98,23 @@ Run work in an allocation sized for it instead:
 
 ```bash
 # One-off job
-srun -p rna -c 8 --mem 32G -t 1:00:00 -- make test
+srun -p rna -c 8 --mem 32G -t 1:00:00 -J make-test --comment=make-test -- make test
 
 # Sustained work: hold one allocation and reuse it
-salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00   # job id on stderr
+salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00 -J cargo-ci --comment=cargo-ci
 srun --overlap --jobid=ID -- cargo build --release
 scancel ID
 ```
+
+Name every job in both fields — `-J NAME` and `--comment=NAME`, the same short
+descriptive value — so the queue says what is running and why:
+
+```bash
+squeue --me -o "%.10i %.20j %.20P %.10M %k"   # %j is the name, %k the comment
+```
+
+Name and comment belong to the allocation, so naming the `salloc` covers every
+`srun --overlap` step run inside it.
 
 `SLURM_*` is stripped from a session, so `srun` and `salloc` run from inside
 one create their own allocations rather than steps of the session's job.

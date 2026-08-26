@@ -8,6 +8,19 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Slurm jobs are now asked to carry a name in *both* fields: `-J NAME` and
+  `--comment=NAME`, the same short descriptive value. The `bodhi-compute`
+  skill, the `--agent-context` briefing, the man page and the docs all show
+  it on every `srun`/`salloc` example, so a shared partition stops filling
+  with jobs called `bash`. Both fields earn their place because they survive
+  differently: the comment is readable on a live job (`squeue`, `scontrol
+  show job ID`) but only reaches accounting on clusters that set
+  `AccountingStoreFlags=job_comment` — Bodhi does not, so `sacct` history
+  keeps the name alone. Name and comment belong to the allocation, so naming
+  an `salloc` covers every `srun --overlap` step run inside it.
+
 ## [0.2.1] - 2026-08-25
 
 ### Fixed
