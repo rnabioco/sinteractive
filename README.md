@@ -95,6 +95,11 @@ Set personal defaults in your `~/.bashrc`; explicit flags always win.
 | `SINTERACTIVE_MEM` | Default memory (e.g. `16G`) | `8G` |
 | `SINTERACTIVE_MOUSE` | `on`/`1`/`true`/`yes` enables mouse support | off |
 | `SINTERACTIVE_TMUX` | Path to the `tmux` binary on the compute node | `/usr/local/bin/tmux` |
+| `SINTERACTIVE_COLOR` | `auto`/`always`/`never` for launch and teardown output; `NO_COLOR` also honoured | `auto` |
+| `SINTERACTIVE_QUOTA_POLL` | Seconds between storage-quota checks | `600` |
+| `SINTERACTIVE_QUOTA_FILE` | Pipe-delimited file of hard quotas | `/cluster/scripts/quota_current.txt` |
+| `SINTERACTIVE_QUOTA_HOSTS` | Quota daemons to sum usage across | Bodhi's `172.20.8.110-118` |
+| `SINTERACTIVE_QUOTA_PORT` | Port those daemons listen on | `9878` |
 
 ```bash
 # Example: always use mouse mode and a bigger default allocation

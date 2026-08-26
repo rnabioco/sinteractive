@@ -10,6 +10,26 @@ and this project adheres to
 
 ### Added
 
+- Colour in the launch and teardown narration. Four roles rather than a
+  rainbow: teal for identifiers (job ids, node names), echoing the `#2DBFB8`
+  the status bar already uses for the same things so the two agree about what
+  an identifier is; dim for progress, which leaves `✓ Session … is ready` the
+  only bright line in the block; yellow for keys and warnings; red for errors.
+
+  `SINTERACTIVE_COLOR` takes `auto`/`always`/`never` (default `auto`), and
+  `NO_COLOR` is honoured whatever its value. The `auto` test is on **standard
+  error**, not standard output, because that is where the narration goes — the
+  two differ in exactly the case that matters, since `--detach ... > file`
+  should still narrate to the terminal while `2>log` must stay free of
+  escapes. With colour off every variable is empty rather than being guarded
+  at each use, so one set of format strings serves both and there is no
+  second, less-tested path.
+
+  Two messages were tightened in passing: `Interactive job with ID N
+  submitted, please wait` is now `Submitted job N, waiting for it to start`,
+  and the detach block's prose `To reconnect:` / `To cancel the job:` became an
+  aligned `Reconnect:` / `Cancel:` pair matching the one shown at launch.
+
 - Storage quota in the notice line. A session shows a red `OVER QUOTA` warning
   above its status line, with the overage, while the user is past their hard
   limit, re-checked every `SINTERACTIVE_QUOTA_POLL` seconds (default 600).
