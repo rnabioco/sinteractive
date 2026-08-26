@@ -19,9 +19,47 @@ set -u
 TMUX_BIN="${SINTERACTIVE_TMUX:-/usr/local/bin/tmux}"
 JOB_ID=''
 # Reported by --version; keep in sync with the release tag (vX.Y.Z).
-VERSION='0.4.0'
+VERSION='0.5.0'
 # Basename for error messages ($0 is the full install path — noisy).
 PROG="${0##*/}"
+
+# ---------------------------------------------------------------------------
+# Colour for the launch and teardown narration.
+#
+# Everything here is written to stderr, so the decision hangs on whether
+# *stderr* is a terminal — not stdout. The two differ in exactly the case that
+# matters: `sinteractive --detach ... > file` still narrates to a terminal, and
+# `sinteractive ... 2>log` must not write escapes into the log.
+#
+# When colour is off every variable is the empty string rather than being
+# guarded at each use, so one set of printf strings serves both cases and
+# there is no second, less-tested code path.
+#
+# SINTERACTIVE_COLOR takes always/never/auto (default auto); NO_COLOR is
+# honoured whatever its value, per no-color.org, and TERM=dumb opts out too.
+# An explicit SINTERACTIVE_COLOR=always wins over both, for piping into
+# something that renders escapes itself (`less -R`, CI logs that colourise).
+# ---------------------------------------------------------------------------
+C_RST='' C_BOLD='' C_DIM='' C_OK='' C_WARN='' C_ERR='' C_ID='' C_KEY=''
+function init_colors {
+  local want="${SINTERACTIVE_COLOR:-auto}"
+  case "$want" in
+  never | no | 0) return 0 ;;
+  always | yes | 1) ;;
+  *)
+    [[ -n "${NO_COLOR+x}" ]] && return 0
+    [[ -t 2 ]] || return 0
+    [[ "${TERM:-}" == dumb || -z "${TERM:-}" ]] && return 0
+    ;;
+  esac
+  C_RST=$'\e[0m' C_BOLD=$'\e[1m' C_DIM=$'\e[2m'
+  C_OK=$'\e[32m' C_WARN=$'\e[33m' C_ERR=$'\e[31m'
+  # Teal for identifiers — job ids, node names — echoing the #2DBFB8 the
+  # status bar uses for the same things, so the launch narration and the
+  # session you land in agree about what is an identifier.
+  C_ID=$'\e[1;36m' C_KEY=$'\e[1;33m'
+}
+init_colors
 
 # Convert time shorthand (e.g. 8h, 30m, 2d, 1d12h, 1h30m) to HH:MM:SS
 function parse_time {
@@ -536,8 +574,8 @@ function main {
     fitted=$(seconds_to_slurm_time "$maint_fit")
     mapfile -d '' -t rewritten < <(replace_time_in_args "$fitted" "$@")
     set -- "${rewritten[@]}"
-    echo "Maintenance (${maint_name}) starts $(date -d "@$maint_start" '+%a %b %-d %H:%M')."
-    echo "Shortened the request from ${maint_orig} to ${fitted} so the session ends before it."
+    echo "${C_WARN}${C_BOLD}!${C_RST} ${C_WARN}Maintenance (${maint_name}) starts $(date -d "@$maint_start" '+%a %b %-d %H:%M').${C_RST}"
+    echo "  ${C_DIM}Shortened the request from${C_RST} ${maint_orig} ${C_DIM}to${C_RST} ${C_BOLD}${fitted}${C_RST} ${C_DIM}so the session ends before it.${C_RST}"
     echo ''
   fi
 
@@ -565,12 +603,12 @@ function main {
       if [[ -n "$rname" ]]; then
         echo 1>&2 "Note: you already have a running session named '${rname}' (job ${rjob} on ${rnode})."
       else
-        echo 1>&2 "Note: you already have a running session (job ${rjob} on ${rnode})."
+        echo 1>&2 "${C_DIM}Note: you already have a running session (job ${rjob} on ${rnode}).${C_RST}"
       fi
-      echo 1>&2 "      Reattach with 'sinteractive --attach ${rname:-${rjob}}'; starting a new session..."
+      echo 1>&2 "${C_DIM}      Reattach with 'sinteractive --attach ${rname:-${rjob}}'; starting a new session...${C_RST}"
     else
-      echo 1>&2 "Note: you already have ${n_running} running sessions ('sinteractive --list' shows them)."
-      echo 1>&2 "      Starting a new session..."
+      echo 1>&2 "${C_DIM}Note: you already have ${n_running} running sessions ('sinteractive --list' shows them).${C_RST}"
+      echo 1>&2 "${C_DIM}      Starting a new session...${C_RST}"
     fi
   fi
 
@@ -625,7 +663,7 @@ function main {
   fi
   scontrol update JobId="${JOB_ID}" Comment="${job_comment}"
 
-  echo 1>&2 "Interactive job with ID ${JOB_ID} submitted, please wait."
+  echo 1>&2 "${C_DIM}Submitted job${C_RST} ${C_ID}${JOB_ID}${C_RST}${C_DIM}, waiting for it to start.${C_RST}"
 
   # While the job is pending, show why (squeue's pend reason) and Slurm's
   # estimated start time. The scheduler is polled every 5 seconds; on a TTY a
@@ -679,9 +717,10 @@ function main {
           fi
         fi
       fi
-      printf 1>&2 '\r\033[K %s %s%s (%s elapsed)' \
-        "${frames[spin % 10]}" "$why" "$est" \
-        "$(format_short_duration $((now - wait_start)))"
+      printf 1>&2 '\r\033[K %s%s%s %s%s%s %s(%s elapsed)%s' \
+        "$C_ID" "${frames[spin % 10]}" "$C_RST" \
+        "$C_DIM" "${why}${est}" "$C_RST" \
+        "$C_DIM" "$(format_short_duration $((now - wait_start)))" "$C_RST"
       spin=$((spin + 1))
       sleep 0.5
     else
@@ -693,7 +732,7 @@ function main {
   batchhost=$(squeue --jobs "${JOB_ID}" --noheader --Format batchhost | xargs)
 
   echo 1>&2 ''
-  echo 1>&2 'Connecting to sinteractive session, please wait...'
+  echo 1>&2 "${C_DIM}Allocated ${C_RST}${C_ID}${batchhost}${C_RST}${C_DIM} — bringing up the session...${C_RST}"
 
   # A RUNNING job only means the allocation exists; the batch script still
   # has to bring up the tmux server. Poll for the session (a single SSH that
@@ -728,11 +767,11 @@ function main {
     fi
     local attach_target="${session_name:-${JOB_ID}}"
     echo 1>&2 ''
-    echo 1>&2 "Session ${JOB_ID} is ready on ${batchhost}."
+    echo 1>&2 "${C_OK}${C_BOLD}✓${C_RST} ${C_BOLD}Session ${C_RST}${C_ID}${JOB_ID}${C_RST}${C_BOLD} is ready on ${C_RST}${C_ID}${batchhost}${C_RST}${C_BOLD}.${C_RST}"
     echo 1>&2 ''
-    echo 1>&2 "  Attach:   sinteractive --attach ${attach_target}"
-    echo 1>&2 "  Status:   sinteractive --status ${attach_target}"
-    echo 1>&2 "  Cancel:   sinteractive --cancel ${attach_target}"
+    echo 1>&2 "  ${C_KEY}Attach:${C_RST}   sinteractive --attach ${attach_target}"
+    echo 1>&2 "  ${C_KEY}Status:${C_RST}   sinteractive --status ${attach_target}"
+    echo 1>&2 "  ${C_KEY}Cancel:${C_RST}   sinteractive --cancel ${attach_target}"
     return
   fi
 
@@ -747,18 +786,14 @@ function main {
 
   if [[ "${post_state}" == 'RUNNING' ]]; then
     echo 1>&2 ''
-    echo 1>&2 "Disconnected from sinteractive session."
-    echo 1>&2 "Your job ${JOB_ID} is still running on ${batchhost}."
+    echo 1>&2 "${C_WARN}${C_BOLD}⠿${C_RST} ${C_BOLD}Detached.${C_RST} ${C_DIM}Job${C_RST} ${C_ID}${JOB_ID}${C_RST} ${C_DIM}is still running on${C_RST} ${C_ID}${batchhost}${C_RST}${C_DIM}.${C_RST}"
     echo 1>&2 ''
     local attach_target="${JOB_ID}"
     if [[ -n "${session_name}" ]]; then
       attach_target="${session_name}"
     fi
-    echo 1>&2 "To reconnect:"
-    echo 1>&2 "  sinteractive --attach ${attach_target}"
-    echo 1>&2 ''
-    echo 1>&2 "To cancel the job:"
-    echo 1>&2 "  scancel ${JOB_ID}"
+    echo 1>&2 "  ${C_KEY}Reconnect:${C_RST}  sinteractive --attach ${attach_target}"
+    echo 1>&2 "  ${C_KEY}Cancel:${C_RST}     scancel ${JOB_ID}"
 
     # Show other running sinteractive sessions. Pipe-delimited -o output
     # (not --Format columns) so long comments can't run into the next field
@@ -770,14 +805,14 @@ function main {
 
     if [[ -n "$other_running" ]]; then
       echo 1>&2 ''
-      echo 1>&2 'Other running sinteractive sessions:'
-      printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
+      echo 1>&2 "${C_DIM}Other running sinteractive sessions:${C_RST}"
+      printf 1>&2 "  ${C_DIM}%-10s  %-14s  %-10s  %-10s${C_RST}\\n" 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
       while IFS='|' read -r jobid comment node elapsed limit; do
-        printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
+        printf 1>&2 "  ${C_ID}%-10s${C_RST}  %-14s  %-10s  %-10s\\n" "$jobid" "$node" "$elapsed" "$limit"
       done <<<"$other_running"
     fi
   else
-    echo 1>&2 "Session ended. Job ${JOB_ID} is no longer running."
+    echo 1>&2 "${C_DIM}Session ended. Job${C_RST} ${C_ID}${JOB_ID}${C_RST} ${C_DIM}is no longer running.${C_RST}"
 
     # Show any remaining sinteractive sessions. Pipe-delimited -o output
     # (not --Format columns) so long comments can't run into the next field
@@ -788,13 +823,13 @@ function main {
 
     if [[ -n "$remaining" ]]; then
       echo 1>&2 ''
-      echo 1>&2 'You have other sinteractive sessions still running:'
-      printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
+      echo 1>&2 "${C_WARN}You have other sinteractive sessions still running:${C_RST}"
+      printf 1>&2 "  ${C_DIM}%-10s  %-14s  %-10s  %-10s${C_RST}\\n" 'JOBID' 'NODE' 'ELAPSED' 'TIMELIMIT'
       while IFS='|' read -r jobid comment node elapsed limit; do
-        printf 1>&2 '  %-10s  %-14s  %-10s  %-10s\n' "$jobid" "$node" "$elapsed" "$limit"
+        printf 1>&2 "  ${C_ID}%-10s${C_RST}  %-14s  %-10s  %-10s\\n" "$jobid" "$node" "$elapsed" "$limit"
       done <<<"$remaining"
       echo 1>&2 ''
-      echo 1>&2 'To free slots, cancel sessions you no longer need:'
+      echo 1>&2 "${C_DIM}To free slots, cancel sessions you no longer need:${C_RST}"
       while IFS='|' read -r jobid _rest; do
         echo 1>&2 "  scancel $jobid"
       done <<<"$remaining"
@@ -1907,7 +1942,7 @@ function fit_maintenance_window {
     local maint_when
     maint_when=$(date -d "@$start_epoch" "+%a %b %-d %H:%M")
     echo 1>&2 ""
-    echo 1>&2 "Error: maintenance starts too soon to open a session."
+    echo 1>&2 "${C_ERR}${C_BOLD}Error:${C_RST}${C_ERR} maintenance starts too soon to open a session.${C_RST}"
     echo 1>&2 ""
     echo 1>&2 "  Reservation: ${name}"
     echo 1>&2 "  Starts:      ${maint_when} (in $(format_short_duration $gap_secs))"
@@ -2053,7 +2088,7 @@ function cancel_session {
 
   local desc="session ${jobid}"
   [[ -n "$name" ]] && desc+=" (${name})"
-  echo 1>&2 "Cancelled ${desc}${node:+ on ${node}}."
+  echo 1>&2 "${C_OK}✓${C_RST} Cancelled ${desc}${node:+ on ${C_ID}${node}${C_RST}}."
   exit 0
 }
 

@@ -1,4 +1,4 @@
-.TH SINTERACTIVE 1 "August 2026" "sinteractive 0.4.0" "User Commands"
+.TH SINTERACTIVE 1 "August 2026" "sinteractive 0.5.0" "User Commands"
 .SH NAME
 sinteractive \- start an interactive tmux session on a Slurm compute node
 .SH SYNOPSIS
@@ -622,6 +622,24 @@ Port those daemons listen on. Default: 9878.
 .TP
 .B SINTERACTIVE_QUOTA_TIMEOUT
 Seconds to wait for each daemon's reply. Default: 5.
+.TP
+.B SINTERACTIVE_COLOR
+.BR auto | always | never
+for the launch and teardown narration. Default:
+.BR auto ,
+which colours only when standard error is a terminal and
+.B TERM
+is neither
+.B dumb
+nor empty. The test is on standard error rather than standard output because
+that is where the narration goes: a redirect of stdout still narrates to your
+terminal, and
+.B 2>log
+stays free of escapes.
+.B NO_COLOR
+(any value, per no\-color.org) disables colour;
+.B SINTERACTIVE_COLOR=always
+overrides both, for piping into something that renders escapes itself.
 .PP
 Exported inside a session:
 .B SINTERACTIVE_JOB_ID
