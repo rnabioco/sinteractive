@@ -10,6 +10,25 @@ and this project adheres to
 
 ### Added
 
+- `bodhi-compute` now covers Bodhi's monthly maintenance reservation, and
+  sizing walltime around it. The reservation carries `ALL_NODES`, so there is
+  nowhere on the cluster to run during the window, and the failure mode is
+  quiet: a job asking for more walltime than remains before the start is not
+  rejected, it is **deferred to after the window**. Measured against a window
+  21h49m out, `-t 21:00:00` started immediately and `-t 22:00:00` was pushed
+  to the reservation's end time — one extra hour of request bought two days of
+  waiting. The section covers reading `scontrol show reservation`, computing
+  the gap, confirming with `srun --test-only`, and recognising
+  `ReqNodeNotAvail, Reserved for maintenance` in `squeue` as "waiting for the
+  cluster to come back", not something to resubmit. `IGNORE_JOBS` means jobs
+  already running are not killed when the reservation is created, but nothing
+  survives the window itself — sinteractive sessions included, so a session
+  should be launched to end before the start rather than reach past it.
+
+  `slurm-discovery` gains the matching `squeue` reason, and a note that
+  reservations are weather rather than structure: they recur monthly but each
+  one has a date, so they are read live and never written to the cached map.
+
 - Three more skills covering the things an agent hits in the first ten minutes
   of real work on the cluster:
 

@@ -106,6 +106,75 @@ them, so the right `-p` can still be rejected under the wrong `-A`. The
 `slurm-discovery` skill covers mapping that out, and reading the reason when a
 job is refused or stuck `PENDING`.
 
+### Check for a maintenance window before asking for walltime
+
+Bodhi takes a maintenance reservation roughly once a month, and it covers
+**every node on the cluster**. Check before requesting anything long:
+
+```bash
+scontrol show reservation
+# ReservationName=monthly-maint StartTime=2026-08-27T06:00:00
+#   EndTime=2026-08-28T06:00:00 Duration=1-00:00:00
+#   Nodes=compgpu[01-03],compute[00-21] NodeCnt=25
+#   Flags=MAINT,IGNORE_JOBS,SPEC_NODES,ALL_NODES
+#   Users=root  State=INACTIVE
+```
+
+`State=INACTIVE` means it has not started yet; `ACTIVE` means it is on and the
+nodes are gone. `Users=root` means it is not a reservation you can submit
+into. `ALL_NODES` is the part that matters — there is nowhere else to go.
+
+**A job asking for more walltime than remains before the window does not
+fail. It gets deferred to after the window.** That is the whole hazard: the
+job queues and looks normal, and the cost is invisible unless you check. With
+the window 21h49m away:
+
+```console
+$ srun --test-only -p rna -c 4 --mem 8G -t 21:00:00 -- true
+srun: Job 245072 to start at 2026-08-26T08:10:20 ...      # starts now
+
+$ srun --test-only -p rna -c 4 --mem 8G -t 22:00:00 -- true
+srun: Job 245073 to start at 2026-08-28T06:00:00 ...      # +46 hours
+```
+
+One extra hour of requested walltime cost two days of waiting. So **size `-t`
+to fit in the gap**, and if the work genuinely cannot fit, say so and let the
+user decide between splitting it and waiting.
+
+How long is the gap:
+
+```bash
+scontrol show reservation 2>/dev/null |
+  sed -n 's/.*ReservationName=\([^ ]*\) StartTime=\([^ ]*\) EndTime=\([^ ]*\).*/\1 \2 \3/p' |
+  while read -r name start end; do
+    s=$(date -d "$start" +%s) now=$(date +%s)
+    ((s > now)) && printf '%s starts in %dh%02dm\n' \
+      "$name" $(((s - now) / 3600)) $((((s - now) % 3600) / 60))
+  done
+# monthly-maint starts in 21h49m
+```
+
+`--test-only` is the cheap confirmation either way — it reports the start time
+the scheduler would actually give the job without queueing anything.
+
+After the fact, a job caught this way says so in `squeue`:
+
+```console
+$ squeue -t PENDING -o "%.10i %.12u %.12L %r"
+    243393     krausmeg   3-00:00:00 ReqNodeNotAvail, Reserved for maintenance
+```
+
+Both of those asked for three days with the window a day out. A job in that
+state is not stuck and does not need resubmitting — it is waiting for the
+cluster to come back. Shortening `-t` is what makes it run sooner.
+
+`IGNORE_JOBS` means the reservation was allowed to be created over jobs that
+were already running, so those are not killed up front — but they do not
+survive the window either. **Nothing running is safe across it**, sinteractive
+sessions included: a session whose walltime crosses the start time will be cut
+short, so launch one that ends before the window rather than one that reaches
+past it.
+
 ## sinteractive sessions
 
 These are the user's persistent interactive shells. You mostly *observe* them;
