@@ -390,12 +390,20 @@ sudo make tmux        # build tmux from source into /usr/local
 sudo make tmux-push   # fan the binary out to every node Slurm knows about
 sudo make tmux-all    # build + push
 
-sudo make nodes       # install sinteractive + man page + completion on every node
+sudo make nodes       # install sinteractive on every node (same set as install-system)
+make nodes-check      # report what each node actually has
 ```
 
 `NODES` defaults to `sinfo -hN -o '%N'`; override with
 `make tmux-push NODES="compute00 compute01"`. Pushes copy to a temp name and
 rename into place so running sessions aren't disturbed.
+
+`make nodes` installs everything `install-system` does, the Claude Code
+assets included — `--install-claude` resolves them relative to the running
+script, so a node without `<prefix>/share/sinteractive` cannot serve it from
+inside a session. Node drift is otherwise invisible, since a session runs the
+copy of the script that `sbatch` spooled rather than the node's; `make
+nodes-check` reports the version, assets and tmux on each node.
 
 ## Docs development
 

@@ -39,8 +39,35 @@ sudo make tmux-all
 sudo make nodes
 ```
 
-This installs the script, man page, and bash completion to `/usr/local` on
-every compute node.
+This installs the same set of files as `make install-system` — script, man
+page, bash completion, and the Claude Code assets under
+`/usr/local/share/sinteractive` — to `/usr/local` on every compute node. (The
+head node itself is covered by `sudo make install-system`.)
+
+The assets belong on the compute nodes and not only on the head node:
+`sinteractive --install-claude` finds them relative to the running script, so
+someone who runs it from inside a session is running the node's copy, and
+without `<prefix>/share/sinteractive` beside it that call fails.
+
 If the checkout lives on a cluster-wide mount and `pdsh` is available, each
-node installs straight from the shared path; otherwise it falls back to an
-scp/ssh loop. `NODES` and `SSH_USER` are overridable as above.
+node installs straight from the shared path; otherwise it falls back to
+piping a tar to each node in turn. `NODES` and `SSH_USER` are overridable as
+above. The script is renamed into place rather than written over, for the
+same reason `tmux-push` does it: `--attach` SSHes into a node and runs the
+script there, so a copy may be executing while you install.
+
+## Checking what is deployed
+
+```bash
+make nodes-check
+# compute00    sinteractive=0.3.0  assets=yes  tmux 3.7c
+# compute01    sinteractive=unknown  assets=no  tmux 3.7b
+# compgpu01    unreachable
+```
+
+Read-only and unprivileged, so anyone can run it. Worth doing after a
+fan-out, because drift is otherwise invisible: `sbatch` spools the submitted
+copy of the script, so sessions keep working from whatever the *submitting*
+node has, and a stale compute node only shows up in `--attach` (which runs
+the script on the node) and in `--install-claude`. `sinteractive=unknown`
+means a copy old enough to predate the `VERSION` string.

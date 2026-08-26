@@ -28,6 +28,29 @@ and this project adheres to
   before, with a note that installing one (`pixi global install jq`) lets
   sinteractive do it. `jq` stays an optional dependency.
 
+### Fixed
+
+- `make nodes` now installs the same set of files as `make install-system`,
+  the Claude Code assets included; it had shipped only the script, man page
+  and completion. The assets belong on the compute nodes because
+  `--install-claude` resolves them relative to the running script: someone
+  following the status-bar hint runs it from inside a session, which runs the
+  node's `/usr/local/bin` copy, and with no `<prefix>/share/sinteractive`
+  beside it that call failed. It worked only for people who had also
+  installed into a shared `$HOME`.
+- `make nodes` renames the script into place instead of writing over it, for
+  the reason `tmux-push` does: `--attach` SSHes into a node and runs the
+  script there, so a copy can be executing while you install.
+
+### Added
+
+- `make nodes-check` reports the sinteractive version, whether the Claude
+  Code assets are present, and the tmux version on every node in `NODES`.
+  Read-only and unprivileged. Drift is otherwise invisible — `sbatch` spools
+  the submitted copy of the script, so sessions keep working from whatever
+  the submitting node has, and a stale compute node only shows up in
+  `--attach` and `--install-claude`.
+
 ## [0.2.2] - 2026-08-26
 
 ### Changed

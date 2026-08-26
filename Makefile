@@ -57,9 +57,10 @@ install-system:
 #
 # All per-user, so this installs into ~/.claude regardless of UID.
 #
-# settings.json is printed, not merged: it is the user's file and usually
-# already carries hooks of their own, so clobbering it is not this Makefile's
-# call to make.
+# Registration is left to the script: sinteractive --install-claude merges the
+# hooks into settings.json with jq, or prints the block when there is no jq.
+# Either way the merge logic lives in one place rather than being mirrored
+# here.
 # ---------------------------------------------------------------------------
 CLAUDE_DIR ?= $(HOME)/.claude
 
@@ -91,7 +92,7 @@ CONFIGURE_FLAGS  ?=
 NODES            ?= $(shell sinfo -hN -o '%N' 2>/dev/null | sort -u)
 SSH_USER         ?= root
 
-.PHONY: tmux-deps tmux tmux-push tmux-all nodes require-root
+.PHONY: tmux-deps tmux tmux-push tmux-all nodes nodes-check require-root
 
 # The tmux targets install system-wide (into $(TMUX_PREFIX)) and push to other
 # nodes, so they must be run as root.
@@ -132,32 +133,78 @@ tmux-push: require-root
 tmux-all: tmux tmux-push
 
 # ---------------------------------------------------------------------------
-# nodes — install sinteractive and its man page onto every compute node.
+# nodes — install sinteractive onto every compute node: the same set of files
+# as install-system, the Claude Code assets included.
 #
-# /usr/local is node-local, so the script and man page must be installed on
-# each node individually. If this checkout lives on a cluster-wide mount, with
-# pdsh each node can `install` straight from the shared path — note pdsh runs
-# commands, it does NOT copy files (that's pdcp). Without pdsh, falls back to
-# the same scp/ssh loop as tmux-push. Run as root (sudo make nodes).
+# /usr/local is node-local, so all of it must be installed on each node
+# individually. The assets matter here and not only on the head node, because
+# --install-claude resolves them relative to the running script: someone who
+# runs it from inside a session is running the node's /usr/local/bin copy, and
+# without <prefix>/share/sinteractive beside it that call fails.
+#
+# If this checkout lives on a cluster-wide mount, with pdsh each node can
+# `install` straight from the shared path — note pdsh runs commands, it does
+# NOT copy files (that's pdcp). Without pdsh, falls back to piping a tar to
+# each node in turn. Run as root (sudo make nodes); this covers the compute
+# nodes, the head node gets make install-system.
+#
+# The script is renamed into place rather than written over, for the reason
+# tmux-push does it: a copy of it may be executing on the node right now (an
+# --attach SSHes in and runs it there), and truncating a running script in
+# place is how you get a half-read one.
 # ---------------------------------------------------------------------------
 NODELIST = $(shell echo $(NODES) | tr ' ' ',')
 
 nodes: require-root
 	@if command -v pdsh >/dev/null 2>&1; then \
 	  pdsh -w $(NODELIST) \
-	    'install -m 0755 $(CURDIR)/sinteractive /usr/local/bin/sinteractive \
+	    'install -m 0755 $(CURDIR)/sinteractive /usr/local/bin/sinteractive.new \
+	     && mv /usr/local/bin/sinteractive.new /usr/local/bin/sinteractive \
 	     && install -D -m 0644 $(CURDIR)/man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1 \
 	     && install -D -m 0644 $(CURDIR)/completions/sinteractive.bash /usr/local/share/bash-completion/completions/sinteractive \
+	     && install -d -m 0755 /usr/local/share/sinteractive/claude/hooks /usr/local/share/sinteractive/skills/bodhi-compute \
+	     && install -m 0755 $(CURDIR)/claude/hooks/*.sh /usr/local/share/sinteractive/claude/hooks/ \
+	     && install -m 0644 $(CURDIR)/claude/settings-snippet.json /usr/local/share/sinteractive/claude/ \
+	     && install -m 0644 $(CURDIR)/skills/bodhi-compute/SKILL.md /usr/local/share/sinteractive/skills/bodhi-compute/ \
 	     && echo ok'; \
 	else \
 	  for n in $(NODES); do \
 	    printf '==> %s: ' "$$n"; \
-	    scp -q sinteractive man/sinteractive.1 completions/sinteractive.bash $(SSH_USER)@$$n:/tmp/ \
-	      && ssh $(SSH_USER)@$$n \
-	        'install -m 0755 /tmp/sinteractive /usr/local/bin/sinteractive \
-	         && install -D -m 0644 /tmp/sinteractive.1 /usr/local/share/man/man1/sinteractive.1 \
-	         && install -D -m 0644 /tmp/sinteractive.bash /usr/local/share/bash-completion/completions/sinteractive \
-	         && rm -f /tmp/sinteractive /tmp/sinteractive.1 /tmp/sinteractive.bash && echo ok' \
+	    tar cf - sinteractive man/sinteractive.1 completions/sinteractive.bash \
+	          claude/hooks claude/settings-snippet.json skills/bodhi-compute/SKILL.md \
+	      | ssh $(SSH_USER)@$$n \
+	        'set -e; d=$$(mktemp -d); trap "rm -rf $$d" EXIT; tar xf - -C "$$d"; \
+	         install -m 0755 "$$d/sinteractive" /usr/local/bin/sinteractive.new; \
+	         mv /usr/local/bin/sinteractive.new /usr/local/bin/sinteractive; \
+	         install -D -m 0644 "$$d/man/sinteractive.1" /usr/local/share/man/man1/sinteractive.1; \
+	         install -D -m 0644 "$$d/completions/sinteractive.bash" /usr/local/share/bash-completion/completions/sinteractive; \
+	         install -d -m 0755 /usr/local/share/sinteractive/claude/hooks /usr/local/share/sinteractive/skills/bodhi-compute; \
+	         install -m 0755 "$$d"/claude/hooks/*.sh /usr/local/share/sinteractive/claude/hooks/; \
+	         install -m 0644 "$$d/claude/settings-snippet.json" /usr/local/share/sinteractive/claude/; \
+	         install -m 0644 "$$d/skills/bodhi-compute/SKILL.md" /usr/local/share/sinteractive/skills/bodhi-compute/; \
+	         echo ok' \
 	      || echo "FAILED"; \
 	  done; \
 	fi
+
+# ---------------------------------------------------------------------------
+# nodes-check — report what each node actually has.
+#
+# Read-only and unprivileged, so it can be run by anyone at any time. A
+# fan-out that failed halfway, or a cluster that has not been updated since
+# some earlier release, is otherwise invisible: sessions keep working from the
+# submitted copy of the script (sbatch spools it), so a stale node only shows
+# up in --attach and in --install-claude.
+# ---------------------------------------------------------------------------
+nodes-check:
+	@for n in $(NODES); do \
+	  printf '%-12s ' "$$n"; \
+	  ssh -o BatchMode=yes -o ConnectTimeout=5 $(SSH_USER)@$$n ' \
+	    v=$$(sed -n "s/^VERSION=.\(.*\)./\1/p" /usr/local/bin/sinteractive 2>/dev/null | head -1); \
+	    [ -e /usr/local/bin/sinteractive ] || v=missing; \
+	    [ -n "$$v" ] || v=unknown; \
+	    a=no; [ -d /usr/local/share/sinteractive/skills/bodhi-compute ] && a=yes; \
+	    t=$$(/usr/local/bin/tmux -V 2>/dev/null) || t="tmux missing"; \
+	    echo "sinteractive=$$v  assets=$$a  $$t"' 2>/dev/null \
+	    || echo "unreachable"; \
+	done

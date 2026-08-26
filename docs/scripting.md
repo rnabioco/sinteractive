@@ -139,8 +139,11 @@ Without `jq` on `$PATH` the block is printed to merge by hand, as before
 
 `make install` puts the assets in `<prefix>/share/sinteractive` beside the
 script, and `--install-claude` finds them relative to its own location. So it
-works on a cluster where an admin ran `make nodes` and you never cloned the
-repo. Point `SINTERACTIVE_SHARE` at a checkout to override.
+works on a cluster where an admin ran `make install-system` and `make nodes`
+and you never cloned the repo — both ship the assets, and the compute nodes
+need them too, since running `--install-claude` from inside a session runs
+the node's copy of the script. Point `SINTERACTIVE_SHARE` at a checkout to
+override, and `make nodes-check` to see which nodes actually have them.
 
 **The [skill](https://code.claude.com/docs/en/skills)** teaches agents cluster
 etiquette: neither the login node nor an sinteractive session is a compute
