@@ -148,8 +148,9 @@ need them too, since running `--install-claude` from inside a session runs
 the node's copy of the script. Point `SINTERACTIVE_SHARE` at a checkout to
 override, and `make nodes-check` to see which nodes actually have them.
 
-**Three [skills](https://code.claude.com/docs/en/skills)** teach agents how
-work is done here.
+**Six [skills](https://code.claude.com/docs/en/skills)** teach agents how work
+is done here. Skills load on demand from their descriptions, so an agent picks
+up the one the task calls for rather than carrying all six.
 
 `bodhi-compute` covers cluster etiquette: neither the login node nor an
 sinteractive session is a compute target, real work goes into an allocation
@@ -161,7 +162,26 @@ assuming it: what the partitions are and how big, which accounts and QOS you
 hold, and the rule that decides whether a given combination is submittable —
 your account in the partition's `AllowAccounts`, your QOS in both its
 `AllowQos` and your own association. It also covers reading `squeue`'s reason
-column when a job is refused or sits `PENDING`.
+column when a job is refused or sits `PENDING`, and caches the answers per
+cluster so the survey is run once rather than every session.
+
+`bodhi-storage` covers where data goes: `/beevol` is one shared BeeGFS mount
+and the compute node's `/tmp` is a local disk, so inputs are read from the
+former and scratch is written to the latter and cleaned up on exit. It also
+warns that `du` on a home directory can run for minutes, and that the shared
+filesystem is full enough for a large write to be somebody else's problem too.
+
+`bodhi-software` covers how to get a tool: the module tree first — around 137
+preinstalled packages, so most of a genomics pipeline is a `module load` away
+— then a container, then `pixi`/`uv` for the remainder. Pin the version,
+load inside the job script rather than the login shell, and never `pip
+install` into the system Python.
+
+`slurm-batch` covers work that is per-sample rather than a single command:
+`sbatch` scripts, arrays and why to throttle them with `%N`, dependency
+chains, and using `sacct` to size the next run from what the last one actually
+used — noting that `MaxRSS` lives on the step rows, where `sacct -X` will not
+show it.
 
 `git-workflow` covers the git conventions, and is about the repository open in
 the session rather than the cluster: semantic versioning with annotated
