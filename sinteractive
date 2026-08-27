@@ -160,7 +160,7 @@ ${C_HDR}Examples:${C_RST}
   sinteractive --attach                 ${C_DIM}# reconnect to your only session${C_RST}
   sinteractive --cancel myproj          ${C_DIM}# cancel a session by name${C_RST}
 
-Inside the session, ${C_KEY}Ctrl-b h${C_RST} opens a help popup; ${C_KEY}Ctrl-b d${C_RST} detaches
+Inside the session, ${C_KEY}Ctrl-b h${C_RST} opens a help popup, ${C_KEY}Ctrl-b n${C_RST} the notices; ${C_KEY}Ctrl-b d${C_RST} detaches
 (the job keeps running).
 
 ${C_WARN}A session is for orchestration, not compute:${C_RST} it is usually a small
@@ -188,6 +188,10 @@ function main {
   elif [[ "${1:-}" == 'help-popup' ]]; then
     shift
     show_help_popup "$@"
+    return
+  elif [[ "${1:-}" == 'notices-popup' ]]; then
+    shift
+    show_notices_popup "$@"
     return
   elif [[ "${1:-}" == 'rename-session' ]]; then
     shift
@@ -1104,6 +1108,20 @@ function show_status {
       printf "  ${C_KEY}%-11s${C_RST} ${rem_c}%s${C_RST}\n" \
         'Remaining:' "$(format_short_duration "$remaining")"
     fi
+    # The session's active notices — the full text behind the "⚠ N notices"
+    # indicator on its status line, readable without attaching. The file is
+    # maintained by status_dot_loop on the compute node and carried here by
+    # the shared home filesystem; absent file, nothing to say.
+    local notices_file="${HOME}/.cache/sinteractive/${jobid}.notices"
+    if [[ -s "$notices_file" ]]; then
+      local n_kind n_text n_c
+      while IFS=$'\t' read -r n_kind n_text; do
+        [[ -n "$n_text" ]] || continue
+        n_c="${C_WARN}"
+        [[ "$n_kind" == quota ]] && n_c="${C_ERR}${C_BOLD}"
+        printf "  ${C_KEY}%-11s${C_RST} ${n_c}%s${C_RST}\n" 'Notice:' "$n_text"
+      done <"$notices_file"
+    fi
   fi
   exit 0
 }
@@ -1204,7 +1222,8 @@ Re-check this session with \`sinteractive --status --json\` before long work;
 the number above was read when this briefing was generated, and a walltime can
 be changed underneath you.
 ${quota_line}
-Storage quota is shown on a line below the status bar while it is exceeded.
+Storage quota, while exceeded, is a red notice behind the "N notices" counter
+on the status line (shown in full by \`sinteractive --status\`).
 Check it with \`sinteractive --check-quota\`, and run that again after
 deleting anything on the user's behalf — it refreshes every open session, so
 the warning clears immediately rather than up to ten minutes later.
@@ -1398,9 +1417,9 @@ function quota_cached {
   }' "$file"
 }
 
-# Poke every live session so a fresh probe reaches their notice lines on the
-# next tick rather than at the end of the ten-minute poll. This is what makes
-# `--check-quota` feel immediate after deleting something.
+# Poke every live session so a fresh probe reaches their notices indicator on
+# the next tick rather than at the end of the ten-minute poll. This is what
+# makes `--check-quota` feel immediate after deleting something.
 function poke_all_sessions {
   local dir="${HOME}/.cache/sinteractive" f jobid
   [[ -d "$dir" ]] || return 0
@@ -1442,8 +1461,9 @@ function check_quota_cmd {
   local over used hard over_kb pct
   read -r over used hard over_kb pct _ < <(quota_cached)
   init_colors 1
-  # Wording matched to the status-bar notice and quoted verbatim in
-  # skills/hpc-storage/SKILL.md — colour is the only thing added here.
+  # Wording matched to the quota notice (see quota_notice_string) and quoted
+  # verbatim in skills/hpc-storage/bodhi.md — colour is the only thing
+  # added here.
   if ((over)); then
     printf "${C_ERR}${C_BOLD}OVER QUOTA:${C_RST}${C_ERR} %s of %s used (%s%%), over by %s${C_RST}\n" \
       "$(quota_kb_to_size "$used")" "$(quota_kb_to_size "$hard")" \
@@ -1455,99 +1475,106 @@ function check_quota_cmd {
   exit 0
 }
 
-# Anything the session has to say about itself goes below the status bar, on
-# tmux status lines of its own — never squeezed into the session line or onto
-# the rule above it. There are two, each present only while it has something
-# to say, and each costing a row of pane height only while it is there:
+# Anything the session has to say about itself is collapsed into one compact
+# indicator at the right of the session line — "⚠ N notices Ctrl+b n" — red
+# while the quota warning is among them, yellow otherwise. The notices are
+# read in full in the Ctrl+b n popup, or from the login node with --status.
+# The panel is always exactly one status line tall.
 #
-#   1. warnings — quota (red, flush left) and a maintenance-trimmed end time
-#      (yellow, flush right). Both hold for the whole session, so they share
-#      their line rather than taking turns, one at each end of it.
-#   2. the Claude Code hint (yellow) — purely an offer, so it sits furthest
-#      from the session line and is the first thing to go.
+# The notices used to be status lines of their own below the session line
+# (and before that, a marquee on the pane border). Each held a row of pane
+# height for its whole life — the quota and maintenance warnings never clear
+# on their own — and every appearance resized every pane in the session. A
+# counter does neither, at the price of one keypress to read the text; and
+# with the width limit gone, the text itself can afford to say more.
 #
-# All of it used to live on the pane border, one line carrying three
-# unrelated things and, for the hint, scrolling them past. Full-width lines
-# of their own need no marquee: the hint fits a normal terminal whole, which
-# also drops the 0.3s redraw the scroll cost every session that showed it.
+# Each producer prints one line for the notices file — "kind<TAB>text", plain
+# text — or returns 1 when it has nothing to say. Colour belongs to the
+# renderers (the indicator, the popup, --status), keyed off the kind, so the
+# file itself stays greppable.
+#
 # The overage, not the usage: it is the number you act on, and "over by X"
-# says on its own that you are over — so the word OVER, the used figure and
-# the percentage all come out and the line still says the same thing.
+# says on its own that you are over — so the used figure and the percentage
+# stay out and the line still says the same thing.
 function quota_notice_string {
   local over="$1" hard="$2" over_kb="$3"
   ((over)) || return 1
-  printf '#[fg=red,bold] ⚠ QUOTA over by %s (%s limit) #[default]' \
+  printf 'quota\tQUOTA over by %s (%s limit)' \
     "$(quota_kb_to_size "$over_kb")" "$(quota_kb_to_size "$hard")"
 }
 
-# No SHORT SESSION label: sitting on the warnings line, in yellow, opposite
-# the quota warning, an end time that is not the one you asked for is already
-# reading as a warning. The reservation name is what you would look up.
+# The reservation name is what you would look up in sinfo/scontrol.
 function maint_notice_string {
   local name="$1" start_epoch="$2"
   [[ -n "$start_epoch" ]] || return 1
-  printf '#[fg=yellow,bold] ends %s · %s #[default]' \
-    "$(date -d "@$start_epoch" '+%a %H:%M' 2>/dev/null)" "$name"
+  printf 'maint\tSession ends %s — trimmed to finish before maintenance (%s)' \
+    "$(date -d "@$start_epoch" '+%a %b %-d %H:%M' 2>/dev/null)" "$name"
 }
 
-# The hint is one line whether or not it fits: at a narrow width tmux cuts
-# the tail, and the command — the only part that has to be read — is early
-# enough to survive that.
 function hint_notice_string {
   local wanted="$1"
   ((wanted)) || return 1
-  printf '#[fg=yellow] Claude Code: run #[bold]sinteractive --install-claude#[nobold] to enable the skills and hooks #[default]'
+  printf 'hint\tClaude Code: run sinteractive --install-claude to enable the skills and hooks'
 }
 
-# Quota flush left, maintenance flush right — the same two ends the session
-# line above already uses, so the notices sit under something rather than
-# starting in the middle of the line. Each half keeps its side whether or not
-# the other is there, so a notice does not move when its neighbour appears.
-#
-# tmux resolves each #[align=...] against the whole line, which is how the
-# stock status-format[0] gets status-left and status-right onto one row; the
-# separator the two used to share is what the gap between them replaces. Every
-# part already carries its own padding, so neither touches the screen edge.
-function compose_notice {
-  local quota_part="$1" maint_part="$2"
-  [[ -n "$quota_part" ]] && printf '%s' "#[align=left]${quota_part}"
-  [[ -n "$maint_part" ]] && printf '%s' "#[align=right]${maint_part}"
-  return 0
+# The notices file is what the Ctrl+b n popup and --status read; the shared
+# home filesystem is what carries it to the login node. Removed when the last
+# notice clears (and at session teardown), so its absence means "nothing to
+# say". Written whole via rename so a popup opened mid-write never reads half
+# a file.
+function write_notices_file {
+  local jobid="$1"
+  shift
+  local file="${HOME}/.cache/sinteractive/${jobid}.notices"
+  if (($#)); then
+    printf '%s\n' "$@" >"${file}.tmp" 2>/dev/null &&
+      mv -f "${file}.tmp" "$file" 2>/dev/null
+  else
+    rm -f "$file" "${file}.tmp"
+  fi
 }
 
-# Put the given lines below the status bar, in order, and size the status bar
-# to hold them. Callers pass only the lines that have something on them, so
-# the hint moves up to line 1 when there is no warning and there is never a
-# blank row between the session line and a notice.
+# Right side of the session line. The stock form is just the help hint — the
+# detach key lives in the help popup, not here. With notices, the counter
+# joins it, red when the quota warning is present and yellow otherwise.
+# start_tmux seeds status-right from this same function, so the loop's
+# notice-free form and the launch-time form cannot drift apart.
 #
-# Formats are set before the status bar grows, so tmux never draws a frame of
-# its own default line 1 (the window list) on the way in. Shrinking leaves
-# the stale formats in place: they are not rendered, and clearing them would
-# cost a round trip each.
-#
-# status-format is set globally and status per session, which looks
-# inconsistent and is not. Setting one element of an option array at session
-# scope replaces the whole array for that session rather than overlaying the
-# global one, so a session-scoped status-format[1] leaves status-format[0]
-# empty — and the session line, the thing these are meant to sit under,
-# silently disappears. Setting the extra indices globally leaves the default
-# index 0 alone. (Every job has its own tmux server, so global here is still
-# one session's worth of scope.)
-function apply_notice_lines {
-  local sock="$1" session_name="$2"
-  shift 2
-  local lines=("$@") i
-  for i in "${!lines[@]}"; do
-    $TMUX_BIN -L "$sock" set-option -g "status-format[$((i + 1))]" \
-      "${lines[i]}" 2>/dev/null
-  done
-  # tmux spells a one-line status bar "on" and taller ones as a count.
-  local height=on
-  ((${#lines[@]})) && height=$((${#lines[@]} + 1))
-  $TMUX_BIN -L "$sock" set-option -t "$session_name" status "$height" 2>/dev/null
+# While the quota warning is up, the counter shimmers: a lighter band sweeps
+# through the red text, one character per frame, the way Claude Code's
+# spinner verbs do — the one warning that needs acting on keeps catching the
+# eye without taking any more room. The frame is the caller's tick counter
+# (status_dot_loop shortens its sleep to animate it); static callers pass 0.
+# The band walks only the ASCII "N notices" part — bash slices by characters
+# only when the locale agrees with the bytes, and the ⚠ is not worth betting
+# on that.
+function status_right_string {
+  local count="$1" severe="$2" frame="${3:-0}"
+  local right=' Help: #[fg=yellow,bold]Ctrl+b h#[default] '
+  if ((count > 0)); then
+    local noun=notices
+    ((count == 1)) && noun=notice
+    if ((severe)); then
+      local text="$count $noun" band=3
+      local len=${#text}
+      # Band start runs -band..len-1, so the highlight slides in from the
+      # left edge and off the right one instead of popping.
+      local a=$((frame % (len + band) - band)) b
+      b=$((a + band))
+      ((a < 0)) && a=0
+      ((b > len)) && b=$len
+      ((b < a)) && b=$a
+      printf ' #[fg=red,bold]⚠ %s#[fg=colour217]%s#[fg=red]%s#[default] #[fg=yellow,bold]Ctrl+b n#[default] |' \
+        "${text:0:a}" "${text:a:b-a}" "${text:b}"
+    else
+      printf ' #[fg=yellow,bold]⚠ %d %s#[default] #[fg=yellow,bold]Ctrl+b n#[default] |' \
+        "$count" "$noun"
+    fi
+  fi
+  printf '%s' "$right"
 }
 
-# Whether to nag about --install-claude in the status bar: only while Claude
+# Whether to nag about --install-claude in the notices: only while Claude
 # Code is actually running in this session and the integration is not live.
 #
 # The trigger is a running process, not an installed binary or an existing
@@ -1989,8 +2016,8 @@ MAINT_MARGIN=300
 # more — so a session asked for at the default day length simply stops working
 # as maintenance approaches, with no obvious reason.
 #
-# Now the request is trimmed to fit and the session says so, in the notice
-# line and at launch. Echoes "fitted_secs name start_epoch original_time" when
+# Now the request is trimmed to fit and the session says so, in its notices
+# and at launch. Echoes "fitted_secs name start_epoch original_time" when
 # it trimmed, nothing when there was no conflict. Returns 1 only when the
 # remaining gap is too small to be worth a session at all.
 function fit_maintenance_window {
@@ -2268,6 +2295,7 @@ function show_help_popup {
 
   ${hdr}Session${rst}
     Detach (keeps job running)   ${key}Ctrl+b d${rst}
+    View active notices          ${key}Ctrl+b n${rst}
     Name/rename session          ${key}Ctrl+b \$${rst}
     Reattach from login node     ${key}sinteractive --attach ${jobid:-JOBID}${rst}
     List your sessions           ${key}sinteractive --list${rst}
@@ -2289,6 +2317,38 @@ function show_help_popup {
 
   ${dim}Press any key to close.${rst}
 EOF
+  read -rsn1
+}
+
+# Render the in-session notices modal: the full text behind the "⚠ N notices"
+# indicator. Reads the notices file status_dot_loop maintains (rewritten on
+# every quota re-read and on poke, so the text is as fresh as the indicator).
+# Runs inside a tmux display-popup on the compute node, invoked as
+# "notices-popup JOBID" via the spooled batch script — same shape as the help
+# popup above.
+function show_notices_popup {
+  local jobid="${1:-${SLURM_JOB_ID:-}}"
+  local file="${HOME}/.cache/sinteractive/${jobid}.notices"
+
+  local rst=$'\e[0m' dim=$'\e[2m' hdr=$'\e[1;36m'
+  local red=$'\e[1;31m' yellow=$'\e[33m'
+
+  echo
+  echo "  ${hdr}Notices${rst} ${dim}for job ${jobid:-?}${rst}"
+  echo
+  local shown=0 kind text colour
+  if [[ -s "$file" ]]; then
+    while IFS=$'\t' read -r kind text; do
+      [[ -n "$text" ]] || continue
+      colour="$yellow"
+      [[ "$kind" == quota ]] && colour="$red"
+      printf '  %s⚠ %s%s\n' "$colour" "$text" "$rst"
+      shown=1
+    done <"$file"
+  fi
+  ((shown)) || echo "  ${dim}No active notices.${rst}"
+  echo
+  echo "  ${dim}Press any key to close.${rst}"
   read -rsn1
 }
 
@@ -2454,7 +2514,7 @@ function status_dot_loop {
 
   local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
   local end_epoch='' end_query=0 end_checked=0 spin=0 belled=0 last=''
-  local hint_shown=0 hint_checked=0 last_notice=''
+  local hint_shown=0 hint_checked=0 last_notice='' last_right='' shimmer=0
   local quota_checked=0 quota_part='' maint_part=''
   maint_part=$(maint_notice_string "$maint_name" "$maint_start") || maint_part=''
   while $TMUX_BIN -L "$sock" has-session -t "$session_name" 2>/dev/null; do
@@ -2507,21 +2567,32 @@ function status_dot_loop {
       claude_hint_wanted && hint_shown=1
     fi
 
-    # The lines below the status bar, applied here rather than further down
+    # The notices indicator and file, applied here rather than further down
     # so they are up on the first tick and stay up on a job whose end time
     # Slurm will not report (the no-deadline `continue` below). Only touched
-    # when the text changes: growing and shrinking the status bar resizes
-    # every pane in the session, so a steady state must not keep re-setting
-    # it.
-    local notice_lines=() line
-    line=$(compose_notice "$quota_part" "$maint_part")
-    [[ -n "$line" ]] && notice_lines+=("$line")
+    # when the set changes: a steady state must not keep re-setting tmux
+    # options or rewriting the file.
+    local notice_lines=() line severe=0
+    [[ -n "$quota_part" ]] && notice_lines+=("$quota_part") && severe=1
+    [[ -n "$maint_part" ]] && notice_lines+=("$maint_part")
     line=$(hint_notice_string "$hint_shown") && notice_lines+=("$line")
     local notice="${notice_lines[*]}"
     if [[ "$notice" != "$last_notice" ]]; then
-      apply_notice_lines "$sock" "$session_name" "${notice_lines[@]}"
+      write_notices_file "$SLURM_JOB_ID" "${notice_lines[@]}"
       last_notice="$notice"
     fi
+    # The indicator is compared against what is already up rather than
+    # against the notice set: the shimmer makes it a new string every frame
+    # while the quota warning holds, and a steady state without one must not
+    # keep re-setting the option.
+    local right
+    right=$(status_right_string "${#notice_lines[@]}" "$severe" "$shimmer")
+    if [[ "$right" != "$last_right" ]]; then
+      $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right \
+        "$right" 2>/dev/null
+      last_right="$right"
+    fi
+    ((severe)) && shimmer=$((shimmer + 1))
 
     # One cadence for both halves of the state file: ask Slurm for the end
     # time immediately before each write, so a `scontrol update TimeLimit`
@@ -2532,9 +2603,14 @@ function status_dot_loop {
       refresh_end_epoch "$now"
     fi
     # No parseable end time yet (UNLIMITED, squeue hiccup): leave the white
-    # dot alone and try again later.
+    # dot alone and try again later — at shimmer cadence while the quota
+    # warning is animating, since this branch skips the sleep at the bottom.
     if [[ -z "$end_epoch" ]]; then
-      sleep 60
+      if ((severe)); then
+        sleep 0.2
+      else
+        sleep 60
+      fi
       continue
     fi
 
@@ -2584,13 +2660,14 @@ function status_dot_loop {
       belled=0
     elif ((remaining > warn_red)); then
       # Pulse the dot bold/dim once a second — catches the eye without the
-      # urgency of the red phase's spinner.
-      if ((spin % 2)); then
+      # urgency of the red phase's spinner. Keyed to the wall clock, not the
+      # tick count, so the beat stays one second even when the quota shimmer
+      # below shortens the tick.
+      if ((now % 2)); then
         glyph='#[fg=yellow,dim]●#[default]'
       else
         glyph='#[fg=yellow,bold]●#[default]'
       fi
-      spin=$((spin + 1))
       text=" #[dim]| $(format_short_duration "$remaining") left#[default]"
       sleep_for=1
       belled=0
@@ -2657,10 +2734,17 @@ function status_dot_loop {
       $TMUX_BIN -L "$sock" set-option -t "$session_name" status-left "$left"
       last="$left"
     fi
+    # The shimmer needs frames: while the quota warning is up, tick fast
+    # enough to animate it. The final countdown is already at 10Hz; every
+    # slower phase drops to 0.2s, which sweeps the counter in about two
+    # seconds. Everything else in the loop is gated on wall-clock deltas, so
+    # the faster tick costs only the frame itself.
+    ((severe)) && [[ "$sleep_for" != 0.1 ]] && sleep_for=0.2
     sleep "$sleep_for"
   done
 
-  rm -f "$state_file" "${state_file}.tmp" "${state_file%.json}.poke"
+  rm -f "$state_file" "${state_file}.tmp" "${state_file%.json}.poke" \
+    "${state_file%.json}.notices" "${state_file%.json}.notices.tmp"
 }
 
 function start_tmux {
@@ -2770,8 +2854,10 @@ function start_tmux {
   # time-remaining clock near the limit — see status_dot_loop, which keeps
   # this string updated) and the job ID + host in bold cyan (#2DBFB8, the
   # teal-cyan rustc/cargo use for ANSI cyan), with the label and separator
-  # dimmed. Right = hint for the help popup; the full help (reattach command,
-  # docs link, tmux keys) lives in the Ctrl+b h modal.
+  # dimmed. Right = hint for the help popup, joined by the "⚠ N notices"
+  # counter while there are notices (see status_right_string); the full help
+  # (reattach and detach commands, docs link, tmux keys) lives in the Ctrl+b h
+  # modal and the notice text in the Ctrl+b n one.
   # The trailing conditional appends "| <name>" when the session has a name.
   # tmux format lookup falls back to the session environment, so the segment
   # tracks SINTERACTIVE_NAME live (set at launch with --name, or later via
@@ -2787,7 +2873,7 @@ function start_tmux {
   $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-format ''
   $TMUX_BIN -L "$sock" set-option -t "$session_name" window-status-current-format ''
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right \
-    " Help: #[fg=yellow,bold]Ctrl+b h#[default] | Detach: #[fg=yellow,bold]Ctrl+b d#[default] "
+    "$(status_right_string 0 0)"
   $TMUX_BIN -L "$sock" set-option -t "$session_name" status-right-length 40
   # Terminal window/tab title (OSC 2): mirror the status-left text so users
   # with several sessions can tell tabs apart at a glance.
@@ -2802,8 +2888,8 @@ function start_tmux {
   # windows created later get it too.
   #
   # It stays empty for the life of the session. Everything the session has to
-  # say goes below the status bar instead (see apply_notice_lines), where a
-  # message gets a whole line rather than a gap cut into the rule.
+  # say is behind the "⚠ N notices" indicator on the status line instead (see
+  # status_right_string), read in full via the Ctrl+b n popup.
   $TMUX_BIN -L "$sock" set-option -g pane-border-status bottom
   $TMUX_BIN -L "$sock" set-option -g pane-border-format ''
   $TMUX_BIN -L "$sock" set-option -g pane-border-lines heavy
@@ -2818,6 +2904,14 @@ function start_tmux {
   $TMUX_BIN -L "$sock" bind-key h display-popup -E -w 76 -h 28 \
     -T ' sinteractive help ' \
     "'${BASH_SOURCE[0]}' help-popup ${SLURM_JOB_ID}"
+
+  # Notices popup: prefix + n shows the full text behind the "⚠ N notices"
+  # indicator on the status line (see status_right_string). This overrides
+  # tmux's stock n (next-window) deliberately: the window list is hidden from
+  # the status bar, so next-window has nothing here for n to be about.
+  $TMUX_BIN -L "$sock" bind-key n display-popup -E -w 76 -h 12 \
+    -T ' notices ' \
+    "'${BASH_SOURCE[0]}' notices-popup ${SLURM_JOB_ID}"
 
   # Name/rename the session in place: prefix + $ prompts for a name and
   # hands it to the rename-session handler (scontrol Comment/Name update,
@@ -2852,7 +2946,9 @@ function start_tmux {
   # KillWait); remove the state file on the way out so it can't go stale.
   trap 'rm -f "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.json" \
     "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.json.tmp" \
-    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.poke"; exit 0' TERM
+    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.poke" \
+    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.notices" \
+    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.notices.tmp"; exit 0' TERM
 
   # Run wait-for in background; `wait` builtin (foreground) is interruptible
   # by signals, unlike external commands which block trap delivery in bash.
@@ -2870,7 +2966,9 @@ function start_tmux {
   # session die, but Slurm's cgroup cleanup can kill it mid-sleep first.
   rm -f "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.json" \
     "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.json.tmp" \
-    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.poke"
+    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.poke" \
+    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.notices" \
+    "${HOME}/.cache/sinteractive/${SLURM_JOB_ID}.notices.tmp"
 
   trap - USR1
 }

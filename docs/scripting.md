@@ -215,10 +215,11 @@ state file and only falls back to the scheduler when it is stale, so a quiet
 session costs nothing.
 
 While Claude Code is running in a session whose hooks are not registered yet,
-a `sinteractive --install-claude` hint sits on the bottom status line, below
-the session line and below any warnings. It is gated on a live `claude`
-process, so it never appears for people who don't use Claude Code, and it
-clears once the hooks are registered — taking its line with it.
+a `sinteractive --install-claude` hint joins the session's notices — the
+`⚠ N notices` counter on the status line, read in full with `Ctrl-b n` or
+`sinteractive --status`. It is gated on a live `claude` process, so it never
+appears for people who don't use Claude Code, and it clears once the hooks
+are registered.
 
 Hooks fire at turn and tool boundaries, so work already in flight cannot be
 warned about — put long work in its own allocation, which outlives the

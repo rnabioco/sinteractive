@@ -35,6 +35,30 @@ and this project adheres to
   up with two skills claiming the same job. The asset probe accepts a
   pre-rename checkout named via `SINTERACTIVE_SHARE`.
 
+- The notice lines below the status bar are gone. Everything the session has
+  to say about itself is collapsed into a compact `⚠ N notices` counter at
+  the right of the session line — red while the quota warning is among them,
+  yellow otherwise, absent when there is nothing to say — so the panel is
+  always exactly one status line tall. A new `Ctrl-b n` popup shows the
+  notices in full (`Ctrl-b n` overrides tmux's stock next-window, which has
+  nothing to do here with the window list hidden), and `sinteractive
+  --status` prints the same text from the login node, reading the notices
+  file the session maintains in `~/.cache/sinteractive/`.
+
+  While the quota warning holds, the counter shimmers — a lighter band
+  sweeping through the red text, the way Claude Code's spinner verbs do —
+  so the one notice that needs acting on keeps catching the eye without
+  taking any more room than the others.
+
+  The warnings held a row of pane height for their whole life — quota and a
+  maintenance-trimmed end time never clear on their own — and every
+  appearance resized every pane in the session. A counter does neither, at
+  the price of one keypress to read the text; and with the width limit gone,
+  the maintenance notice can afford to say what it means again.
+
+- The `Detach: Ctrl+b d` hint is out of the status line; it already lives in
+  the `Ctrl-b h` help popup, which now also lists `Ctrl-b n`.
+
 ## [0.6.0] - 2026-08-26
 
 ### Changed
