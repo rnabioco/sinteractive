@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-27
+
 ### Changed
 
 - The cluster skills now cover Alpine (CU Boulder / CURC) alongside Bodhi,
@@ -594,7 +596,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/rnabioco/sinteractive/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/rnabioco/sinteractive/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/rnabioco/sinteractive/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/rnabioco/sinteractive/compare/v0.4.0...v0.5.0

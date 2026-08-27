@@ -1,7 +1,7 @@
 [workspace]
 name = "sinteractive"
 # Keep in sync with VERSION in `sinteractive` and the release tag (vX.Y.Z).
-version = "0.6.0"
+version = "0.7.0"
 description = "Documentation site for sinteractive"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64"]
