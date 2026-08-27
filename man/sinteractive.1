@@ -271,8 +271,9 @@ read at all.
 Sessions poll this on their own every
 .B $SINTERACTIVE_QUOTA_POLL
 seconds (default 600) and show a red
-.B OVER QUOTA
-notice on a second status line, below the session line, while it holds.
+.B QUOTA
+notice at the left of a second status line, below the session line, while it
+holds. It reports the overage, not the usage \(em the number to act on.
 Running
 .B \-\-check\-quota
 after freeing space clears that notice within a tick rather than at the end
@@ -445,14 +446,13 @@ Nothing else is crowded into that line. Anything the session has to say
 about itself appears below it, on status lines of its own, each present
 only while it has something to say and costing a row of pane height only
 while it is there. Nearest the session line are the warnings:
-.B "OVER QUOTA"
-in red (see
-.BR \-\-check\-quota )
-and
-.B "SHORT SESSION"
-in yellow, the latter when the request was trimmed to end before a
-maintenance reservation. Both hold for the life of the session, so when
-both apply they share the line. Below them, furthest from the session
+.B QUOTA
+in red at the left of the line (see
+.BR \-\-check\-quota ),
+and at its right, in yellow, the end time when the request was trimmed to
+finish before a maintenance reservation. Both hold for the life of the
+session, so when both apply they share the line, one at each end of it \(em
+and each keeps its side whether or not the other is there. Below them, furthest from the session
 line because it is only an offer, is the Claude Code hint (see
 .BR "CLAUDE CODE INTEGRATION" ).
 .PP

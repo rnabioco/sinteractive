@@ -193,16 +193,21 @@ there only while its message is, and takes a row of pane height while it is:
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  ● session 245772 | compute07                                     Help: Ctrl+b h | Detach: Ctrl+b d
- ⚠ OVER QUOTA  30.2T / 30T · over by 204.8G │ SHORT SESSION · ends before monthly-maint at Thu 06:00
+ ⚠ QUOTA over by 204.8G (30T limit)                                  ends Thu 06:00 · monthly-maint
  Claude Code: run sinteractive --install-claude to enable the skills and hooks
 ```
 
 Nearest the session line are the warnings. Both stay true for the whole
-session, so they share their line rather than taking turns.
+session, so they share their line rather than taking turns — one at each end
+of it, quota flush left and the trimmed end time flush right, under the two
+ends the session line above already uses. Each keeps its side whether or not
+the other is there, so neither moves when its neighbour appears.
 
-**Over quota** (red). Checked every 10 minutes against the cluster's quota
-daemons. The check is cached per user, not per session, so having six sessions
-open does not mean six times the polling.
+**Over quota** (red, left). Checked every 10 minutes against the cluster's
+quota daemons. The check is cached per user, not per session, so having six
+sessions open does not mean six times the polling. The line reports the
+overage rather than the usage: it is the number you act on, and "over by"
+already says you are over.
 
 After deleting something, don't wait out the interval:
 
@@ -213,8 +218,10 @@ sinteractive --check-quota      # re-checks now, updates every open session
 That is also the command to hand an agent — it clears the warning within a
 tick of the space actually being freed, and the line goes away with it.
 
-**Short session** (yellow). Shown when the request was trimmed to end before a
-maintenance window — see below.
+**Trimmed end time** (yellow, right). Shown when the request was trimmed to
+end before a maintenance window — see below. It carries no label: an end time
+that is not the one you asked for, in yellow on the warnings line, is already
+reading as a warning, so the space goes to the reservation name instead.
 
 **Claude Code hint** (yellow). Bottom line, furthest from the session line
 because it is an offer rather than something to act on. Shown only while
@@ -238,9 +245,9 @@ Maintenance (monthly-maint) starts Thu Aug 27 06:00.
 Shortened the request from 24:00:00 to 17:10:43 so the session ends before it.
 ```
 
-The session then carries a `SHORT SESSION` notice for its whole life, so the
-shortened allocation stays visible long after the launch output has scrolled
-away. If less than 10 minutes remains before the window, the launch is refused
+The session then carries its trimmed end time on the notice line for its whole
+life, so the shortened allocation stays visible long after the launch output
+has scrolled away. If less than 10 minutes remains before the window, the launch is refused
 rather than handing you a session that dies immediately. An explicit
 `--reservation` is left alone — that is you arranging to run inside the
 window on purpose.
