@@ -8,6 +8,45 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The reporting commands are in colour. `--help`, `--list`, `--status`,
+  `--check-quota` and `--install-claude` printed flat text while the launch
+  and teardown narration beside them was already colourised, so the two
+  halves of the same tool did not look like the same tool. Job ids and node
+  names are teal wherever they appear, as they already were in the narration
+  and on the status bar; labels are yellow; secondary text is dim.
+
+  Colour is decided per stream rather than once at startup. The narration
+  writes to stderr and asks about stderr; the reporting commands write to
+  stdout and ask about stdout, so `sinteractive --list | less` carries no
+  escapes and a plain `sinteractive --list` does. `SINTERACTIVE_COLOR`,
+  `NO_COLOR` and `TERM=dumb` work as before, on both.
+
+  Two things now read by colour rather than by parsing: `--status` shades the
+  remaining walltime yellow under an hour and red under fifteen minutes, and
+  every table that lists jobs marks a `PENDING` one yellow against a green
+  `RUNNING`. In the job-limit error that is the point — a pending job holds a
+  slot exactly as a running one does.
+
+  Errors are uniform throughout: a red bold label, the message beside it, and
+  any follow-on hint dimmed under it, so the thing to read and the thing to do
+  next are told apart at a glance. Text sinteractive is quoting rather than
+  writing — sbatch's own stderr — is left exactly as sbatch produced it.
+
+- The warnings line under the status bar is split, quota flush left and the
+  maintenance-trimmed end time flush right, matching the two ends the session
+  line above it already uses. They used to sit side by side at the left with a
+  separator between them, which read as one long run of text with the middle
+  of the line empty.
+
+  Both are shorter. The quota notice reports the overage instead of the usage
+  — `⚠ QUOTA over by 204.8G (30T limit)` — because that is the number you act
+  on, and "over by" already says you are over. The maintenance notice drops
+  its `SHORT SESSION` label: in yellow, on the warnings line, an end time that
+  is not the one you asked for is already reading as a warning, so the space
+  goes to the reservation name instead.
+
 ## [0.5.1] - 2026-08-26
 
 ### Changed

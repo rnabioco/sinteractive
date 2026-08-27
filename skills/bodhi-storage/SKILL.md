@@ -88,8 +88,8 @@ sinteractive --check-quota
 sinteractive --check-quota --json      # same, machine-readable
 ```
 
-A session shows a red `OVER QUOTA` notice on a line below its status bar
-while this holds, refreshed every ten minutes.
+A session shows a red `⚠ QUOTA over by …` notice at the left of a line below
+its status bar while this holds, refreshed every ten minutes.
 
 **After deleting anything on the user's behalf, run `--check-quota`.** It
 re-checks immediately and pushes the result to every open session, so the
