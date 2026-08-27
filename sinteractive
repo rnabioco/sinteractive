@@ -1443,7 +1443,7 @@ function check_quota_cmd {
   read -r over used hard over_kb pct _ < <(quota_cached)
   init_colors 1
   # Wording matched to the status-bar notice and quoted verbatim in
-  # skills/bodhi-storage/SKILL.md — colour is the only thing added here.
+  # skills/hpc-storage/SKILL.md — colour is the only thing added here.
   if ((over)); then
     printf "${C_ERR}${C_BOLD}OVER QUOTA:${C_RST}${C_ERR} %s of %s used (%s%%), over by %s${C_RST}\n" \
       "$(quota_kb_to_size "$used")" "$(quota_kb_to_size "$hard")" \
@@ -1582,10 +1582,12 @@ function find_claude_assets {
 
   local root
   for root in "${candidates[@]}"; do
-    # bodhi-compute is the probe rather than skills/ itself: an empty skills/
-    # directory left behind by a half-finished install would otherwise pass,
-    # and this one has shipped since the assets existed.
-    if [[ -d "${root}/claude/hooks" && -d "${root}/skills/bodhi-compute" ]]; then
+    # hpc-compute is the probe rather than skills/ itself: an empty skills/
+    # directory left behind by a half-finished install would otherwise pass.
+    # The bodhi-compute fallback accepts an asset tree from before the
+    # 2026-08 rename, e.g. an older checkout named via SINTERACTIVE_SHARE.
+    if [[ -d "${root}/claude/hooks" ]] &&
+       [[ -d "${root}/skills/hpc-compute" || -d "${root}/skills/bodhi-compute" ]]; then
       printf '%s' "$root"
       return 0
     fi
@@ -1730,14 +1732,29 @@ function install_claude {
 
   # Every skill shipped beside the script, rather than a list to keep in sync
   # here: adding one is then a matter of dropping a directory into skills/.
+  # The whole directory goes, not just SKILL.md: the hpc-* skills keep their
+  # cluster-specific halves in alpine.md/bodhi.md beside it, so an agent
+  # loads only the cluster it is actually on.
   local skill name names=()
   for skill in "${assets}"/skills/*/SKILL.md; do
     [[ -e "$skill" ]] || continue
     name=$(basename "$(dirname "$skill")")
     mkdir -p "${claude_dir}/skills/${name}" || exit 1
-    cp "$skill" "${claude_dir}/skills/${name}/SKILL.md" || exit 1
+    cp "$(dirname "$skill")"/*.md "${claude_dir}/skills/${name}/" || exit 1
     names+=("$name")
   done
+  # The 2026-08 rename left bodhi-* copies behind in installs made before it;
+  # a stale copy alongside its hpc-* successor is two skills claiming the same
+  # job. Remove only the exact names we used to ship, and only when this
+  # install just delivered the successor.
+  local old
+  for old in bodhi-compute bodhi-software bodhi-storage; do
+    if [[ -d "${claude_dir}/skills/${old}" && -d "${claude_dir}/skills/hpc-${old#bodhi-}" ]]; then
+      rm -rf "${claude_dir}/skills/${old}"
+      echo "${C_DIM}Removed the stale ${old} skill (renamed to hpc-${old#bodhi-})${C_RST}"
+    fi
+  done
+
   local hook
   for hook in "${assets}"/claude/hooks/*.sh; do
     [[ -e "$hook" ]] || continue

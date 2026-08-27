@@ -8,6 +8,33 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The cluster skills now cover Alpine (CU Boulder / CURC) alongside Bodhi,
+  and the `bodhi-*` skills are renamed `hpc-*` to match — `hpc-compute`,
+  `hpc-software`, `hpc-storage`. Each of the three is now a short SKILL.md
+  that detects the cluster and delegates to an `alpine.md` or `bodhi.md`
+  beside it, so an agent reads the shared rules plus the system it is
+  actually on and never the other one's partitions, paths, and quotas.
+
+  The two clusters differ where it hurts: Alpine's filesystem is tiered (a
+  2 GB `/home` nothing may be written to, a small backed-up `/projects`, a
+  huge 90-day-purged `/scratch/alpine` where all work runs) where Bodhi has
+  one shared `/beevol`; Alpine requires a QOS on every job and pairs each
+  partition with its own QOS family; Alpine runs Lmod (hierarchical,
+  `module spider`) where Bodhi runs Tcl modules; and Alpine couples memory
+  to CPUs (`MaxMemPerCPU=3840M` on `acpu`). The Alpine files record the
+  live-survey commands and the survey date (2026-08-27) so the facts can be
+  re-scraped when CURC changes them. The `slurm-batch` and
+  `slurm-discovery` skills stay single-file, with their per-cluster numbers
+  labelled inline.
+
+  `--install-claude` now copies each skill's whole directory rather than
+  SKILL.md alone, and removes a stale `bodhi-*` copy from `~/.claude/skills`
+  when it installs the `hpc-*` successor, so pre-rename installs do not end
+  up with two skills claiming the same job. The asset probe accepts a
+  pre-rename checkout named via `SINTERACTIVE_SHARE`.
+
 ## [0.6.0] - 2026-08-26
 
 ### Changed

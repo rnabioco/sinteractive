@@ -61,7 +61,7 @@ about right now gets run live, every time.
 Maintenance reservations are the tempting exception, and they are weather too:
 they recur monthly but each one has a date, and a stale window in a file is
 exactly the sort of thing that gets trusted. `scontrol show reservation` is
-one call — run it, do not cache it. See `bodhi-compute` for what to do with
+one call — run it, do not cache it. See `hpc-compute` for what to do with
 the answer.
 
 ## The survey
@@ -165,7 +165,7 @@ The reason names the wall you hit:
 | `QOSMaxCpuPerUserLimit`, `AssocMaxJobsLimit` | Your own running jobs are holding the budget. |
 | `PartitionTimeLimit`, `PartitionConfig` | The request cannot fit the partition at all. |
 | `ReqNodeNotAvail` | Named nodes are down or drained — check `sinfo -R`. |
-| `ReqNodeNotAvail, Reserved for maintenance` | `-t` reaches past a maintenance window, so the job is deferred until after it. Shorten it — see `bodhi-compute`. |
+| `ReqNodeNotAvail, Reserved for maintenance` | `-t` reaches past a maintenance window, so the job is deferred until after it. Shorten it — see `hpc-compute`. |
 
 For a job already rejected at submit, re-run with `--test-only` to get the
 verdict without queueing anything:
@@ -174,8 +174,28 @@ verdict without queueing anything:
 srun --test-only -p rna -A rbi -c 8 --mem 32G -t 1:00:00 -- true
 ```
 
+## Alpine notes
+
+Everything above is cluster-generic (the cached map is already keyed by
+`ClusterName`, which is `alpine` there). What trips people up on Alpine
+specifically:
+
+- **The QOS half of the rule is the half that bites.** General partitions
+  have `AllowAccounts=ALL`, so on Alpine "invalid account or partition"
+  almost always means the QOS/partition pair is wrong, not the account. Each
+  partition accepts only its own QOS family: `acpu` → `cpu-normal`/`cpu-long`,
+  `amem` → `mem-*`, the GPU partitions → `gpu-*`, `acompile` → `compile`,
+  `atesting` → `testing`. The table is in `hpc-compute`.
+- Partitions and QOS were **renamed 2026-08-05** (`amilan`→`acpu`,
+  `normal`→`cpu-normal`, …). Both name sets currently work; docs and old
+  scripts may use either. Rebuild the cached map if it predates the rename.
+- `sacctmgr show qos` lists dozens of `blanca-*` rows — those belong to the
+  Blanca condo cluster's owners and are not yours unless you are in one of
+  those groups. Filter to `cpu-*`, `mem-*`, `gpu-*`, `compile`, `testing`,
+  `interactive` when reading limits.
+
 ## Then go run something
 
 This skill is about finding out what is available. Actually placing work — in
 its own allocation, named in both `-J` and `--comment`, never in the shell you
-are typing in — is the `bodhi-compute` skill.
+are typing in — is the `hpc-compute` skill.

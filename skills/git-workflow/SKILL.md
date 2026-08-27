@@ -129,4 +129,4 @@ and leaves a failed run in the history for nothing.
 
 When those checks are heavy enough to be real compute — a full test suite, a
 build — they belong in their own Slurm allocation rather than in the session
-shell. See the `bodhi-compute` skill.
+shell. See the `hpc-compute` skill.

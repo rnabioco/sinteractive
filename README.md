@@ -358,10 +358,10 @@ and new panes, but shells already running keep their original
 >
 > | Skill | Teaches |
 > |---|---|
-> | `bodhi-compute` | Cluster etiquette — a session is not a compute target |
+> | `hpc-compute` | Cluster etiquette — a session is not a compute target |
 > | `slurm-discovery` | What the cluster offers: partitions, accounts, QOS, limits |
-> | `bodhi-storage` | `/beevol` vs node-local `/tmp`, and where output belongs |
-> | `bodhi-software` | Modules first, then containers, then pixi/uv |
+> | `hpc-storage` | Where output belongs, per cluster: Bodhi's `/beevol` vs node-local `/tmp`; Alpine's home/projects/scratch tiers |
+> | `hpc-software` | Modules first, then containers, then pixi/uv |
 > | `slurm-batch` | `sbatch`, arrays, dependencies, right-sizing from `sacct` |
 > | `git-workflow` | Semver, Conventional Commits, worktrees, pull requests |
 >
