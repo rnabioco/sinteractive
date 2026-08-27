@@ -186,6 +186,7 @@ status bar, `squeue`, `--list`, and works with `--attach NAME`.
 | Action | Key |
 |---|---|
 | Show help popup (job info, keys) | `Ctrl-b h` |
+| Show notices popup (quota, maintenance, hints) | `Ctrl-b n` |
 | Detach from session | `Ctrl-b d` |
 | Name/rename session (updates squeue and `--attach` name) | `Ctrl-b $` |
 | Split pane horizontally | `Ctrl-b "` |

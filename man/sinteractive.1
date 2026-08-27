@@ -190,7 +190,8 @@ elapsed time, time limit, and the session's current working directory.
 .TP
 .BI \-\-status\  [TARGET]
 Show session status: state, node, partition, allocated CPUs and memory,
-elapsed time, and time remaining.
+elapsed time, time remaining, and the session's active notices (see
+.BR "STATUS BAR" ).
 .I TARGET
 is a
 .I JOBID
@@ -270,10 +271,13 @@ read at all.
 .IP
 Sessions poll this on their own every
 .B $SINTERACTIVE_QUOTA_POLL
-seconds (default 600) and show a red
+seconds (default 600) and, while it holds, carry a red
 .B QUOTA
-notice at the left of a second status line, below the session line, while it
-holds. It reports the overage, not the usage \(em the number to act on.
+notice behind the notices counter on the session line, read in full with
+.B Ctrl\-b n
+(see
+.BR "STATUS BAR" ).
+It reports the overage, not the usage \(em the number to act on.
 Running
 .B \-\-check\-quota
 after freeing space clears that notice within a tick rather than at the end
@@ -400,6 +404,13 @@ reattach commands, and basic tmux keys. Any key closes it.
 Detach from the session; the job keeps running. Reattach later with
 .BR "sinteractive \-\-attach" .
 .TP
+.B Ctrl\-b n
+Open the notices popup: the full text behind the
+.RB \(lq "N notices" \(rq
+counter on the status line (see
+.BR "STATUS BAR" ).
+Any key closes it.
+.TP
 .B Ctrl\-b $
 Name (or rename) the session in place. Updates the squeue job name and
 the name used by
@@ -442,19 +453,22 @@ About ten seconds before the limit, a notice is printed in every pane
 and the session shuts down cleanly, so the job completes instead of
 being killed at timeout.
 .PP
-Nothing else is crowded into that line. Anything the session has to say
-about itself appears below it, on status lines of its own, each present
-only while it has something to say and costing a row of pane height only
-while it is there. Nearest the session line are the warnings:
+Anything else the session has to say about itself is collapsed into a
+compact counter at the right of that same line \(em
+.RB \(lq "N notices" \(rq
+\(em red and shimmering while the quota warning is among them, yellow
+otherwise, and absent while there is nothing to say. Press
+.B Ctrl\-b n
+to read the notices in full;
+.B sinteractive \-\-status
+prints the same text from the login node. Today's notices are the
 .B QUOTA
-in red at the left of the line (see
+warning (see
 .BR \-\-check\-quota ),
-and at its right, in yellow, the end time when the request was trimmed to
-finish before a maintenance reservation. Both hold for the life of the
-session, so when both apply they share the line, one at each end of it \(em
-and each keeps its side whether or not the other is there. Below them, furthest from the session
-line because it is only an offer, is the Claude Code hint (see
+the end time when the request was trimmed to finish before a maintenance
+reservation, and the Claude Code hint (see
 .BR "CLAUDE CODE INTEGRATION" ).
+The panel is always exactly one status line tall.
 .PP
 The rule between the pane and the status bar carries no text at all.
 .SH SCRIPTING AND AGENTS
@@ -559,12 +573,14 @@ is available; see
 .BR \-\-install\-claude .
 .PP
 While Claude Code is running in a session whose integration is not yet
-registered, a yellow
+registered, a
 .B "sinteractive \-\-install\-claude"
-hint sits on the bottom status line, below any warnings \(em furthest
-from the session line, because it is an offer rather than something to
-act on. It is a whole line and fits an 80-column terminal, so it is
-read at a glance rather than scrolled past. It appears only while a
+hint joins the session's notices (the counter on the status line, read
+with
+.BR Ctrl\-b n ;
+see
+.BR "STATUS BAR" ).
+It appears only while a
 .B claude
 process is actually running, and clears once the hooks are registered, so
 it never nags anyone who does not use Claude Code.
