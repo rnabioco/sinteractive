@@ -1,11 +1,11 @@
 ---
 name: slurm-batch
-description: Running many jobs with sbatch — job scripts, array jobs and their throttling, dependencies between stages, and using sacct to right-size the next run from what the last one actually used. Use when the work is per-sample or per-file rather than a single command, when building a multi-stage pipeline, or when sizing memory and walltime for a batch.
+description: Running many jobs with sbatch on Bodhi and Alpine (CU Boulder/CURC) — job scripts, array jobs and their throttling, dependencies between stages, per-cluster memory defaults and array limits, and using sacct to right-size the next run from what the last one actually used. Use when the work is per-sample or per-file rather than a single command, when building a multi-stage pipeline, or when sizing memory and walltime for a batch.
 ---
 
 # Many jobs, not one
 
-`srun` and `salloc` (the `bodhi-compute` skill) are for one thing at a time,
+`srun` and `salloc` (the `hpc-compute` skill) are for one thing at a time,
 attached. A batch of hundreds of samples is a different shape: it is submitted
 and left, and its sizing is decided once and then applied hundreds of times —
 which is what makes getting the sizing right worth a few minutes up front.
@@ -33,12 +33,26 @@ Name it in **both** `--job-name` and `--comment`, the same short descriptive
 value, for the same reason as `srun` — a shared queue should say what is
 running and why.
 
+That header is Bodhi's. On Alpine the same script needs:
+
+```bash
+#SBATCH --partition=acpu
+#SBATCH --qos=cpu-normal            # QOS is mandatory on Alpine; cpu-long for >24h
+```
+
+(the default account works on the general partitions, and the working
+directory and logs belong on `/scratch/alpine/$USER`, never `$HOME` — see
+`hpc-storage`).
+
 `--output` directories are not created for you: `mkdir -p logs` first, or the
 job dies at startup with nowhere to write.
 
-**`DefMemPerCPU` is 4000 MB here.** Leaving `--mem` off does not mean
-"unlimited", it means 4G per CPU — a frequent and confusing cause of a job
-being killed for memory it never asked for.
+**Leaving `--mem` off does not mean "unlimited".** Bodhi's `DefMemPerCPU` is
+4000 MB — 4G per CPU by default, a frequent and confusing cause of a job
+being killed for memory it never asked for. Alpine's `acpu` sets
+`DefMemPerCPU=MaxMemPerCPU=3840M`: the default *and* the ceiling, so extra
+memory only comes with extra CPUs — Slurm silently raises the CPU count of a
+`--mem` request beyond 3.75G × CPUs, and billing follows.
 
 ## Arrays
 
@@ -49,17 +63,20 @@ One submission, one task per sample:
 sample=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" samples.txt)
 ```
 
-- **`MaxArraySize` is 1001** on this cluster, so indices run `0-1000` and a
-  list longer than that has to be chunked into several submissions.
+- **Array limits are per cluster.** Bodhi's `MaxArraySize` is 1001, so
+  indices run `0-1000` and a longer list has to be chunked into several
+  submissions. Alpine allows indices to 4,000,000 but caps a single array at
+  1000 tasks (`max_array_tasks`), so the chunking threshold is the same.
+  `scontrol show config | grep -i array` settles it live.
 - **Throttle with `%N`.** Without it, 500 tasks all become eligible at once,
   which fills the partition and pushes everyone else — including your own
   later stages — behind them. `%20` is a courteous default; raise it when the
   partition is idle.
 - `%A` is the array job id and `%a` the task id, so
   `--output=logs/%x-%A_%a.out` keeps per-task logs apart. `%j` alone collides.
-- `MaxJobCount` is 10000 cluster-wide, and the QOS caps submissions per user
-  (`normal` allows 2000 submitted, 500 running). `slurm-discovery` covers
-  reading those.
+- The QOS caps submissions per user — Bodhi's `normal` allows 2000 submitted
+  and 500 running; Alpine's `cpu-normal` allows 1000 submitted.
+  `slurm-discovery` covers reading those.
 
 ## Dependencies
 
@@ -73,7 +90,7 @@ sbatch --dependency=afterok:$b report.sh
 `afterok` waits for success; `afterany` runs regardless; `singleton` serialises
 jobs sharing a name.
 
-This cluster runs with `kill_invalid_depend`, so a dependency that can never
+Both clusters run with `kill_invalid_depend`, so a dependency that can never
 be satisfied — the job it waits on failed — is **killed rather than left
 pending forever**. A vanished downstream job usually means an upstream
 failure, so check that first with `sacct` rather than resubmitting.

@@ -1,25 +1,35 @@
 ---
-name: bodhi-compute
-description: Run compute work on the Bodhi HPC cluster. Use whenever a task involves builds, analyses, pipelines, simulations, or any CPU-, memory-, or GPU-heavy or long-running command — such work must run inside a Slurm allocation sized for it, never on the login node and never in an sinteractive session. Covers deciding where you are, getting an allocation with srun or salloc, managing sinteractive sessions, checking time budgets, and observing the user's interactive sessions.
+name: hpc-compute
+description: Run compute work on the Bodhi and Alpine (CU Boulder/CURC) HPC clusters. Use whenever a task involves builds, analyses, pipelines, simulations, or any CPU-, memory-, or GPU-heavy or long-running command — such work must run inside a Slurm allocation sized for it, never on the login node and never in an sinteractive session. Covers deciding which cluster and node you are on, getting an allocation with srun or salloc, choosing the cluster's partitions and QOS, managing sinteractive sessions, checking time budgets, and observing the user's interactive sessions.
 ---
 
-# Running compute work on Bodhi
+# Running compute work
 
 ## First: where am I?
 
-`$SINTERACTIVE_JOB_ID` set → you are inside an sinteractive tmux session on a
-compute node. Unset → you are on the login node.
+Two clusters share this skill. Detect which, and read **only that cluster's
+file** in this skill's directory for partitions, QOS, and local hazards —
+the other cluster's details are noise:
+
+```bash
+[ -d /scratch/alpine ] && echo alpine || { [ -d /beevol ] && echo bodhi; }
+```
+
+- **Alpine** (CU Boulder / CURC) → read `alpine.md` next to this SKILL.md
+- **Bodhi** → read `bodhi.md` next to this SKILL.md
+
+`$SINTERACTIVE_JOB_ID` set → you are inside an sinteractive tmux session on
+a compute node. Unset → you are on the login node.
 
 **The rule is the same either way: that shell is for orchestration, not
 compute.** Editing, git, `squeue`/`sinfo`, and other sub-CPU-minute commands
 belong there. Everything heavier gets its own allocation, sized for the job.
 
 An sinteractive session is *not* a compute target, even though it lives on a
-compute node. It defaults to the `interactive` partition, which is the
-smallest and least capable on the cluster, and it is usually a 2-CPU / 8G
-allocation shared with the shell the user is actively typing in. Do not run
-heavy commands in one, and do not `srun --overlap` into one — you would be
-competing with the user for a small allocation.
+compute node. It is usually a small allocation shared with the shell the
+user is actively typing in. Do not run heavy commands in one, and do not
+`srun --overlap` into one — you would be competing with the user for a small
+allocation.
 
 ## Run work in its own allocation
 
@@ -42,15 +52,16 @@ the job takes the command's basename and an empty comment, so a queue full of
 This mirrors how sinteractive tags its own sessions (`sint-NAME` as the job
 name, `sinteractive:NAME` as the comment).
 
-Bodhi's `AccountingStoreFlags` does not include `job_comment`, so the comment
-is readable on a live job (`squeue`, `scontrol show job ID`) but comes back
-empty from `sacct` history — the name is the half that survives there. That is
-the reason to fill both rather than picking one.
+Where a cluster's accounting does not store the comment (Bodhi's does not),
+it is readable on a live job (`squeue`, `scontrol show job ID`) but comes
+back empty from `sacct` history — the name is the half that survives there.
+That is the reason to fill both rather than picking one.
 
-**One-off job** — blocks until it finishes:
+**One-off job** — blocks until it finishes (partition and QOS come from the
+cluster file):
 
 ```bash
-srun -p rna -c 8 --mem 32G -t 1:00:00 -J make-test --comment=make-test -- make test
+srun -p PART [--qos=QOS] -c 8 --mem 32G -t 1:00:00 -J make-test --comment=make-test -- make test
 ```
 
 Use the Bash tool's background mode for long ones; `srun` stays attached for
@@ -60,7 +71,7 @@ the duration.
 queueing separately for every command:
 
 ```bash
-salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00 -J cargo-ci --comment=cargo-ci
+salloc --no-shell -p PART [--qos=QOS] -c 32 --mem 96G -t 4:00:00 -J cargo-ci --comment=cargo-ci
 # salloc: Granted job allocation 244001      <- on STDERR, not stdout
 srun --overlap --jobid=244001 -- cargo build --release
 srun --overlap --jobid=244001 -- cargo test
@@ -73,7 +84,7 @@ Name and comment live on the allocation, so naming the `salloc` covers every
 `salloc --no-shell` returns immediately. Capture the job id through `2>&1`:
 
 ```bash
-ID=$(salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00 \
+ID=$(salloc --no-shell -p PART -c 32 --mem 96G -t 4:00:00 \
        -J cargo-ci --comment=cargo-ci 2>&1 |
      sed -n 's/.*Granted job allocation \([0-9]*\).*/\1/p')
 ```
@@ -86,94 +97,31 @@ mode over holding the stream, or check both budgets.
 **Always cancel an allocation you are done with.** A held `salloc` occupies
 the nodes until its walltime expires.
 
-### Choosing a partition
+Request only what the task needs, and ask the user before requesting more
+than a day of walltime or a whole node's worth of resources. Partitions can
+restrict which accounts and QOS may submit, so the right `-p` can still be
+rejected — the `slurm-discovery` skill covers mapping that out, and reading
+the reason when a job is refused or stuck `PENDING`.
+
+### Check for reservations before asking for walltime
+
+**A job asking for more walltime than remains before a maintenance
+reservation does not fail — it is silently deferred to after the window.**
+The job queues, looks normal, and the cost is invisible unless you check:
 
 ```bash
-sinfo -o "%20P %5a %10l %6D %6t %N"          # what exists, and what's idle
+scontrol show reservation        # ACTIVE = on now; INACTIVE = scheduled
+srun --test-only -p PART -c 4 --mem 8G -t 21:00:00 -- true
+# srun: Job ... to start at <TIME>   <- the scheduler's real verdict, nothing queued
 ```
 
-Pick the partition the work belongs to — `rna` for rnabioco work (6+ nodes,
-usually several idle), `normal` as the general fallback, `bigmem` for
-memory-heavy jobs, `gpu` for GPUs. **Never `interactive`** — it is reserved
-for sinteractive sessions and is the smallest partition on the cluster
-(~3 nodes).
-
-Request only what the task needs, and ask the user before requesting more than
-a day of walltime or a whole node's worth of resources.
-
-`gpu` and some other partitions restrict which accounts and QOS may submit to
-them, so the right `-p` can still be rejected under the wrong `-A`. The
-`slurm-discovery` skill covers mapping that out, and reading the reason when a
-job is refused or stuck `PENDING`.
-
-### Check for a maintenance window before asking for walltime
-
-Bodhi takes a maintenance reservation roughly once a month, and it covers
-**every node on the cluster**. Check before requesting anything long:
-
-```bash
-scontrol show reservation
-# ReservationName=monthly-maint StartTime=2026-08-27T06:00:00
-#   EndTime=2026-08-28T06:00:00 Duration=1-00:00:00
-#   Nodes=compgpu[01-03],compute[00-21] NodeCnt=25
-#   Flags=MAINT,IGNORE_JOBS,SPEC_NODES,ALL_NODES
-#   Users=root  State=INACTIVE
-```
-
-`State=INACTIVE` means it has not started yet; `ACTIVE` means it is on and the
-nodes are gone. `Users=root` means it is not a reservation you can submit
-into. `ALL_NODES` is the part that matters — there is nowhere else to go.
-
-**A job asking for more walltime than remains before the window does not
-fail. It gets deferred to after the window.** That is the whole hazard: the
-job queues and looks normal, and the cost is invisible unless you check. With
-the window 21h49m away:
-
-```console
-$ srun --test-only -p rna -c 4 --mem 8G -t 21:00:00 -- true
-srun: Job 245072 to start at 2026-08-26T08:10:20 ...      # starts now
-
-$ srun --test-only -p rna -c 4 --mem 8G -t 22:00:00 -- true
-srun: Job 245073 to start at 2026-08-28T06:00:00 ...      # +46 hours
-```
-
-One extra hour of requested walltime cost two days of waiting. So **size `-t`
-to fit in the gap**, and if the work genuinely cannot fit, say so and let the
-user decide between splitting it and waiting.
-
-How long is the gap:
-
-```bash
-scontrol show reservation 2>/dev/null |
-  sed -n 's/.*ReservationName=\([^ ]*\) StartTime=\([^ ]*\) EndTime=\([^ ]*\).*/\1 \2 \3/p' |
-  while read -r name start end; do
-    s=$(date -d "$start" +%s) now=$(date +%s)
-    ((s > now)) && printf '%s starts in %dh%02dm\n' \
-      "$name" $(((s - now) / 3600)) $((((s - now) % 3600) / 60))
-  done
-# monthly-maint starts in 21h49m
-```
-
-`--test-only` is the cheap confirmation either way — it reports the start time
-the scheduler would actually give the job without queueing anything.
-
-After the fact, a job caught this way says so in `squeue`:
-
-```console
-$ squeue -t PENDING -o "%.10i %.12u %.12L %r"
-    243393     krausmeg   3-00:00:00 ReqNodeNotAvail, Reserved for maintenance
-```
-
-Both of those asked for three days with the window a day out. A job in that
-state is not stuck and does not need resubmitting — it is waiting for the
-cluster to come back. Shortening `-t` is what makes it run sooner.
-
-`IGNORE_JOBS` means the reservation was allowed to be created over jobs that
-were already running, so those are not killed up front — but they do not
-survive the window either. **Nothing running is safe across it**, sinteractive
-sessions included: a session whose walltime crosses the start time will be cut
-short, so launch one that ends before the window rather than one that reaches
-past it.
+Size `-t` to fit in the gap before the window; if the work cannot fit, say
+so and let the user decide between splitting it and waiting. A pending job
+showing `ReqNodeNotAvail, Reserved for maintenance` is not stuck and does not
+need resubmitting — shortening `-t` is what makes it run sooner. Nothing
+running survives an all-node window, sinteractive sessions included; launch
+sessions that end before it. Bodhi has a recurring monthly all-node window —
+`bodhi.md` covers reading it in detail.
 
 ## sinteractive sessions
 
@@ -193,7 +141,7 @@ Get-or-create is one idempotent call — no need to list, parse, and recover
 from a duplicate-name error:
 
 ```bash
-sinteractive --ensure agent --time=4h -j 8 -m 32G -p rna --json
+sinteractive --ensure agent --time=4h -j 8 -m 32G --json
 # {... ,"created":true}    launched it
 # {... ,"created":false}   one was already running; this is the same object
 ```
@@ -211,10 +159,10 @@ to size a separate allocation, never to size work run in the session.
 
 Notes:
 
-- The job cap is **per partition**, not per user. `interactive` allows only 4
-  concurrent jobs. `You already have 4/4 interactive jobs` means that one
-  partition is full, not the cluster. Launch the session elsewhere with
-  `-p rna` rather than cancelling somebody's session to free a slot.
+- Job caps are **per partition or per QOS**, not per user across the
+  cluster. A "you already have N/N jobs" refusal means that one partition or
+  QOS is full — launch the session elsewhere rather than cancelling
+  somebody's session to free a slot.
 - Never cancel a session you did not create without asking the user.
 - Users can rename a session while it runs (`Ctrl-b $`), so resolve and cache
   sessions by `job_id`, not name.
@@ -262,20 +210,20 @@ confirm it actually took effect rather than assuming it did.
 
 Sessions live in tmux on the compute node; the socket and session are both
 named `sinteractive-JOBID`. The tmux binary is wherever `SINTERACTIVE_TMUX`
-points (`/usr/local/bin/tmux` on Bodhi, `/usr/bin/tmux` on some clusters), so
-read it from the environment rather than hardcoding a path.
+points (`/usr/local/bin/tmux` on Bodhi, `/usr/bin/tmux` on Alpine), so read
+it from the environment rather than hardcoding a path.
 
 To read what is on screen (last 100 lines):
 
 ```bash
-ssh NODE "${SINTERACTIVE_TMUX:-/usr/local/bin/tmux}" -L sinteractive-JOBID \
+ssh NODE "${SINTERACTIVE_TMUX:-/usr/bin/tmux}" -L sinteractive-JOBID \
   capture-pane -pt sinteractive-JOBID -S -100
 ```
 
 To type into it — this is the user's live shell, so only when asked:
 
 ```bash
-ssh NODE "${SINTERACTIVE_TMUX:-/usr/local/bin/tmux}" -L sinteractive-JOBID \
+ssh NODE "${SINTERACTIVE_TMUX:-/usr/bin/tmux}" -L sinteractive-JOBID \
   send-keys -t sinteractive-JOBID 'command' Enter
 ```
 
@@ -288,6 +236,6 @@ session you did not create without asking the user.
 ## Related skills
 
 - `slurm-discovery` — which partitions, accounts and QOS you may actually use.
-- `bodhi-storage` — read from `/beevol`, scratch on node-local `/tmp`.
-- `bodhi-software` — check `module avail` before building or installing.
+- `hpc-storage` — where work runs and output lands, per cluster.
+- `hpc-software` — check the module tree before building or installing.
 - `slurm-batch` — `sbatch`, arrays and dependencies, when it is not one job.

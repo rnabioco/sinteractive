@@ -150,9 +150,13 @@ override, and `make nodes-check` to see which nodes actually have them.
 
 **Six [skills](https://code.claude.com/docs/en/skills)** teach agents how work
 is done here. Skills load on demand from their descriptions, so an agent picks
-up the one the task calls for rather than carrying all six.
+up the one the task calls for rather than carrying all six. The three `hpc-*`
+skills go one step further: their SKILL.md holds the rules shared by both
+clusters this tool runs on and delegates the rest to an `alpine.md` or
+`bodhi.md` beside it, so the agent reads the system it is actually on and is
+never fed the other one's partitions, paths, and quotas.
 
-`bodhi-compute` covers cluster etiquette: neither the login node nor an
+`hpc-compute` covers cluster etiquette: neither the login node nor an
 sinteractive session is a compute target, real work goes into an allocation
 sized for it, reuse sessions rather than piling them up, check the time budget
 before long jobs, and clean up.
@@ -165,17 +169,21 @@ your account in the partition's `AllowAccounts`, your QOS in both its
 column when a job is refused or sits `PENDING`, and caches the answers per
 cluster so the survey is run once rather than every session.
 
-`bodhi-storage` covers where data goes: `/beevol` is one shared BeeGFS mount
-and the compute node's `/tmp` is a local disk, so inputs are read from the
-former and scratch is written to the latter and cleaned up on exit. It also
-warns that `du` on a home directory can run for minutes, and that the shared
-filesystem is full enough for a large write to be somebody else's problem too.
+`hpc-storage` covers where data goes, on both clusters this tool runs on. On
+Bodhi, `/beevol` is one shared BeeGFS mount and the compute node's `/tmp` is
+a local disk, so inputs are read from the former and scratch is written to
+the latter and cleaned up on exit. On Alpine (CU Boulder), the layout is
+tiered the other way around: a 2 GB `/home` that nothing may be written to,
+a small backed-up `/projects`, and a huge purged `/scratch/alpine` parallel
+filesystem where all work runs. It also warns that `du` on a home directory
+can run for minutes, and that a shared filesystem is full enough for a large
+write to be somebody else's problem too.
 
-`bodhi-software` covers how to get a tool: the module tree first — around 137
-preinstalled packages, so most of a genomics pipeline is a `module load` away
-— then a container, then `pixi`/`uv` for the remainder. Pin the version,
-load inside the job script rather than the login shell, and never `pip
-install` into the system Python.
+`hpc-software` covers how to get a tool: the module tree first — Bodhi ships
+around 137 preinstalled bioinformatics packages under Tcl modules, Alpine a
+general-HPC Lmod hierarchy — then a container, then `pixi`/`uv` for the
+remainder. Pin the version, load inside the job script rather than the login
+shell, and never `pip install` into the system Python.
 
 `slurm-batch` covers work that is per-sample rather than a single command:
 `sbatch` scripts, arrays and why to throttle them with `%N`, dependency
