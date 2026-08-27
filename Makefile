@@ -13,9 +13,11 @@ SHAREDIR ?= ~/.local/share/sinteractive
 
 # Every skill under skills/ ships, discovered rather than listed: adding one
 # is a matter of dropping a directory in, with no install target to update.
-# The paths are relative and mirror the repo layout, so `install -D` into a
-# destination root reproduces skills/<name>/SKILL.md underneath it.
-SKILLS := $(wildcard skills/*/SKILL.md)
+# All .md files go, not just SKILL.md — the hpc-* skills keep per-cluster
+# halves in alpine.md/bodhi.md beside it. The paths are relative and mirror
+# the repo layout, so `install -D` into a destination root reproduces
+# skills/<name>/*.md underneath it.
+SKILLS := $(wildcard skills/*/*.md)
 
 # When run as root, install system-wide: sinteractive to /usr/local/bin and
 # its man page to /usr/local/share/man.
@@ -204,7 +206,7 @@ nodes: require-root
 	         install -d -m 0755 /usr/local/share/sinteractive/claude/hooks; \
 	         install -m 0755 "$$d"/claude/hooks/*.sh /usr/local/share/sinteractive/claude/hooks/; \
 	         install -m 0644 "$$d/claude/settings-snippet.json" /usr/local/share/sinteractive/claude/; \
-	         cd "$$d" && for s in skills/*/SKILL.md; do install -D -m 0644 "$$s" "/usr/local/share/sinteractive/$$s"; done; \
+	         cd "$$d" && for s in skills/*/*.md; do install -D -m 0644 "$$s" "/usr/local/share/sinteractive/$$s"; done; \
 	         echo ok' \
 	      || echo "FAILED"; \
 	  done; \
