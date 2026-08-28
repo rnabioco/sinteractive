@@ -29,6 +29,16 @@ and this project adheres to
   `▣ N jobs monitorable` is bold.
 - The quota notice sizzles red → orange → yellow instead of red → blue, which
   was easy to miss at a glance.
+- `Ctrl+b m` puts you back into the monitor panel after you have stepped out
+  of it. The panel names its own pane `sint-monitor` so the bar can find it
+  in the pane manifest, but it asked for that name in the same breath as the
+  permission to do so — and zellij answers a permission request with an
+  event, never inline, so the rename was refused and never retried. A
+  nameless panel is invisible to the bar, which then read every later
+  `Ctrl+b m` as "no panel yet, open one" and re-applied the panel layout,
+  whose shell pane takes the focus — undoing the very move the keypress had
+  asked for. The panel now claims its pane once zellij has answered, and
+  re-asserts the name if a pane update ever shows it missing.
 
 ### Changed
 
