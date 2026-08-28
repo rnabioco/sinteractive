@@ -1,146 +1,155 @@
 # sinteractive
 
-Persistent interactive sessions on Slurm compute nodes, built on tmux.
+Persistent interactive sessions on Slurm compute nodes, with
+[zellij](https://zellij.dev) compiled in.
 
 **Docs:** <https://rnabioco.github.io/sinteractive/>
 
-`sinteractive` submits a batch job that starts a detached tmux session on the
-allocated node, then connects you to it. Because the shell lives in tmux, the
-session survives SSH drops and can be reattached later. It is a clean-room
-reimplementation inspired by the original `sinteractive` by Pär Andersson
-(NSC, Sweden) and the CU Boulder adaptation by Jonathon Anderson, and is
-developed for the [Bodhi cluster](https://rnabioco.github.io/bodhi-docs/) at
-the RNA Bioscience Initiative — but it is cluster-agnostic: scheduler details
-are driven by `SINTERACTIVE_*` environment variables.
+`sinteractive` submits a batch job that starts a zellij server on the
+allocated node, then connects you to it. Because the shell lives in a
+multiplexer, the session survives SSH drops and can be reattached later. It
+is a single static-ish binary: zellij, the status bar, the monitor panel and
+the Slurm plumbing are all inside it, so there is nothing to install on the
+compute nodes and no multiplexer to find there.
+
+It is also built for coding agents as much as for people. Every reporting
+command has a `--json` form, `peek`/`send` read and drive a session from the
+login node, `events` streams what happens in one, and `install-claude` wires
+[Claude Code](https://code.claude.com/docs/) up with skills, hooks, a
+statusline and an MCP server.
+
+It is a clean-room reimplementation inspired by the original `sinteractive`
+by Pär Andersson (NSC, Sweden) and the CU Boulder adaptation by Jonathon
+Anderson, developed for the [Bodhi cluster](https://rnabioco.github.io/bodhi-docs/)
+at the RNA Bioscience Initiative and for CU Boulder's Alpine — but it is
+cluster-agnostic: scheduler details are driven by `SINTERACTIVE_*`
+environment variables.
 
 ## Why use `sinteractive` instead of `srun --pty bash`?
 
 | | `srun --pty bash` | `sinteractive` |
 |---|---|---|
-| Survives SSH disconnects | No — session is lost | Yes — tmux keeps it alive |
-| Multiple terminal panes | No | Yes — tmux split/window support |
-| X11 forwarding | Manual setup | Automatic on connect (`ssh -X`) |
-| Reconnect to session | Not possible | `sinteractive --attach JOBID` |
+| Survives SSH disconnects | No — session is lost | Yes — the zellij server keeps it alive |
+| Reconnect to session | Not possible | `sinteractive attach JOBID\|NAME` |
+| Multiple panes | No | Yes — splits, zoom, scrollback (`Ctrl+b`) |
+| Mouse and copy | Terminal's own | Mouse on by default; select-to-copy lands in your local clipboard |
+| Status bar | None | Job id, node, walltime left, your queue, notices (`⚠ N notices`) |
+| Monitor panel | None | `Ctrl+b m`: CPU, memory, GPUs and processes of the job, in-session |
+| Remote read/drive | None | `sinteractive peek` / `send` from the login node or an agent |
+| X11 forwarding | Manual setup | `attach --ssh` (`ssh -X`) |
 
 > [!TIP]
 > Use `srun --pty bash` for quick, throwaway interactive work. Use
 > `sinteractive` when you need a session that persists through network
-> interruptions or when you want tmux features like split panes.
+> interruptions, or a place an agent can observe and reach.
 
 ## Installation
+
+Download the binary from the
+[releases page](https://github.com/rnabioco/sinteractive/releases) (built on
+Rocky 8, glibc 2.28, x86_64) and put it on your `PATH`:
+
+```bash
+mkdir -p ~/.local/bin
+mv sinteractive-x86_64-linux-gnu-glibc2.28 ~/.local/bin/sinteractive
+chmod +x ~/.local/bin/sinteractive
+sinteractive doctor          # is this install able to run a session from here?
+```
+
+Or build from a checkout:
 
 ```bash
 git clone https://github.com/rnabioco/sinteractive
 cd sinteractive
-make install
+make build      # cargo build --release -p sint --features web_server_capability
+make install    # binary, man page, completions and the Claude Code assets
 ```
 
-As a regular user this copies the script, man page, and bash completion to
-`~/.local/bin`, `~/.local/share/man`, and `~/.local/share/bash-completion`
-(make sure `~/.local/bin` is on your `$PATH`); as root it installs to
-`/usr/local` instead. To install to a different location:
+As a regular user `make install` copies the binary, man page and shell
+completions to `~/.local/bin`, `~/.local/share/man` and
+`~/.local/share/{bash-completion,zsh/site-functions}` (make sure
+`~/.local/bin` is on your `$PATH`); as root it installs to `/usr/local`
+instead. `make install PREFIX=~/bin` picks another location.
 
-```bash
-make install PREFIX=~/bin
-```
+Building needs a Rust toolchain (`rust-toolchain.toml` pins stable and adds
+the `wasm32-wasip1` target, which the status plugin is built for), a C/C++
+toolchain with `cmake` and `perl`, and the libcurl and OpenSSL headers
+(`libcurl-devel openssl-devel` on Rocky). The binary links glibc, so build it
+on the oldest glibc it must run on — the release builds run in a
+`rockylinux:8` container for that reason — and it needs `libcurl.so.4` at
+runtime.
 
-Requirements: a Slurm cluster, tmux ≥ 3.7 available **on the compute nodes**
-(path configurable via `SINTERACTIVE_TMUX`), and SSH access to the nodes for
-the initial attach. Admin targets for building tmux and fanning binaries out
-to nodes are described under [Deploying on a cluster](#deploying-on-a-cluster).
+Requirements at runtime: a Slurm cluster, and the binary on a filesystem the
+compute nodes can see (the batch job execs it from wherever it is installed).
+There is nothing to fan out to the nodes: the zellij server is the binary
+itself, and its plugin and config are extracted once into the cache directory,
+which is shared too. `attach` goes through `srun --overlap`, so SSH access to
+the nodes is only needed for `attach --ssh`, `peek`, `send`, `monitor --live`
+and `doctor --nodes`.
+
+> [!NOTE]
+> On Alpine, `/home` is 2 GB and `~/.cache` is where the state files and the
+> extracted bundle go by default. Point the cache somewhere with room:
+> `export SINTERACTIVE_CACHE=/projects/$USER/.cache/sinteractive`.
 
 ## Usage
 
 ```bash
-sinteractive [OPTIONS] [SBATCH_ARGS...]
+sinteractive [LAUNCH OPTIONS] [SBATCH ARGS...]     # launch a session
+sinteractive <COMMAND> [ARGS...]
 ```
 
-### Options
+A bare `sinteractive` launches; everything else is a subcommand
+(`sinteractive --help`, `sinteractive <command> --help`, `man sinteractive`).
+
+| Command | What it does |
+|---|---|
+| `launch` | Launch a new session (the default when no subcommand is given) |
+| `attach [TARGET] [--ssh]` | Reattach to a session by JOBID or NAME (your only session when omitted) |
+| `ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) |
+| `status [TARGET]` | Show one session's status |
+| `refresh [TARGET]` | Re-check a session's time budget now and update its cache |
+| `list` | List running sessions |
+| `cancel TARGET` | Cancel a session |
+| `queue [--all] [--watch]` | Your job queue: running, pending (with reasons), and recent history |
+| `monitor [TARGET\|HOST] [--live]` | Live CPU/GPU/process view of a session's node, or any host |
+| `snapshot` | One-shot resource sample of this host |
+| `events [TARGET] [--follow] [--since EPOCH]` | Stream session events (NDJSON) |
+| `peek TARGET [-n LINES]` | Read the last lines of a session's screen |
+| `send TARGET COMMAND` | Type a command into a session's shell |
+| `agent-context` | Brief a coding agent on the session it is running inside |
+| `quota [--check]` | Storage quota (Bodhi daemons) |
+| `hook session-start\|prompt` | Claude Code hook entry points |
+| `statusline` | Claude Code statusLine command |
+| `mcp` | MCP server over stdio |
+| `install-claude` | Install the Claude Code skills, hooks, statusline and MCP server |
+| `doctor [--nodes]` | Check this install and, optionally, every compute node |
+| `completions SHELL` | Print shell completions |
+| `man` | Print the man page (roff) |
+| `schema` | Dump the JSON schemas of the machine-readable outputs |
+| `zellij ...` | The embedded zellij's own command line |
+
+`status`, `refresh`, `list`, `cancel`, `queue`, `monitor`, `snapshot`,
+`quota`, `doctor` and `launch --detach` take `--json`. `TARGET` is a JOBID or
+a session NAME; inside a session it defaults to the current one.
+
+### Launch options
 
 | Option | Description | Default |
 |---|---|---|
-| `--node NODE` | Request a specific compute node | any available |
-| `--partition PART` | SLURM partition | `interactive` |
-| `--time TIME` | Wall time limit (supports `8h`, `30m`, `1d12h`, …) | `1 day` |
-| `-j`, `--threads N` | Number of CPUs (alias for `--cpus-per-task`) | `2` |
-| `-m`, `--mem SIZE` | Memory | `8G` |
-| `-n`, `--name NAME` | Tag the session with a name for easy reattach (`--attach NAME`) | |
-| `--mouse` | Enable tmux mouse support (scroll, click panes, drag to resize) | off |
+| `--node NODE` | Request a specific compute node (`--nodelist`) | any available |
+| `-p`, `--partition PART` | Slurm partition | `interactive` |
+| `-t`, `--time TIME` | Wall time (`8h`, `30m`, `1d12h`, or Slurm `D-HH:MM:SS`) | `24:00:00` |
+| `-j`, `--threads N` | Number of CPUs (`--cpus-per-task`) | `2` |
+| `-m`, `--mem SIZE` | Memory (`--mem`) | `8G` |
+| `-n`, `--name NAME` | Tag the session with a name for easy reattach (`attach NAME`) | |
+| `--mouse` | Enable mouse support in the session | on |
 | `--no-mouse` | Disable mouse support (overrides `SINTERACTIVE_MOUSE`) | |
 | `--detach` | Launch without attaching; print connection info and return | |
-| `--status [TARGET]` | Show session status by JOBID or NAME (state, node, time remaining) | current session |
-| `--json` | With `--list`/`--status`/`--detach`: machine-readable JSON output | |
-| `-a`, `--attach [TARGET]` | Reattach by JOBID or NAME; with no target, your only session | |
-| `--ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) | |
-| `--cancel TARGET` | Cancel a session by JOBID or NAME | |
-| `--check-quota` | Re-check storage quota now and update every running session | |
-| `--agent-context` | Brief a coding agent on the session it is running inside | |
-| `--install-claude` | Install the Claude Code skills and hooks, and register them | |
-| `-l`, `--list` | List running sinteractive sessions | |
-| `-h`, `--help` | Show help message | |
+| `--json` | Machine-readable JSON output (with `--detach`) | |
 
-All other arguments are passed directly to `sbatch`, so you can use any
-`sbatch` option. See `man sinteractive` for full documentation.
-
-### Environment variables
-
-Set personal defaults in your `~/.bashrc`; explicit flags always win.
-
-| Variable | Description | Default |
-|---|---|---|
-| `SINTERACTIVE_TIME` | Default wall time (e.g. `8h`, `2d`) | `1 day` |
-| `SINTERACTIVE_PARTITION` | Default partition | `interactive` |
-| `SINTERACTIVE_QOS` | Default QOS (`--qos`); needed on schedulers that require one | unset |
-| `SINTERACTIVE_CPUS` | Default CPU count | `2` |
-| `SINTERACTIVE_MEM` | Default memory (e.g. `16G`) | `8G` |
-| `SINTERACTIVE_MOUSE` | `on`/`1`/`true`/`yes` enables mouse support | off |
-| `SINTERACTIVE_TMUX` | Path to the `tmux` binary on the compute node | `/usr/local/bin/tmux` |
-| `SINTERACTIVE_COLOR` | `auto`/`always`/`never` for launch and teardown output; `NO_COLOR` also honoured | `auto` |
-| `SINTERACTIVE_QUOTA_POLL` | Seconds between storage-quota checks | `600` |
-| `SINTERACTIVE_QUOTA_FILE` | Pipe-delimited file of hard quotas | `/cluster/scripts/quota_current.txt` |
-| `SINTERACTIVE_QUOTA_HOSTS` | Quota daemons to sum usage across | Bodhi's `172.20.8.110-118` |
-| `SINTERACTIVE_QUOTA_PORT` | Port those daemons listen on | `9878` |
-
-```bash
-# Example: always use mouse mode and a bigger default allocation
-export SINTERACTIVE_MOUSE=on
-export SINTERACTIVE_MEM=16G
-export SINTERACTIVE_CPUS=4
-```
-
-### Configuring for other clusters (example: CU Alpine)
-
-The defaults above match Bodhi, but everything scheduler-specific is
-overridable. To run on
-[CU Boulder's Alpine](https://curc.readthedocs.io/en/latest/clusters/alpine/index.html),
-three things differ:
-
-- **tmux path** — Alpine ships tmux as a system package at `/usr/bin/tmux`,
-  not the source-built `/usr/local/bin/tmux` Bodhi uses.
-- **CPU partition + QOS** — the general-purpose CPU queue is `acpu` (an
-  explicit `--qos` is mandatory). `acpu`/`cpu-normal` are the names that take
-  effect after Alpine's **2026-08-05** rename of `amilan`/`normal`; both name
-  sets are already accepted, so using the new ones now means no change at the
-  cutover.
-- **name clash on `PATH`** — Alpine already provides an older, `screen`-based
-  `sinteractive` in `/usr/local/bin`, which is ahead of `~/.local/bin` on
-  `PATH`. An `alias` forces your copy to win.
-
-After `make install`, add this to your `~/.bashrc`:
-
-```bash
-# Use the ~/.local/bin copy instead of Alpine's older /usr/local/bin one
-alias sinteractive="$HOME/.local/bin/sinteractive"
-
-export SINTERACTIVE_TMUX=/usr/bin/tmux     # Alpine's system tmux
-export SINTERACTIVE_PARTITION=acpu         # CPU queue (was 'amilan' pre-2026-08-05)
-export SINTERACTIVE_QOS=cpu-normal         # 1-day max walltime; QOS is required on Alpine
-```
-
-Then `sinteractive` launches a 1-day CPU session. For a longer run (up to
-7 days), override the QOS: `sinteractive --time=2d --qos=cpu-long`. The default
-account (`amc-general` for most users) is applied automatically; pass
-`--account=<name>` if you need a different allocation.
+All other arguments are passed directly to `sbatch`, in any order, so you can
+use any `sbatch` option (`--gres=gpu:1`, `--qos=long`, `--account=...`).
 
 ### Examples
 
@@ -148,346 +157,219 @@ account (`amc-general` for most users) is applied automatically; pass
 # Default: 1-day session, 2 CPUs, 8G memory
 sinteractive
 
-# Run on a specific node
-sinteractive --node compute01
+# Named, 8 hours, 4 CPUs, 16G
+sinteractive -n rna-seq -t 8h -j 4 -m 16G
 
-# 2-hour session on the rna partition
-sinteractive --time=2:00:00 --partition=rna
+# GPU session; unknown flags go to sbatch
+sinteractive --partition=gpu --gres=gpu:1 --mem=16G
 
-# Override default memory and CPUs
-sinteractive --mem=16G --cpus-per-task=4
+# Launch without attaching, then come back to it
+sinteractive --detach -n build
+sinteractive attach build
 
-# GPU session
-sinteractive --partition=gpu --gpus=1 --mem=16G
+# What is running, and how long is left?
+sinteractive list
+sinteractive status build
 
-# Longer session on the normal partition (up to 3 days)
-sinteractive --time=1-12:00:00 --partition=normal
+# Read the last 40 lines of a session's screen from the login node
+sinteractive peek build -n 40
 ```
+
+### Inside a session
+
+`Ctrl+b` is the only chord (tmux muscle memory); press it, then one key.
+`Ctrl+b h` shows the same legend in the status bar.
+
+| Keys | Action |
+|---|---|
+| `Ctrl+b d` | Detach — the session keeps running |
+| `Ctrl+b h` (or `?`) | Key legend in the bar; again for the next page, `Esc` to close |
+| `Ctrl+b n` | Read the notices (quota, trimmed end time, hints) one at a time; `Esc` back |
+| `Ctrl+b m` | Toggle the monitor panel (CPU, memory, GPUs, processes of the job) |
+| `Ctrl+b ,` / `Ctrl+b .` | Previous / next host in the monitor panel |
+| `Ctrl+b q` | Your queue in a floating pane (`sinteractive queue --watch`) |
+| `Ctrl+b c` | New pane |
+| `Ctrl+b "` / `Ctrl+b %` | Split down / split right |
+| `Ctrl+b x` | Close the focused pane |
+| `Ctrl+b z` | Zoom the focused pane |
+| `Ctrl+b o`, `Ctrl+b ←↑→↓` | Focus the next pane / a direction |
+| `Ctrl+b [` | Scroll mode: `j`/`k`, `PgUp`/`PgDn`, `g`/`G`, `/` search, `e` open scrollback in `$EDITOR`, `q`/`Esc` to leave |
+| `Ctrl+b r` | Resize mode: arrows or `hjkl`, `Enter`/`Esc` to leave |
+| `Ctrl+b :` | zellij's pane mode |
+| `Ctrl+b Ctrl+b` | Send a literal `Ctrl+b` |
+
+The status bar reads
+`● sint 31761255 · rusttest · c3cpu-a2-u3-4 · 22m left · jobs 3R · ^b h help`:
+the dot spins while the session is starting and turns yellow, then red, as
+the walltime runs down (`SINTERACTIVE_WARN_YELLOW`/`_RED`); `jobs` counts
+your running and pending jobs; a `⚠ N notices` counter appears when the
+session has something to say (red while a quota overage is among them).
+Segments drop from the right as the terminal narrows.
+
+Mouse mode is on by default: scroll with the wheel, click to focus a pane,
+drag borders to resize, and select text to copy it (it lands in your local
+clipboard over SSH). Hold **Shift** to select with the terminal instead.
+`--no-mouse` or `SINTERACTIVE_MOUSE=off` turns it off.
+
+Exiting the last shell (`exit`, `Ctrl+d`) ends the job. From the login node,
+`sinteractive cancel NAME|JOBID` (or `scancel`) does the same; `Ctrl+c` while
+a launch is still waiting in the queue cancels the pending job.
+
+### Environment variables
+
+Set personal defaults in your `~/.bashrc`; explicit flags always win.
+
+| Variable | Description | Default |
+|---|---|---|
+| `SINTERACTIVE_TIME` | Default wall time (`8h`, `2d`, `D-HH:MM:SS`) | `24:00:00` |
+| `SINTERACTIVE_PARTITION` | Default partition | `interactive` |
+| `SINTERACTIVE_QOS` | Default QOS (`--qos`); needed on schedulers that require one | unset |
+| `SINTERACTIVE_CPUS` | Default CPU count | `2` |
+| `SINTERACTIVE_MEM` | Default memory (`16G`) | `8G` |
+| `SINTERACTIVE_MOUSE` | `on`/`1`/`true`/`yes` or `off`/`0`/`false`/`no` | `on` |
+| `SINTERACTIVE_CACHE` | State files and the extracted zellij bundle; must be visible from the compute nodes | `$XDG_CACHE_HOME/sinteractive` or `~/.cache/sinteractive` |
+| `SINTERACTIVE_THEME` | `dark`, `light`, or `auto` (ask the terminal) | `auto` |
+| `SINTERACTIVE_COLOR` | `auto`/`always`/`never` for CLI output; `NO_COLOR` also honoured | `auto` |
+| `SINTERACTIVE_WARN_YELLOW` | Seconds left at which the bar turns yellow | `3600` |
+| `SINTERACTIVE_WARN_RED` | Seconds left at which the bar turns red | `600` |
+| `SINTERACTIVE_GRACE` | Seconds before the walltime limit at which the session ends itself cleanly | `10` |
+| `SINTERACTIVE_POLL` | Seconds between scheduler re-checks in the session (floor 5) | `30` |
+| `SINTERACTIVE_AGENT_WARN` | Seconds left below which the Claude Code prompt hook warns | `1800` |
+| `SINTERACTIVE_QUOTA_POLL` | Seconds between storage-quota checks (floor 30) | `600` |
+| `SINTERACTIVE_QUOTA_FILE` | Pipe-delimited file of hard quotas | `/cluster/scripts/quota_current.txt` |
+| `SINTERACTIVE_QUOTA_HOSTS` | Quota daemons to sum usage across | Bodhi's `172.20.8.110-118` |
+| `SINTERACTIVE_QUOTA_PORT` | Port those daemons listen on | `9878` |
+| `SINTERACTIVE_QUOTA_TIMEOUT` | Seconds to wait for each daemon | `5` |
+| `SINTERACTIVE_SHARE` | Where `install-claude` finds the skills (a checkout) | beside the binary |
+| `SINTERACTIVE_RUNTIME_DIR` | Node-local directory for the zellij socket and readiness marker | `/tmp` |
+| `SINTERACTIVE_JOB_ID`, `SINTERACTIVE_NAME` | Exported *inside* a session; not for you to set | |
+
+```bash
+# Example: a bigger default allocation, cache on a filesystem with room
+export SINTERACTIVE_MEM=16G
+export SINTERACTIVE_CPUS=4
+export SINTERACTIVE_CACHE=/projects/$USER/.cache/sinteractive
+```
+
+### Configuring for Alpine (CU Boulder)
+
+The defaults match Bodhi, but everything scheduler-specific is overridable.
+On [Alpine](https://curc.readthedocs.io/en/latest/clusters/alpine/index.html)
+three things differ:
+
+- **CPU partition + QOS** — the general-purpose CPU queue is `acpu` and an
+  explicit `--qos` is mandatory. `acpu`/`cpu-normal` are the names that took
+  effect with Alpine's **2026-08-05** rename of `amilan`/`normal`; both name
+  sets are accepted.
+- **`/home` is 2 GB** — put the cache on `/projects`.
+- **name clash on `PATH`** — Alpine already provides an older, `screen`-based
+  `sinteractive` in `/usr/local/bin`, which is ahead of `~/.local/bin` on
+  `PATH`. An `alias` forces your copy to win.
+
+Add this to your `~/.bashrc`:
+
+```bash
+# Use the ~/.local/bin copy instead of Alpine's older /usr/local/bin one
+alias sinteractive="$HOME/.local/bin/sinteractive"
+
+export SINTERACTIVE_PARTITION=acpu         # CPU queue (was 'amilan' pre-2026-08-05)
+export SINTERACTIVE_QOS=cpu-normal         # 1-day max walltime; QOS is required on Alpine
+export SINTERACTIVE_CACHE=/projects/$USER/.cache/sinteractive
+```
+
+Then `sinteractive` launches a 1-day CPU session. For a longer run (up to
+7 days), override the QOS: `sinteractive --time=2d --qos=cpu-long`. The default
+account (`amc-general` for most users) is applied automatically; pass
+`--account=<name>` if you need a different allocation. Alpine has no quota
+daemons, so `sinteractive quota` reports "unavailable" there — `curc-quota`
+is the tool.
+
+### Configuring for Bodhi
+
+Nothing to set: the built-in defaults are Bodhi's (`interactive` partition,
+no QOS, the quota daemons and `/cluster/scripts/quota_current.txt`). Longer
+sessions go to the `normal` partition (`sinteractive -t 1-12:00:00 -p
+normal`), GPU work to `gpu` (`-p gpu --gres=gpu:1`). Over-quota sessions carry
+a red `QUOTA over by …` notice, re-checked every ten minutes; after freeing
+space, `sinteractive quota --check` re-checks now and updates every open
+session.
 
 ## How it works
 
-1. **Submits a batch job** — `sbatch` launches the script itself on a compute node, where it starts a tmux session.
-2. **Waits for the job to start** — polls `squeue` every 5 seconds until the job is running, showing why it is pending and Slurm's estimated start time. `Ctrl-C` here cancels the pending job.
-3. **Connects via SSH** — once running, it SSHs into the compute node with X11 forwarding (`-X`) and attaches to the tmux session.
-4. **Stays alive until you exit** — the SLURM job remains running as long as the tmux session exists. Detaching (`Ctrl-b d`) or losing your SSH connection leaves the job running so you can reconnect. Exiting tmux (`exit`) ends the job.
+1. **Submits a batch job** — `sbatch --wrap "exec sinteractive __job …"`,
+   tagged with `Comment=sinteractive[:NAME]` so sessions are found by that
+   marker rather than by name. If a maintenance reservation would block the
+   request, the walltime is trimmed to end before it (and the session says so).
+2. **Waits for the job to start** — polls `squeue`, showing Slurm's pend
+   reason and estimated start time. `Ctrl+c` here cancels the pending job.
+3. **Starts zellij on the node** — the job body brings up a headless zellij
+   server (the embedded one), with every `SLURM_*` variable stripped from the
+   session's environment, then runs a sampler that keeps the status bar, the
+   state file, the notices, the metrics snapshot and the event log current.
+4. **Attaches** — through `srun --overlap --pty` by default, or `ssh -X` with
+   `attach --ssh`. Detaching or losing the connection leaves the job running;
+   exiting the last shell ends it.
 
-```mermaid
-sequenceDiagram
-    participant L as Login Node
-    participant S as SLURM
-    participant C as Compute Node
+Everything the login-node commands need — `status`, `list`, `monitor`,
+`statusline`, the MCP server — is read from the shared cache directory the
+session writes to, so they cost no SSH and mostly no scheduler queries. See
+[Deploying on a cluster](https://rnabioco.github.io/sinteractive/deploy/) for
+the file layout.
 
-    L->>S: sbatch (submit job)
-    S->>C: start tmux session
-    L-->>L: poll squeue until RUNNING
-    L->>C: ssh -X (attach to tmux)
-    Note over C: you work here
-```
+## Scripting and agents
 
-## Notice lines
+Every reporting command has a `--json` form, `ensure NAME` is an idempotent
+get-or-create, `peek`/`send` read and drive a session from outside, `events
+--follow` streams what happens in one, and the state file
+`<cache>/JOBID.json` carries `remaining_seconds` for cheap polling. See
+[Scripting & Agents](https://rnabioco.github.io/sinteractive/scripting/)
+(`docs/scripting.md`) for the contracts and the rule that matters most: **a
+session is not a compute target**.
 
-When something about the session needs saying, it gets a line of its own under
-the status bar rather than a corner of one that is already busy. Each line is
-there only while its message is, and takes a row of pane height while it is:
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- ● session 245772 | compute07                                     Help: Ctrl+b h | Detach: Ctrl+b d
- ⚠ QUOTA over by 204.8G (30T limit)                                  ends Thu 06:00 · monthly-maint
- Claude Code: run sinteractive --install-claude to enable the skills and hooks
-```
-
-Nearest the session line are the warnings. Both stay true for the whole
-session, so they share their line rather than taking turns — one at each end
-of it, quota flush left and the trimmed end time flush right, under the two
-ends the session line above already uses. Each keeps its side whether or not
-the other is there, so neither moves when its neighbour appears.
-
-**Over quota** (red, left). Checked every 10 minutes against the cluster's
-quota daemons. The check is cached per user, not per session, so having six
-sessions open does not mean six times the polling. The line reports the
-overage rather than the usage: it is the number you act on, and "over by"
-already says you are over.
-
-After deleting something, don't wait out the interval:
+## Claude Code integration
 
 ```bash
-sinteractive --check-quota      # re-checks now, updates every open session
+sinteractive install-claude   # from any installed copy
+make claude-install           # equivalent, from a checkout
 ```
 
-That is also the command to hand an agent — it clears the warning within a
-tick of the space actually being freed, and the line goes away with it.
+This installs the six skills (`hpc-compute`, `slurm-discovery`, `hpc-storage`,
+`hpc-software`, `slurm-batch`, `git-workflow`) into `~/.claude/skills/`, then
+registers in your `settings.json` the two hooks (`sinteractive hook
+session-start` briefs the agent on the session it is in; `sinteractive hook
+prompt` warns when walltime is short), the statusline (`sinteractive
+statusline`, which shows model, context usage and the session's remaining time
+under the input box) and the MCP server (`sinteractive mcp`, via `claude mcp
+add`). The merge is additive, idempotent and backed up; a `settings.json` that
+does not parse is left alone and the snippet printed instead. Old 0.x hook
+scripts are removed and their entries replaced.
 
-**Trimmed end time** (yellow, right). Shown when the request was trimmed to
-end before a maintenance window — see below. It carries no label: an end time
-that is not the one you asked for, in yellow on the warnings line, is already
-reading as a warning, so the space goes to the reservation name instead.
+`sinteractive agent-context` prints the briefing by hand, so you can see
+exactly what the agent is told.
 
-**Claude Code hint** (yellow). Bottom line, furthest from the session line
-because it is an offer rather than something to act on. Shown only while
-`claude` is running in a session where the hooks are not registered, and gone
-once they are.
+## Migrating from 0.x
 
-The rule between your pane and the status bar carries no text at all.
-
-## Maintenance windows
-
-Slurm will not start a job that runs into a maintenance reservation. It defers
-it until the window closes, which can be a day or more — so a session asked
-for at the default day length simply stops starting as maintenance approaches,
-with no obvious reason why.
-
-sinteractive trims the request to fit instead, and says so:
-
-```console
-$ sinteractive -n analysis
-Maintenance (monthly-maint) starts Thu Aug 27 06:00.
-Shortened the request from 24:00:00 to 17:10:43 so the session ends before it.
-```
-
-The session then carries its trimmed end time on the notice line for its whole
-life, so the shortened allocation stays visible long after the launch output
-has scrolled away. If less than 10 minutes remains before the window, the launch is refused
-rather than handing you a session that dies immediately. An explicit
-`--reservation` is left alone — that is you arranging to run inside the
-window on purpose.
-
-## Reconnecting after a disconnect
-
-If your SSH connection drops or you intentionally detach (`Ctrl-b d`), the
-tmux session **keeps running** on the compute node and your work is safe. To
-reconnect from the login node:
-
-```bash
-# List your running sessions
-sinteractive --list
-#   JOBID       NAME                  NODE            PARTITION     ELAPSED     TIMELIMIT   CWD
-#   12345       rna-seq               compute01       cpu           01:23:45    1-00:00:00  ~/projects/rna-seq
-
-# Reattach
-sinteractive --attach 12345
-```
-
-If you have only one session running, a bare `sinteractive --attach` goes
-straight to it — no need to look up the job id first. With several running,
-it lists them with ready-to-run commands to pick from.
-
-Sessions launched with `-n NAME` can be reattached by name
-(`sinteractive --attach NAME`). Forgot to name one? Press `Ctrl-b $` inside
-the session to name (or rename) it in place — the new name shows up in the
-status bar, `squeue`, `--list`, and works with `--attach NAME`.
-
-> [!IMPORTANT]
-> This is the key advantage over `srun --pty bash`: with `srun`, a dropped SSH
-> connection kills your session and any running processes. With
-> `sinteractive`, you just reconnect and pick up where you left off.
-
-> [!NOTE]
-> X11 forwarding is set up on the **initial** connection (`ssh -X`).
-> Reattaching with `--attach` reconnects through Slurm (`srun`) rather than a
-> new `ssh -X`, so GUI apps launched **after** a reattach won't have a working
-> `DISPLAY`. If you need X11, keep the original connection, or start a fresh
-> session for GUI work.
-
-## Scripting and agent use
-
-`sinteractive` has a headless mode designed for scripts and coding agents such
-as [Claude Code](https://code.claude.com/docs/):
-
-```bash
-# Launch without attaching; returns once the session is ready
-sinteractive --detach -n mywork --time=8h
-
-# Get-or-create in one idempotent call
-sinteractive --ensure mywork --time=8h --json
-# {..., "created": true}    launched it
-# {..., "created": false}   one was already running
-
-# Machine-readable session info
-sinteractive --list --json
-sinteractive --status mywork --json
-# {"job_id":147845,"name":"mywork","state":"RUNNING","node":"compute20",
-#  "partition":"rna","cpus":8,"memory":"32G","memory_mb":32768,"gpus":0,
-#  "time_limit":"8:00:00","elapsed":"0:43","end_epoch":1783180952,
-#  "remaining_seconds":28757}
-```
-
-> [!IMPORTANT]
-> **A session is not a compute target.** It is an orchestration shell: the
-> default `interactive` partition is the smallest on the cluster, and anything
-> heavy you run in the session competes with the shell you are typing in. Run
-> work in an allocation sized for it:
->
-> ```bash
-> # One-off job
-> srun -p rna -c 8 --mem 32G -t 1:00:00 -J make-test --comment=make-test -- make test
->
-> # Sustained work: hold one allocation and reuse it
-> salloc --no-shell -p rna -c 32 --mem 96G -t 4:00:00 -J cargo-ci --comment=cargo-ci
-> srun --overlap --jobid=ID -- cargo build --release
-> scancel ID
-> ```
->
-> Name every job in both fields — `-J NAME` and `--comment=NAME`, the same
-> short descriptive value — so `squeue --me -o "%.10i %.20j %.10M %k"` says
-> what is running and why. Name and comment belong to the allocation, so
-> naming the `salloc` covers its `srun --overlap` steps.
->
-> Every `SLURM_*` variable is stripped from a session, so tools inside it
-> don't believe they are a job step — which also means `srun` and `salloc` run
-> from inside a session create their own allocations.
-
-Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`, if named)
-are exported, and `sinteractive --status` with no argument reports on the
-current session. A state file at `~/.cache/sinteractive/JOBID.json` carries
-`remaining_seconds`, so tools can poll the time budget without querying the
-scheduler; it is removed when the session ends. The end time is re-checked
-against Slurm immediately before every write, so `updated_epoch` is when the
-whole snapshot was confirmed: if it is more than ~2 minutes old, treat the
-file as stale and fall back to `sinteractive --status`. A walltime change made
-with `scontrol update JobId=... TimeLimit=...` appears within about 30
-seconds, or at once with `sinteractive --refresh`.
-
-In-session renames (`Ctrl-b $`) are reflected in the state file, `--status`,
-and new panes, but shells already running keep their original
-`SINTERACTIVE_NAME`.
-
-> [!TIP]
-> This repo ships six [Claude Code skills](https://code.claude.com/docs/en/skills)
-> plus two hooks, for agents that run **inside** a session:
->
-> | Skill | Teaches |
-> |---|---|
-> | `hpc-compute` | Cluster etiquette — a session is not a compute target |
-> | `slurm-discovery` | What the cluster offers: partitions, accounts, QOS, limits |
-> | `hpc-storage` | Where output belongs, per cluster: Bodhi's `/beevol` vs node-local `/tmp`; Alpine's home/projects/scratch tiers |
-> | `hpc-software` | Modules first, then containers, then pixi/uv |
-> | `slurm-batch` | `sbatch`, arrays, dependencies, right-sizing from `sacct` |
-> | `git-workflow` | Semver, Conventional Commits, worktrees, pull requests |
->
-> The hooks brief the agent on which session it is in at startup, and warn it
-> when the session is running out of wall time.
->
-> ```bash
-> sinteractive --install-claude   # from any installed copy
-> make claude-install             # equivalent, from a checkout
-> ```
->
-> Both copy the assets, then register the hooks in your `settings.json` with
-> jq: additive, idempotent, and the file it replaces is kept beside it as
-> `settings.json.bak-<stamp>`. Without jq they print the block to merge by
-> hand instead, and a `settings.json` that does not parse is left alone. The
-> assets ship beside the script (`<prefix>/share/sinteractive`), so this works
-> on a cluster where an admin installed sinteractive with `make nodes` and you
-> never cloned the repo.
->
-> `sinteractive --agent-context` prints the briefing by hand, so you can see
-> exactly what the agent was told.
-
-## Tips
-
-### Basic tmux commands
-
-| Action | Key |
-|---|---|
-| Show help popup (job info, keys) | `Ctrl-b h` |
-| Detach from session | `Ctrl-b d` |
-| Name/rename session (updates squeue and `--attach` name) | `Ctrl-b $` |
-| Split pane horizontally | `Ctrl-b "` |
-| Split pane vertically | `Ctrl-b %` |
-| Switch between panes | `Ctrl-b arrow-key` |
-
-### Scrollback and keyboard copy/paste
-
-Copy mode uses vi keys (forced, regardless of `$EDITOR`), and copied text
-lands in your **local** system clipboard over SSH via OSC 52 — usually far
-smoother than mouse selection, especially with the scrollbar active.
-
-| Action | Key |
-|---|---|
-| Enter copy mode (scrollback) | `Ctrl-b [` (press `q` to exit) |
-| Move around | arrow keys, `PgUp`/`PgDn`, `g`/`G` for top/bottom |
-| Start selection | `Space` (`V` selects whole lines) |
-| Copy and exit copy mode | `Enter` (also lands in your local clipboard) |
-| Paste into a pane | `Ctrl-b ]` |
-| Search up / down | `?` / `/` (then `n`/`N` for next/previous match) |
-
-The same table is available inside a session at any time with `Ctrl-b h`.
-
-> [!TIP]
-> Start with `sinteractive --mouse` to scroll with the wheel, click to switch
-> panes, and drag borders to resize. Mouse mode captures terminal selection,
-> so hold **Shift** when you want to select text for an OS-level copy (tmux's
-> own mouse selection is copied out over SSH automatically).
-
-### Cancelling the job
-
-Exiting the tmux session (type `exit` or `Ctrl-d` in all panes) automatically
-cancels the SLURM job. You can also cancel it from the login node, by name or
-job id:
-
-```bash
-sinteractive --cancel myproj
-sinteractive --cancel 12345
-scancel 12345              # equivalent, job id only
-```
-
-Pressing `Ctrl-C` while a launch is still waiting in the queue cancels the
-pending job too.
-
-### Waiting for a job to start
-
-When the cluster is busy your job may sit in the queue. While it does,
-`sinteractive` shows why it is waiting (Slurm's pend reason — free resources,
-higher-priority jobs ahead of you) and, when Slurm can estimate one, the
-expected start time:
-
-```
- ⠹ waiting for free resources — est. start 14:32 (2m elapsed)
-```
-
-### Tab completion
-
-`make install` installs a bash completion. It completes options, and after
-`--attach`, `--status`, and `--cancel` it completes the job ids and names of
-your running sessions:
-
-```bash
-sinteractive --attach <TAB>
-# 12345  rna-seq  12346  assembly
-```
-
-Session names are read from the state files in `~/.cache/sinteractive/`, not
-from `squeue`, so completion stays instant even when the scheduler is slow.
-Start a new shell after installing to pick it up.
-
-## Deploying on a cluster
-
-`sinteractive` runs tmux **on the allocated compute node**, and `/usr/local`
-is typically node-local, so the tmux binary (and, for a system-wide install,
-the script itself) must exist on every node. The Makefile has root-only admin
-targets for this:
-
-```bash
-sudo make tmux-deps   # build deps (RHEL/Rocky 9: gcc, libevent-devel, ...)
-sudo make tmux        # build tmux from source into /usr/local
-sudo make tmux-push   # fan the binary out to every node Slurm knows about
-sudo make tmux-all    # build + push
-
-sudo make nodes       # install sinteractive on every node (same set as install-system)
-make nodes-check      # report what each node actually has
-```
-
-`NODES` defaults to `sinfo -hN -o '%N'`; override with
-`make tmux-push NODES="compute00 compute01"`. Pushes copy to a temp name and
-rename into place so running sessions aren't disturbed.
-
-`make nodes` installs everything `install-system` does, the Claude Code
-assets included — `--install-claude` resolves them relative to the running
-script, so a node without `<prefix>/share/sinteractive` cannot serve it from
-inside a session. Node drift is otherwise invisible, since a session runs the
-copy of the script that `sbatch` spooled rather than the node's; `make
-nodes-check` reports the version, assets and tmux on each node.
+- **Subcommands.** `--status`, `--list`, `--attach`, `--ensure`, `--cancel`,
+  `--refresh`, `--check-quota`, `--agent-context` and `--install-claude` are
+  now `status`, `list`, `attach`, `ensure`, `cancel`, `refresh`, `quota
+  --check`, `agent-context` and `install-claude`. The old flags are accepted
+  for one release and warn on stderr.
+- **No tmux.** zellij is compiled in; `SINTERACTIVE_TMUX` is gone and nothing
+  needs installing on the compute nodes. The `make tmux*` and `nodes-check`
+  targets are gone with it. Keys are the same `Ctrl+b` chords, except that
+  in-session rename (`Ctrl+b $`) is not available yet — name sessions at
+  launch with `-n`.
+- **Mouse is on by default.** `--no-mouse` or `SINTERACTIVE_MOUSE=off` to
+  turn it off.
+- **Hooks are native.** `install-claude` replaces the
+  `sinteractive-*.sh` hook scripts with `sinteractive hook …` and also
+  registers the statusline and the MCP server.
+- **Attach goes through `srun --overlap`** rather than ssh; `attach --ssh` is
+  the old path (and the one that forwards X11).
+- **The state-file contract is unchanged** (`<cache>/JOBID.json`, same fields,
+  same order), so anything that polls it keeps working. The cache directory
+  gained `bin/` (the extracted zellij bundle), `xdg/` (zellij's own cache),
+  `JOBID.metrics.json` and `JOBID.events.ndjson`.
 
 ## Docs development
 
@@ -496,13 +378,11 @@ with [zensical](https://zensical.org) from `docs/` and deploys to GitHub Pages
 on every push to `main`. Requires [pixi](https://pixi.sh):
 
 ```bash
-# Serve docs locally at http://localhost:8000
-pixi run docs
-
-# Build the site (strict mode)
-pixi run build
+pixi run docs    # serve locally at http://localhost:8000
+pixi run build   # build the site (strict mode)
 ```
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). The embedded zellij is MIT-licensed too; see
+`crates/sint/src/zellij_embed/LICENSE-zellij.md`.

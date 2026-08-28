@@ -64,18 +64,18 @@ du -sh --max-depth=1 ~/devel 2>/dev/null        # one level, one subtree
 what actually stops your writes:
 
 ```bash
-sinteractive --check-quota
+sinteractive quota --check
 # OVER QUOTA: 30.2T of 30T used (100.7%), over by 204.8G
 # Quota OK: 24.1T of 30T used (80.3%)
 
-sinteractive --check-quota --json      # same, machine-readable
+sinteractive quota --check --json      # same, machine-readable
 ```
 
 While this holds, a session carries a red `QUOTA over by …` notice behind the
-`⚠ N notices` counter on its status line (read in full with `Ctrl-b n`, or via
-`sinteractive --status`), refreshed every ten minutes.
+`⚠ N notices` counter on its status line (read in full with `Ctrl+b n`, or via
+`sinteractive status`), refreshed every ten minutes.
 
-**After deleting anything on the user's behalf, run `--check-quota`.** It
+**After deleting anything on the user's behalf, run `quota --check`.** It
 re-checks immediately and pushes the result to every open session, so the
 warning clears within a tick instead of at the end of the poll interval. The
 user asked for the space back; leaving a stale warning on their screen makes

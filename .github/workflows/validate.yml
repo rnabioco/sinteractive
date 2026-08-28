@@ -1,11 +1,7 @@
-# Validate the things that can be checked without a Slurm cluster to run
-# against: the script and the fake-slurm test shims parse, shellcheck is
-# happy, the man page has no groff warnings, and the settings snippet is real
-# JSON.
-#
-# The script runs under `set -u` with no `-e`, so an unset variable or a typo
-# in a rarely-taken branch is a runtime surprise rather than a load error.
-# These checks catch the half of that which is statically visible.
+# Validate the things that can be checked without a Slurm cluster or a Rust
+# toolchain: the fake-slurm test shims parse and pass shellcheck, and the
+# Claude Code settings snippet is real JSON. The binary, the man page and the
+# completions it generates are covered by rust.yml.
 name: Validate
 
 on:
@@ -24,8 +20,7 @@ jobs:
 
       - name: Syntax
         run: |
-          for f in sinteractive claude/hooks/*.sh completions/sinteractive.bash \
-                   tests/fake-slurm/lib.sh tests/fake-slurm/s*; do
+          for f in completions/sinteractive.bash tests/fake-slurm/lib.sh tests/fake-slurm/s*; do
             bash -n "$f"
             echo "ok  $f"
           done
@@ -33,16 +28,7 @@ jobs:
       - name: ShellCheck
         run: |
           shellcheck --version
-          shellcheck --severity=warning \
-            sinteractive claude/hooks/*.sh completions/sinteractive.bash \
-            tests/fake-slurm/lib.sh tests/fake-slurm/s*
-
-      - name: Man page
-        run: |
-          # groff still exits 0 on warnings, so the output itself is the test.
-          err=$(LC_ALL=C groff -man -Tutf8 -ww -z man/sinteractive.1 2>&1 >/dev/null)
-          if [ -n "$err" ]; then echo "$err"; exit 1; fi
-          echo "ok  man/sinteractive.1"
+          shellcheck --severity=warning tests/fake-slurm/lib.sh tests/fake-slurm/s*
 
       - name: JSON
         run: |

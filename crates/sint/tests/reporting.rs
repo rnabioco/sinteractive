@@ -467,7 +467,7 @@ fn agent_context_briefing() {
     );
     assert!(
         out.starts_with(
-            "You are inside an sinteractive tmux session on a compute node.\n\
+            "You are inside an sinteractive zellij session on a compute node.\n\
              \x20 job 147845 (web) on node01, partition interactive — 4 CPUs, 16G, 1 GPU\n\
              \x20 walltime 0s remaining (the session self-terminates ~10s before the limit)\n\n\
              This session is an orchestration shell, NOT a compute target."

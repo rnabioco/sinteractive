@@ -82,7 +82,7 @@ pub fn briefing(ctx: &Ctx) -> Result<String> {
     let node = &row.node;
     let partition = &row.partition;
     Ok(format!(
-        r#"You are inside an sinteractive tmux session on a compute node.
+        r#"You are inside an sinteractive zellij session on a compute node.
   {ident} on {node}, partition {partition} — {res}
   {budget} (the session self-terminates ~10s before the limit)
 
