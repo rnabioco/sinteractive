@@ -32,6 +32,20 @@ and this project adheres to
 
 ### Changed
 
+- The monitor panel is bars, and a pane you can step into. It opens six rows
+  tall — a strip of every monitorable job, then CPU, memory and a row per
+  GPU — and `Ctrl+b m` now *focuses* it instead of toggling it: it opens the
+  panel if it is closed, moves the focus into it if it is open, and hands the
+  focus back to the shell if the panel already has it. The panel keeps
+  running through all of that. Focused, it takes bare keys: `←`/`→` (or
+  `h`/`l`) step through jobs, `t` opens the full `sinteractive monitor` TUI
+  for the selected job in a floating pane — that is where the process table
+  now lives, scrollable and sorted, rather than squeezed into the panel —
+  `Esc`/`q` hand the focus back, and `x` closes the panel. Every `Ctrl+b`
+  chord keeps working while it is focused, because zellij resolves the prefix
+  before the focused pane sees a key. The bar no longer keeps its own tally
+  of whether the panel is open; it reads the pane manifest, so closing the
+  panel with `Ctrl+b x` leaves nothing stale behind.
 - The status bar separates itself from the shell with a heavy accent rule,
   the way 0.x did with tmux's `pane-border-lines heavy`. zellij's panes are
   borderless, so the bar draws the rule as its own first row and stands two
@@ -41,8 +55,8 @@ and this project adheres to
   are. The job id, the host, the load, the GPU figures and the time left
   print at the terminal's own foreground weight, so the numbers carry and the
   words around them recede.
-- Key hints name the prefix — `^b n next`, `^b esc back`, `^b ,/. host`,
-  `^b m close`. Ctrl+b is one-shot, and a bare `n` read as though the key
+- Key hints name the prefix — `^b n next`, `^b esc back`, `^b ,/. job`,
+  `^b m focus`. Ctrl+b is one-shot, and a bare `n` read as though the key
   worked on its own.
 - `--help`, usage and argument errors are coloured — headings and usage in
   the accent, flags green, placeholders cyan — and honour

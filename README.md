@@ -34,7 +34,7 @@ environment variables.
 | Multiple panes | No | Yes — splits, zoom, scrollback (`Ctrl+b`) |
 | Mouse and copy | Terminal's own | Mouse on by default; select-to-copy lands in your local clipboard |
 | Status bar | None | Job id, node, walltime left, your queue, notices (`⚠ N notices`) |
-| Monitor panel | None | `Ctrl+b m`: CPU, memory, GPUs and processes of the job, in-session |
+| Monitor panel | None | `Ctrl+b m`: CPU, memory and GPU bars for every job you can see, in-session; `t` for the full process view |
 | Remote read/drive | None | `sinteractive peek` / `send` from the login node or an agent |
 | X11 forwarding | Manual setup | `attach --ssh` (`ssh -X`) |
 
@@ -185,8 +185,8 @@ sinteractive peek build -n 40
 | `Ctrl+b d` | Detach — the session keeps running |
 | `Ctrl+b h` (or `?`) | Key legend in the bar; again for the next page, `Esc` to close |
 | `Ctrl+b n` | Read the notices (quota, trimmed end time, hints) one at a time; `Esc` back |
-| `Ctrl+b m` | Toggle the monitor panel (CPU, memory, GPUs, processes of the job) |
-| `Ctrl+b ,` / `Ctrl+b .` | Previous / next host in the monitor panel |
+| `Ctrl+b m` | Focus the monitor panel (CPU, memory and GPU bars), opening it if it is closed; again to hand the focus back to the shell. In the panel: `←`/`→` job, `t` the full monitor TUI, `esc` back to the shell, `x` close |
+| `Ctrl+b ,` / `Ctrl+b .` | Previous / next job in the monitor panel, without focusing it |
 | `Ctrl+b q` | Your queue in a floating pane (`sinteractive queue --watch`) |
 | `Ctrl+b c` | New pane |
 | `Ctrl+b "` / `Ctrl+b %` | Split down / split right |
