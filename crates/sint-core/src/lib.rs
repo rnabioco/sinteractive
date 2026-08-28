@@ -13,6 +13,7 @@
 //! - [`quota`]    — Bodhi quota daemons and `quota.json`
 //! - [`maint`]    — maintenance reservations and fitting a request before one
 //! - [`joblimit`] — per-QOS concurrent job cap check
+//! - [`theme`]    — Claude Code palette, dark/light aware
 //!
 //! Design rules carried over from the 0.x bash tool (see `docs/scripting.md`):
 //! never restamp an unverified snapshot ("age honestly"); cache the structure
@@ -28,6 +29,7 @@ pub mod quota;
 pub mod session;
 pub mod slurm;
 pub mod state;
+pub mod theme;
 pub mod time;
 
 /// Current Unix time in seconds.
