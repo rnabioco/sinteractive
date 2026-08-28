@@ -9,7 +9,6 @@ use std::time::Duration;
 
 use anyhow::Result;
 use serde::Serialize;
-use serde_json::Value;
 use sint_core::color::Palette;
 use sint_core::now_epoch;
 use sint_core::session::SessionInfo;
@@ -34,11 +33,41 @@ const FINISHED: [&str; 6] = [
 
 const WATCH_EVERY: Duration = Duration::from_secs(5);
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct PartitionSummary {
     pub partition: String,
     pub running: usize,
     pub pending: usize,
+}
+
+/// One job in the `queue --json` `running`/`pending` arrays: the session
+/// status object plus Slurm's job name and, for a pending job, its reason
+/// and estimated start (present but null when Slurm has no estimate).
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+pub struct QueueRow {
+    #[serde(flatten)]
+    pub info: SessionInfo,
+    pub job_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub est_start_epoch: Option<Option<i64>>,
+}
+
+/// The `queue --json` object.
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+pub struct QueueReport {
+    pub running: Vec<QueueRow>,
+    pub pending: Vec<QueueRow>,
+    /// Finished in the last day, newest first; empty when sacct failed.
+    pub recent: Vec<AccountedJob>,
+    /// Per-partition counts over everyone's jobs (`--all` only).
+    pub partitions: Vec<PartitionSummary>,
+}
+
+/// The `queue --json` object, gathered now.
+pub fn queue_data(ctx: &Ctx, all: bool) -> Result<QueueReport> {
+    Ok(Snapshot::gather(ctx, all)?.report())
 }
 
 /// One gather of everything the views show.
@@ -90,8 +119,7 @@ impl Snapshot {
 pub fn run(args: QueueArgs) -> Result<i32> {
     let ctx = Ctx::new();
     if args.json {
-        let snap = Snapshot::gather(&ctx, args.all)?;
-        print_json(&to_json(&snap))?;
+        print_json(&queue_data(&ctx, args.all)?)?;
         return Ok(0);
     }
     let p = ctx.palette(1);
@@ -351,34 +379,22 @@ fn truncate(s: &str, width: usize) -> String {
     t
 }
 
-fn to_json(snap: &Snapshot) -> Value {
-    let row = |r: &JobRow| -> Value {
-        let mut v = serde_json::to_value(SessionInfo::from_row(r, snap.now)).unwrap_or(Value::Null);
-        if let Value::Object(m) = &mut v {
-            m.insert(
-                "job_name".into(),
-                Value::from(snap.names.get(&r.job_id).cloned()),
-            );
-            if r.state == "PENDING" {
-                m.insert("reason".into(), Value::from(r.reason.clone()));
-                m.insert(
-                    "est_start_epoch".into(),
-                    Value::from(slurm_timestamp_to_epoch(&r.start_time)),
-                );
-            }
+impl Snapshot {
+    fn report(&self) -> QueueReport {
+        let row = |r: &JobRow| QueueRow {
+            info: SessionInfo::from_row(r, self.now),
+            job_name: self.names.get(&r.job_id).cloned(),
+            reason: (r.state == "PENDING").then(|| r.reason.clone()),
+            est_start_epoch: (r.state == "PENDING")
+                .then(|| slurm_timestamp_to_epoch(&r.start_time)),
+        };
+        QueueReport {
+            running: self.running.iter().map(row).collect(),
+            pending: self.pending.iter().map(row).collect(),
+            recent: self.recent.clone().unwrap_or_default(),
+            partitions: self.partitions.clone().unwrap_or_default(),
         }
-        v
-    };
-    let recent: Vec<&AccountedJob> = match &snap.recent {
-        Ok(jobs) => jobs.iter().collect(),
-        Err(_) => Vec::new(),
-    };
-    serde_json::json!({
-        "running": snap.running.iter().map(row).collect::<Vec<_>>(),
-        "pending": snap.pending.iter().map(row).collect::<Vec<_>>(),
-        "recent": recent,
-        "partitions": snap.partitions.clone().unwrap_or_default(),
-    })
+    }
 }
 
 #[cfg(test)]

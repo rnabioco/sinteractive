@@ -2,11 +2,29 @@
 //! shell and press Enter, over one ssh (`write-chars`, then `write 13`).
 //! This is the user's live shell, so callers only do it when asked.
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
-use super::common::{eprint_error, ssh_batch, Ctx};
+use super::common::{eprint_error, ssh_batch, Ctx, RunningSession};
+use super::peek::first_stderr_line;
 use crate::cli::SendArgs;
 use crate::zellij_cmd::ZellijEnv;
+
+/// Type `command` into the session's shell and press Enter, over one ssh.
+/// The error names the session, the node and what ssh or zellij said.
+pub fn send_command(ctx: &Ctx, session: &RunningSession, command: &str) -> Result<()> {
+    let env = ZellijEnv::new(&ctx.cfg, session.job_id)?;
+    let remote = remote_command(&env, command);
+    let out = ssh_batch(&session.node, 10, &remote).output()?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "could not send to session {} on {}: {}",
+            session.job_id,
+            session.node,
+            first_stderr_line(&out)
+        ));
+    }
+    Ok(())
+}
 
 pub fn run(args: SendArgs) -> Result<i32> {
     let ctx = Ctx::new();
@@ -18,24 +36,8 @@ pub fn run(args: SendArgs) -> Result<i32> {
     let Some(session) = ctx.resolve_running(&args.target)? else {
         return Ok(1);
     };
-    let env = ZellijEnv::new(&ctx.cfg, session.job_id)?;
-    let remote = remote_command(&env, &args.command);
-    let out = ssh_batch(&session.node, 10, &remote).output()?;
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        let detail = stderr
-            .lines()
-            .map(str::trim)
-            .find(|l| !l.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("ssh exited {}", out.status));
-        eprint_error(
-            &p,
-            &format!(
-                "could not send to session {} on {}: {detail}",
-                session.job_id, session.node
-            ),
-        );
+    if let Err(e) = send_command(&ctx, &session, &args.command) {
+        eprint_error(&p, &format!("{e:#}"));
         return Ok(1);
     }
     eprintln!("{}✓{} sent to session {}", p.ok, p.reset, session.job_id);

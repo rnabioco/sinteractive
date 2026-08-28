@@ -4,7 +4,7 @@ use super::{Slurm, SlurmError};
 use crate::time::slurm_timestamp_to_epoch;
 
 /// One completed/failed job from `sacct -X -P -n`.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct AccountedJob {
     pub job_id: String,
     pub name: String,

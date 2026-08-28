@@ -18,6 +18,7 @@ pub mod install_claude;
 pub mod job;
 pub mod launch;
 pub mod list;
+pub mod mcp;
 pub mod peek;
 pub mod popup;
 pub mod queue;
@@ -78,7 +79,7 @@ pub fn dispatch(command: Command) -> Result<i32> {
         Command::Send(args) => send::run(args),
         Command::Hook(args) => hook::run(args),
         Command::Statusline => statusline::run(),
-        Command::Mcp => not_yet("mcp"),
+        Command::Mcp => mcp::run(),
         Command::InstallClaude => install_claude::run(),
         Command::Doctor(args) => doctor::run(args),
         Command::Job(args) => job::run(args),

@@ -14,23 +14,26 @@ use sint_core::quota::{self, kb_to_size, QuotaSnapshot};
 use super::common::{eprint_error, Ctx};
 use crate::cli::QuotaArgs;
 
+/// The snapshot to report: a fresh probe when `check` (cached, and every
+/// live session poked so its notices catch up on the next tick), else the
+/// cache. `None` when neither is available.
+pub fn quota_data(ctx: &Ctx, check: bool) -> Result<Option<QuotaSnapshot>> {
+    if !check {
+        return Ok(quota::cached(&ctx.state));
+    }
+    let (user, uid) = quota::current_user();
+    let Ok(snap) = quota::probe(&ctx.cfg, &user, uid) else {
+        return Ok(None);
+    };
+    quota::write_cache(&ctx.state, &snap)?;
+    // Fire-and-forget, as in 0.x.
+    let _ = ctx.state.poke_all();
+    Ok(Some(snap))
+}
+
 pub fn run(args: QuotaArgs) -> Result<i32> {
     let ctx = Ctx::new();
-
-    let snap: Option<QuotaSnapshot> = if args.check {
-        let (user, uid) = quota::current_user();
-        match quota::probe(&ctx.cfg, &user, uid) {
-            Ok(snap) => {
-                quota::write_cache(&ctx.state, &snap)?;
-                // Fire-and-forget, as in 0.x.
-                let _ = ctx.state.poke_all();
-                Some(snap)
-            }
-            Err(_) => None,
-        }
-    } else {
-        quota::cached(&ctx.state)
-    };
+    let snap = quota_data(&ctx, args.check)?;
 
     let Some(snap) = snap else {
         if args.json {

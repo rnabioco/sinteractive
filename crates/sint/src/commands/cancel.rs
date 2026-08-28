@@ -4,11 +4,38 @@
 //! running out.
 
 use anyhow::Result;
+use serde::Serialize;
 use sint_core::session::parse_comment;
 use sint_core::slurm::SlurmError;
 
 use super::common::{eprint_error, print_json, Ctx};
 use crate::cli::CancelArgs;
+
+/// The `cancel --json` object. `detail` is scancel's complaint when it
+/// refused, for the caller to report; it is not part of the JSON.
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+pub struct CancelResult {
+    pub job_id: u64,
+    pub cancelled: bool,
+    #[serde(skip)]
+    pub detail: Option<String>,
+}
+
+/// `scancel JOBID`. A refusal is reported in the result rather than as an
+/// error, so the JSON contract (`cancelled: false`) holds either way.
+pub fn cancel_job(ctx: &Ctx, job_id: u64) -> CancelResult {
+    let id = job_id.to_string();
+    let detail = ctx.slurm.run("scancel", &[&id]).err().map(|e| match e {
+        SlurmError::Failed { stderr, .. } if !stderr.is_empty() => stderr,
+        SlurmError::Failed { .. } => "scancel failed".to_string(),
+        other => other.to_string(),
+    });
+    CancelResult {
+        job_id,
+        cancelled: detail.is_none(),
+        detail,
+    }
+}
 
 pub fn run(args: CancelArgs) -> Result<i32> {
     let ctx = Ctx::new();
@@ -22,25 +49,20 @@ pub fn run(args: CancelArgs) -> Result<i32> {
         None => (None, String::new()),
     };
 
-    let id = job_id.to_string();
-    if let Err(e) = ctx.slurm.run("scancel", &[&id]) {
-        let detail = match &e {
-            SlurmError::Failed { stderr, .. } if !stderr.is_empty() => stderr.clone(),
-            SlurmError::Failed { .. } => "scancel failed".to_string(),
-            other => other.to_string(),
-        };
+    let result = cancel_job(&ctx, job_id);
+    if let Some(detail) = &result.detail {
         eprint_error(
             &ctx.palette(2),
             &format!("could not cancel job {job_id}: {detail}"),
         );
         if args.json {
-            print_json(&serde_json::json!({"job_id": job_id, "cancelled": false}))?;
+            print_json(&result)?;
         }
         return Ok(1);
     }
 
     if args.json {
-        print_json(&serde_json::json!({"job_id": job_id, "cancelled": true}))?;
+        print_json(&result)?;
         return Ok(0);
     }
 
