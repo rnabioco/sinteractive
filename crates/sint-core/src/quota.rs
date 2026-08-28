@@ -177,6 +177,18 @@ pub fn used_kb(cfg: &Config, uid: u32) -> anyhow::Result<u64> {
     Ok(total)
 }
 
+/// The calling user's name and uid, as the 0.x `${USER:-$(id -un)}` and
+/// `id -u` reported them: `USER`, else `LOGNAME`, else the uid as a string.
+pub fn current_user() -> (String, u32) {
+    // SAFETY: getuid(2) has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    let name = ["USER", "LOGNAME"]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
+        .unwrap_or_else(|| uid.to_string());
+    (name, uid)
+}
+
 /// Probe now. `Err` when the file has no entry, or no daemon answered.
 pub fn probe(cfg: &Config, user: &str, uid: u32) -> anyhow::Result<QuotaSnapshot> {
     // Hard limit first: a local read that fails instantly on a cluster
