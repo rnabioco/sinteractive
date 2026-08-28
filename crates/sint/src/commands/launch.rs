@@ -562,12 +562,71 @@ fn wait_until_ready(node: &str, job_id: u64) -> bool {
         .unwrap_or(false)
 }
 
+/// How [`bring_up`] ended: a session up on a node, or an exit code after
+/// the reason was already reported on stderr.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Launched {
+    Ready { job_id: u64, node: String },
+    Failed(i32),
+}
+
 /// The launch flow. `created` is `Some(true)` from `ensure`, which reports
 /// the field in its JSON; every other caller leaves it off.
 pub(crate) fn launch(ctx: &Ctx, args: LaunchArgs, created: Option<bool>) -> Result<i32> {
+    let (job_id, node) = match bring_up(ctx, &args)? {
+        Launched::Failed(code) => return Ok(code),
+        Launched::Ready { job_id, node } => (job_id, node),
+    };
     let p = ctx.palette(2);
-    let (reset, bold, dim, err, key, id, ok) =
-        (&p.reset, &p.bold, &p.dim, &p.err, &p.key, &p.id, &p.ok);
+    let (reset, bold, key, id, ok) = (&p.reset, &p.bold, &p.key, &p.id, &p.ok);
+    let name = args.name.clone().filter(|n| !n.is_empty());
+    let attach_target = name.unwrap_or_else(|| job_id.to_string());
+
+    // Headless launch: report how to reach the session and return without
+    // attaching (there may be no terminal to attach from). With --json the
+    // status object is the whole stdout.
+    if args.detach {
+        if args.json {
+            let Some(mut info) = ctx.session_info(job_id)? else {
+                print_json(&SessionInfo::not_found(job_id))?;
+                return Ok(1);
+            };
+            info.created = created;
+            print_json(&info)?;
+        }
+        eprintln!();
+        eprintln!(
+            "{ok}{bold}✓{reset} {bold}Session {reset}{id}{job_id}{reset}{bold} is ready on {reset}{id}{node}{reset}{bold}.{reset}"
+        );
+        eprintln!();
+        eprintln!("  {key}Attach:{reset}   sinteractive attach {attach_target}");
+        eprintln!("  {key}Status:{reset}   sinteractive status {attach_target}");
+        eprintln!("  {key}Cancel:{reset}   sinteractive cancel {attach_target}");
+        return Ok(0);
+    }
+
+    let exe = current_exe()?;
+    let _ = Command::new("ssh")
+        .args(["-X", "-t", &node])
+        .arg(&exe)
+        .arg("__attach")
+        .arg(format!("sinteractive-{job_id}"))
+        .status();
+
+    // Give the batch script a moment to finish shutting down.
+    std::thread::sleep(fast_poll().unwrap_or(Duration::from_secs(3)));
+    teardown_summary(ctx, job_id, &node, &attach_target, &p)?;
+    Ok(0)
+}
+
+/// Submit the session job and wait until the session is up on its node:
+/// the nesting guard, name checks, sbatch defaults, the maintenance fit
+/// and job-limit check, submission, the pending wait and the readiness
+/// probe. Narrates on stderr only — stdout is left to the caller, so the
+/// MCP server can run this with a clean protocol stream.
+pub(crate) fn bring_up(ctx: &Ctx, args: &LaunchArgs) -> Result<Launched> {
+    let p = ctx.palette(2);
+    let (reset, bold, dim, err, id) = (&p.reset, &p.bold, &p.dim, &p.err, &p.id);
 
     // Don't allow an attaching launch from inside an existing session — it
     // would nest multiplexers. A --detach launch never attaches, so it is
@@ -576,14 +635,14 @@ pub(crate) fn launch(ctx: &Ctx, args: LaunchArgs, created: Option<bool>) -> Resu
         eprintln!(
             "{err}{bold}Error:{reset}{err} Already inside an sinteractive session. Exit this session first.{reset}"
         );
-        return Ok(1);
+        return Ok(Launched::Failed(1));
     }
 
     let name = args.name.clone().filter(|n| !n.is_empty());
     if let Some(n) = &name {
         if let Err(why) = validate_name(n) {
             eprintln!("{err}{bold}Error:{reset}{err} --{why}{reset}");
-            return Ok(1);
+            return Ok(Launched::Failed(1));
         }
         // Best-effort duplicate-name guard: the Comment marker that records
         // the name is only set after submission, so two near-simultaneous
@@ -604,14 +663,14 @@ pub(crate) fn launch(ctx: &Ctx, args: LaunchArgs, created: Option<bool>) -> Resu
             eprintln!(
                 "{dim}Pick a different name, or reattach with: sinteractive attach {n}{reset}"
             );
-            return Ok(1);
+            return Ok(Launched::Failed(1));
         }
     }
 
     // sbatch options: ours (translated), then the passthrough, then the
     // defaults in front of both so an explicit flag wins.
     let mut warnings = Vec::new();
-    let mut sbatch_args = own_sbatch_args(&args, &mut warnings);
+    let mut sbatch_args = own_sbatch_args(args, &mut warnings);
     sbatch_args.extend(args.sbatch_args.iter().cloned());
     if let Some(n) = &name {
         if !has_flag(&sbatch_args, &["--job-name", "-J"]) {
@@ -627,14 +686,14 @@ pub(crate) fn launch(ctx: &Ctx, args: LaunchArgs, created: Option<bool>) -> Resu
         Ok(c) => c,
         Err(msg) => {
             eprint!("{msg}");
-            return Ok(1);
+            return Ok(Launched::Failed(1));
         }
     };
 
     let partition = partition_of(&sbatch_args, &ctx.cfg);
     if let Some(hit) = check_job_limit(ctx, &sbatch_args, &partition) {
         print_limit_hit(ctx, &hit, &partition, &p);
-        return Ok(1);
+        return Ok(Launched::Failed(1));
     }
 
     note_running_sessions(&ctx.running_sessions()?, &p);
@@ -690,7 +749,7 @@ pub(crate) fn launch(ctx: &Ctx, args: LaunchArgs, created: Option<bool>) -> Resu
                 eprintln!();
             }
             eprintln!("{dim}Run 'sinteractive --help' to see available options.{reset}");
-            return Ok(if status > 0 { status } else { 1 });
+            return Ok(Launched::Failed(if status > 0 { status } else { 1 }));
         }
         Err(e) => return Err(anyhow!("{e}")),
     };
@@ -711,7 +770,9 @@ pub(crate) fn launch(ctx: &Ctx, args: LaunchArgs, created: Option<bool>) -> Resu
 
     match wait_for_running(&ctx.slurm, job_id, &p)? {
         Waited::Running => {}
-        Waited::Interrupted => return Ok(cancelled_by_user(&ctx.slurm, job_id, &p)),
+        Waited::Interrupted => {
+            return Ok(Launched::Failed(cancelled_by_user(&ctx.slurm, job_id, &p)))
+        }
         Waited::Gone => {
             eprintln!(
                 "{err}{bold}sinteractive:{reset}{err} job is neither RUNNING nor PENDING. Aborting.{reset}"
@@ -720,13 +781,15 @@ pub(crate) fn launch(ctx: &Ctx, args: LaunchArgs, created: Option<bool>) -> Resu
             // "Cancelled job" message, which is meant for a user interrupt.
             disarm();
             scancel_quiet(&ctx.slurm, job_id);
-            return Ok(1);
+            return Ok(Launched::Failed(1));
         }
     }
 
     let node = match ctx.slurm.batch_host(job_id)? {
         Some(n) => n,
-        None if interrupted() => return Ok(cancelled_by_user(&ctx.slurm, job_id, &p)),
+        None if interrupted() => {
+            return Ok(Launched::Failed(cancelled_by_user(&ctx.slurm, job_id, &p)))
+        }
         None => {
             disarm();
             return Err(anyhow!(
@@ -742,7 +805,7 @@ pub(crate) fn launch(ctx: &Ctx, args: LaunchArgs, created: Option<bool>) -> Resu
     // the node) instead of guessing a fixed sleep.
     let connected = wait_until_ready(&node, job_id);
     if interrupted() {
-        return Ok(cancelled_by_user(&ctx.slurm, job_id, &p));
+        return Ok(Launched::Failed(cancelled_by_user(&ctx.slurm, job_id, &p)));
     }
 
     // The session is up (or we gave up waiting); from this point a detach
@@ -756,46 +819,10 @@ pub(crate) fn launch(ctx: &Ctx, args: LaunchArgs, created: Option<bool>) -> Resu
         );
         eprintln!("{dim}Job {job_id} may still be starting. Reconnect with:{reset}");
         eprintln!("  sinteractive attach {id}{job_id}{reset}");
-        return Ok(1);
+        return Ok(Launched::Failed(1));
     }
 
-    let attach_target = name.clone().unwrap_or_else(|| job_id.to_string());
-
-    // Headless launch: report how to reach the session and return without
-    // attaching (there may be no terminal to attach from). With --json the
-    // status object is the whole stdout.
-    if args.detach {
-        if args.json {
-            let Some(row) = ctx.slurm.job(job_id)? else {
-                print_json(&SessionInfo::not_found(job_id))?;
-                return Ok(1);
-            };
-            let mut info = SessionInfo::from_row(&row, now_epoch());
-            info.created = created;
-            print_json(&info)?;
-        }
-        eprintln!();
-        eprintln!(
-            "{ok}{bold}✓{reset} {bold}Session {reset}{id}{job_id}{reset}{bold} is ready on {reset}{id}{node}{reset}{bold}.{reset}"
-        );
-        eprintln!();
-        eprintln!("  {key}Attach:{reset}   sinteractive attach {attach_target}");
-        eprintln!("  {key}Status:{reset}   sinteractive status {attach_target}");
-        eprintln!("  {key}Cancel:{reset}   sinteractive cancel {attach_target}");
-        return Ok(0);
-    }
-
-    let _ = Command::new("ssh")
-        .args(["-X", "-t", &node])
-        .arg(&exe)
-        .arg("__attach")
-        .arg(format!("sinteractive-{job_id}"))
-        .status();
-
-    // Give the batch script a moment to finish shutting down.
-    std::thread::sleep(fast_poll().unwrap_or(Duration::from_secs(3)));
-    teardown_summary(ctx, job_id, &node, &attach_target, &p)?;
-    Ok(0)
+    Ok(Launched::Ready { job_id, node })
 }
 
 /// After the attach returns: is the job still there? (script lines 799-856)

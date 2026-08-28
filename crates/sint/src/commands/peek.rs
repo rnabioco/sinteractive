@@ -3,40 +3,54 @@
 //! Replaces the 0.x `ssh NODE tmux capture-pane` recipe the hpc-compute
 //! skill used to document.
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
-use super::common::{eprint_error, ssh_batch, Ctx};
+use super::common::{eprint_error, ssh_batch, Ctx, RunningSession};
 use crate::cli::PeekArgs;
 use crate::zellij_cmd::ZellijEnv;
 
-pub fn run(args: PeekArgs) -> Result<i32> {
-    let ctx = Ctx::new();
-    let Some(session) = ctx.resolve_running(&args.target)? else {
-        return Ok(1);
-    };
+/// The session's whole screen as text, read over one ssh. The error names
+/// the session, the node and the first line ssh or zellij had to say.
+pub fn dump_screen(ctx: &Ctx, session: &RunningSession) -> Result<String> {
     let env = ZellijEnv::new(&ctx.cfg, session.job_id)?;
     let remote = env
         .remote_argv(["action", "dump-screen", "-p", "terminal_0", "--full"])
         .join(" ");
     let out = ssh_batch(&session.node, 10, &remote).output()?;
     if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        let detail = stderr
-            .lines()
-            .map(str::trim)
-            .find(|l| !l.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("ssh exited {}", out.status));
-        eprint_error(
-            &ctx.palette(2),
-            &format!(
-                "could not read the screen of session {} on {}: {detail}",
-                session.job_id, session.node
-            ),
-        );
-        return Ok(1);
+        return Err(anyhow!(
+            "could not read the screen of session {} on {}: {}",
+            session.job_id,
+            session.node,
+            first_stderr_line(&out)
+        ));
     }
-    let screen = String::from_utf8_lossy(&out.stdout);
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// The first non-blank stderr line, or the exit status when there is none.
+pub fn first_stderr_line(out: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    stderr
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("ssh exited {}", out.status))
+}
+
+pub fn run(args: PeekArgs) -> Result<i32> {
+    let ctx = Ctx::new();
+    let Some(session) = ctx.resolve_running(&args.target)? else {
+        return Ok(1);
+    };
+    let screen = match dump_screen(&ctx, &session) {
+        Ok(screen) => screen,
+        Err(e) => {
+            eprint_error(&ctx.palette(2), &format!("{e:#}"));
+            return Ok(1);
+        }
+    };
     for line in tail_lines(&screen, args.lines) {
         println!("{line}");
     }

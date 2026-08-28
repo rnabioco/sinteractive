@@ -114,33 +114,51 @@ pub struct RunningSession {
 }
 
 impl Ctx {
+    /// One session's status object: `None` when Slurm no longer knows the
+    /// job (the CLI then reports `NOT_FOUND`).
+    pub fn session_info(&self, job_id: u64) -> Result<Option<SessionInfo>> {
+        Ok(self
+            .slurm
+            .job(job_id)?
+            .map(|row| SessionInfo::from_row(&row, sint_core::now_epoch())))
+    }
+
+    /// `job_id` as a RUNNING session on a node, or an error saying why it
+    /// is not one (`is not running (state: …)` / `not found`). A Slurm
+    /// failure is a [`SlurmError`] underneath, which callers can tell apart.
+    pub fn require_running(&self, job_id: u64) -> Result<RunningSession> {
+        match self.slurm.job(job_id)? {
+            Some(row) if row.state == "RUNNING" && !row.node.is_empty() => Ok(RunningSession {
+                job_id,
+                node: row.node,
+            }),
+            Some(row) => Err(anyhow!(
+                "session {job_id} is not running (state: {})",
+                row.state
+            )),
+            None => Err(anyhow!("job {job_id} not found")),
+        }
+    }
+
     /// Resolve `target` and require it to be RUNNING on a node. Anything
     /// else is reported on stderr and returns `Ok(None)`; the caller exits 1.
     pub fn resolve_running(&self, target: &str) -> Result<Option<RunningSession>> {
         let Some(job_id) = self.resolve_reporting(Some(target))? else {
             return Ok(None);
         };
-        let p = self.palette(2);
-        match self.slurm.job(job_id)? {
-            Some(row) if row.state == "RUNNING" && !row.node.is_empty() => {
-                Ok(Some(RunningSession {
-                    job_id,
-                    node: row.node,
-                }))
-            }
-            Some(row) => {
-                eprint_error(
-                    &p,
-                    &format!("session {job_id} is not running (state: {})", row.state),
-                );
-                Ok(None)
-            }
-            None => {
-                eprint_error(&p, &format!("job {job_id} not found"));
-                eprintln!(
-                    "{}Run 'sinteractive list' to see available sessions.{}",
-                    p.dim, p.reset
-                );
+        match self.require_running(job_id) {
+            Ok(session) => Ok(Some(session)),
+            Err(e) if e.downcast_ref::<SlurmError>().is_some() => Err(e),
+            Err(e) => {
+                let p = self.palette(2);
+                let msg = e.to_string();
+                eprint_error(&p, &msg);
+                if msg.ends_with("not found") {
+                    eprintln!(
+                        "{}Run 'sinteractive list' to see available sessions.{}",
+                        p.dim, p.reset
+                    );
+                }
                 Ok(None)
             }
         }

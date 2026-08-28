@@ -99,9 +99,15 @@ pub fn run(args: AttachArgs) -> Result<i32> {
             .arg(&session);
         c
     } else {
+        // The batch step already holds the job's memory and CPUs; without
+        // these a step inside it is refused ("Memory required by task is
+        // not available" / "More processors requested than permitted" —
+        // seen on Alpine). --mem=0 shares the job's memory, one task on one
+        // CPU overlaps the batch step.
         let mut c = Command::new("srun");
         c.arg("--overlap")
             .arg(format!("--jobid={job_id}"))
+            .args(["--mem=0", "--cpus-per-task=1", "--ntasks=1"])
             .arg("--pty")
             .arg(&exe)
             .arg("__attach")

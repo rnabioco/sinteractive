@@ -51,7 +51,17 @@ fn bare_attach_with_one_session_goes_straight_to_it() {
         ));
     let srun = fx.calls_to("srun");
     assert_eq!(srun.len(), 1, "{srun:?}");
-    assert_eq!(srun[0][..3], ["--overlap", "--jobid=147845", "--pty"]);
+    assert_eq!(
+        srun[0][..6],
+        [
+            "--overlap",
+            "--jobid=147845",
+            "--mem=0",
+            "--cpus-per-task=1",
+            "--ntasks=1",
+            "--pty"
+        ]
+    );
 }
 
 #[test]
@@ -61,7 +71,17 @@ fn attach_by_id_execs_srun_overlap() {
     let srun = fx.calls_to("srun");
     assert_eq!(srun.len(), 1, "{srun:?}");
     let call = &srun[0];
-    assert_eq!(call[..3], ["--overlap", "--jobid=147845", "--pty"]);
+    assert_eq!(
+        call[..6],
+        [
+            "--overlap",
+            "--jobid=147845",
+            "--mem=0",
+            "--cpus-per-task=1",
+            "--ntasks=1",
+            "--pty"
+        ]
+    );
     assert!(call[3].ends_with("sinteractive"), "{call:?}");
     assert_eq!(call[4..], ["__attach", "sinteractive-147845"]);
     assert!(fx.calls_to("ssh").is_empty());

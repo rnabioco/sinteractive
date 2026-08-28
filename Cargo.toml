@@ -35,8 +35,8 @@ tempfile = "3"
 sha2 = "0.10"
 flate2 = "1"
 tar = "0.4"
-rmcp = { version = "0.6", features = ["server", "transport-io"] }
-schemars = "0.8"
+rmcp = { version = "3", default-features = false, features = ["server", "macros", "transport-io"] }
+schemars = "1"
 unicode-width = "0.2"
 libc = "0.2"
 assert_cmd = "2"

@@ -224,3 +224,63 @@ are registered.
 Hooks fire at turn and tool boundaries, so work already in flight cannot be
 warned about — put long work in its own allocation, which outlives the
 session, rather than relying on the guard.
+
+## MCP server
+
+`sinteractive mcp` is a [Model Context Protocol](https://modelcontextprotocol.io/)
+server over stdio, so an agent can ask about sessions through typed tools
+instead of shelling out and parsing. `sinteractive install-claude` registers
+it for Claude Code; by hand, the equivalent is
+
+```bash
+claude mcp add --scope user sinteractive -- sinteractive mcp
+```
+
+which lands in the Claude settings as
+
+```json
+"mcpServers": { "sinteractive": { "type": "stdio", "command": "sinteractive", "args": ["mcp"] } }
+```
+
+Every tool calls the same code as the corresponding `--json` command and
+returns that command's JSON as the tool's structured content (with a matching
+`outputSchema`), so the shapes documented above are the shapes the tools
+return. Failures a caller should see — an unknown name, a session that is not
+running, no snapshot yet — come back as tool results with `isError: true`
+carrying the CLI's wording or its JSON error object; only a malformed request
+is a protocol error. The server's stderr is its log: `ensure_session`
+narrates the launch there exactly as `sinteractive ensure` does, and nothing
+but JSON-RPC ever goes to stdout.
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `list_sessions` | — | `{"sessions": [...]}` — the `list --json` rows (`cwd` included) |
+| `session_status` | `target?` | the `status --json` object; the `NOT_FOUND` object as an error |
+| `ensure_session` | `name`, `time?`, `cpus?`, `mem?`, `partition?`, `sbatch_args?` | the `ensure --json` object, `created` set |
+| `cancel_session` | `target` | `{"job_id", "cancelled"}` |
+| `queue` | `all?` | the `queue --json` object |
+| `monitor_snapshot` | `target?` | the session's latest `<jobid>.metrics.json`; `no snapshot yet` before the first sample |
+| `peek` | `target`, `lines?` | `{"job_id", "node", "lines": [...]}` |
+| `send` | `target`, `command` | `{"job_id", "sent": true}` — the user's live shell, so only when asked |
+| `agent_context` | — | `{"text": ...}`, the `agent-context` briefing |
+| `quota` | `check?` | the `quota --json` object; `{"error": "quota unavailable"}` as an error |
+| `wait_for_event` | `target?`, `kinds?`, `timeout_secs?` | the next matching event, or `{"timed_out": true}` |
+
+`target` is a JOBID or session NAME; omitted, it is the session the server
+runs inside (`SINTERACTIVE_JOB_ID`), which is the case for an agent started
+in a session.
+
+`wait_for_event` blocks — default 300 s, at most 3600 — until a line matching
+one of `kinds` (any kind when omitted) is appended to the session's event log
+(`~/.cache/sinteractive/JOBID.events.ndjson`, one `{"ts": …, "kind": …, …}`
+object per line, written by the in-session sampler) and returns that line.
+Only lines appended after the call started count, so it is a wait, not a
+replay. While the session has no event log, the state file stands in:
+`remaining_seconds` crossing 1800 or 600 (`SINTERACTIVE_AGENT_WARN` /
+`SINTERACTIVE_WARN_RED`) yields a synthetic `walltime_warn` / `walltime_red`
+event, and the state file disappearing yields `session_ended`; those carry
+`"synthetic": true`. Use it in place of polling `session_status`.
+
+The server also exposes read-only resources: `sinteractive://sessions` (the
+list) and, per session, `sinteractive://sessions/JOBID/status`, `.../notices`
+and `.../metrics`, each `application/json`.

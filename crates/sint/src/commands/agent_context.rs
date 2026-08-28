@@ -14,7 +14,7 @@
 //! variables — a `SINTERACTIVE_CPUS` in the environment is an invitation to
 //! run `make -j` here.
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use sint_core::quota::{self, kb_to_size};
 use sint_core::session::parse_comment;
 use sint_core::time::{format_short_duration, slurm_timestamp_to_epoch};
@@ -23,20 +23,29 @@ use super::common::{eprint_error, resources_line, Ctx};
 
 pub fn run() -> Result<i32> {
     let ctx = Ctx::new();
+    match briefing(&ctx) {
+        Ok(text) => {
+            print!("{text}");
+            Ok(0)
+        }
+        Err(e) => {
+            eprint_error(&ctx.palette(2), &format!("{e:#}"));
+            Ok(1)
+        }
+    }
+}
+
+/// The briefing for the session this process runs inside. Errors outside
+/// a session and when the job has gone; the CLI prints either and exits 1.
+pub fn briefing(ctx: &Ctx) -> Result<String> {
     let Some(job_id) = ctx.cfg.job_id else {
-        eprint_error(
-            &ctx.palette(2),
-            "not inside an sinteractive session (SINTERACTIVE_JOB_ID unset).",
-        );
-        return Ok(1);
+        return Err(anyhow!(
+            "not inside an sinteractive session (SINTERACTIVE_JOB_ID unset)."
+        ));
     };
 
     let Some(row) = ctx.slurm.job(job_id)? else {
-        eprint_error(
-            &ctx.palette(2),
-            &format!("job {job_id} not found (finished or cancelled)"),
-        );
-        return Ok(1);
+        return Err(anyhow!("job {job_id} not found (finished or cancelled)"));
     };
 
     let name = parse_comment(&row.comment).flatten();
@@ -72,7 +81,7 @@ pub fn run() -> Result<i32> {
 
     let node = &row.node;
     let partition = &row.partition;
-    print!(
+    Ok(format!(
         r#"You are inside an sinteractive tmux session on a compute node.
   {ident} on {node}, partition {partition} — {res}
   {budget} (the session self-terminates ~10s before the limit)
@@ -113,6 +122,5 @@ Check it with `sinteractive quota --check`, and run that again after
 deleting anything on the user's behalf — it refreshes every open session, so
 the warning clears immediately rather than up to ten minutes later.
 "#
-    );
-    Ok(0)
+    ))
 }
