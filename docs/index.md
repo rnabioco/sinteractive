@@ -11,8 +11,9 @@ plumbing are all inside it, so there is nothing to install on the compute
 nodes and no multiplexer to find there.
 
 It is also built for coding agents as much as for people. Every reporting
-command has a `--json` form, `peek`/`send` read and drive a session from the
-login node, `events` streams what happens in one, and `install-claude` wires
+command has a `--json` form, `session peek`/`send` read and drive a session
+from the login node, `session events` streams what happens in one, and
+`claude install` wires
 [Claude Code](https://code.claude.com/docs/) up with skills, hooks, a
 statusline and an MCP server — see [Scripting & Agents](scripting.md).
 
@@ -33,7 +34,7 @@ environment variables.
 | Mouse and copy | Terminal's own | Mouse on by default; select-to-copy lands in your local clipboard |
 | Status bar | None | Job id, node, walltime left, your queue, notices (`⚠ N notices`) |
 | Monitor panel | None | `Ctrl+b m`: CPU, memory and GPU bars for every job you can see, in-session; `t` for the full process view |
-| Remote read/drive | None | `sinteractive peek` / `send` from the login node or an agent |
+| Remote read/drive | None | `sinteractive session peek` / `send` from the login node or an agent |
 | X11 forwarding | Manual setup | `attach --ssh` (`ssh -X`) |
 
 !!! tip "When to use which"
@@ -153,17 +154,22 @@ left alone — that is you arranging to run inside the window on purpose.
 
 - **Subcommands.** `--status`, `--list`, `--attach`, `--ensure`, `--cancel`,
   `--refresh`, `--check-quota`, `--agent-context` and `--install-claude` are
-  now `status`, `list`, `attach`, `ensure`, `cancel`, `refresh`,
-  `quota --check`, `agent-context` and `install-claude`. The old flags are
+  now `status`, `list`, `attach`, `session ensure`, `cancel`, `status --refresh`,
+  `quota --check`, `claude context` and `claude install`. The old flags are
   accepted for one release and warn on stderr.
+- **Grouped.** Everything that wires sinteractive into Claude Code lives under
+  `claude` (`install`, `context`, `hook`, `statusline`, `mcp`), and the
+  generated output under `gen` (`completions`, `man`, `schema`). `refresh`
+  became `status --refresh` and `snapshot` became `monitor --once`. Every old
+  spelling still resolves; none of them show in `--help`.
 - **No tmux.** zellij is compiled in; `SINTERACTIVE_TMUX` is gone and nothing
   needs installing on the compute nodes. Keys are the same `Ctrl+b` chords,
   except that in-session rename (`Ctrl+b $`) is not available yet — name
   sessions at launch with `-n`.
 - **Mouse is on by default.** `--no-mouse` or `SINTERACTIVE_MOUSE=off` to
   turn it off.
-- **Hooks are native.** `install-claude` replaces the `sinteractive-*.sh`
-  hook scripts with `sinteractive hook …` and also registers the statusline
+- **Hooks are native.** `claude install` replaces the `sinteractive-*.sh`
+  hook scripts with `sinteractive claude hook …` and also registers the statusline
   and the MCP server.
 - **Attach goes through `srun --overlap`** rather than ssh; `attach --ssh` is
   the old path (and the one that forwards X11).

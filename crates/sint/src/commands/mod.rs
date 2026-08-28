@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 
-use crate::cli::Command;
+use crate::cli::{ClaudeCommand, Command, GenCommand, SessionCommand};
 
 pub mod agent_context;
 pub mod attach;
@@ -35,26 +35,85 @@ pub fn dispatch(command: Command) -> Result<i32> {
     match command {
         Command::Launch(args) => launch::run(args),
         Command::Attach(args) => attach::run(args),
-        Command::Ensure(args) => ensure::run(args),
-        Command::Status(args) => status::run(args, false),
-        Command::Refresh(args) => status::run(args, true),
         Command::List(args) => list::run(args),
+        Command::Status(args) => {
+            let refresh = args.refresh;
+            status::run(args, refresh)
+        }
         Command::Cancel(args) => cancel::run(args),
-        Command::AgentContext => agent_context::run(),
+        Command::Queue(args) => queue::run(args),
+        Command::Monitor(args) => monitor::run(args),
         Command::Quota(args) => quota::run(args),
-        Command::Completions { shell } => {
+        Command::Doctor(args) => doctor::run(args),
+        Command::Session(c) => session(c.command),
+        Command::Claude(c) => claude(c.command),
+        Command::Gen(g) => generate(g.command),
+        // Intercepted in main.rs before clap runs; unreachable here.
+        Command::Zellij(args) => {
+            let mut zargs = vec!["zellij".to_string()];
+            zargs.extend(args);
+            crate::zellij_embed::run(zargs)
+        }
+
+        // Hidden aliases for the pre-grouping names, onto the same bodies.
+        Command::Ensure(args) => session(SessionCommand::Ensure(args)),
+        Command::Peek(args) => session(SessionCommand::Peek(args)),
+        Command::Send(args) => session(SessionCommand::Send(args)),
+        Command::Events(args) => session(SessionCommand::Events(args)),
+        Command::Refresh(args) => status::run(args, true),
+        Command::Snapshot(args) => snapshot::run(args),
+        Command::AgentContext => claude(ClaudeCommand::Context),
+        Command::Hook(args) => claude(ClaudeCommand::Hook(args)),
+        Command::Statusline => claude(ClaudeCommand::Statusline),
+        Command::Mcp => claude(ClaudeCommand::Mcp),
+        Command::InstallClaude => claude(ClaudeCommand::Install),
+        Command::Completions { shell } => generate(GenCommand::Completions { shell }),
+        Command::Man => generate(GenCommand::Man),
+        Command::Schema => generate(GenCommand::Schema),
+
+        Command::Job(args) => job::run(args),
+        Command::AttachLocal { session } => attach_local::run(&session),
+        Command::Popup { view, job_id } => popup::run(view, job_id),
+    }
+}
+
+/// `sinteractive session …`
+fn session(command: SessionCommand) -> Result<i32> {
+    match command {
+        SessionCommand::Ensure(args) => ensure::run(args),
+        SessionCommand::Peek(args) => peek::run(args),
+        SessionCommand::Send(args) => send::run(args),
+        SessionCommand::Events(args) => events::run(args),
+    }
+}
+
+/// `sinteractive claude …`
+fn claude(command: ClaudeCommand) -> Result<i32> {
+    match command {
+        ClaudeCommand::Install => install_claude::run(),
+        ClaudeCommand::Context => agent_context::run(),
+        ClaudeCommand::Hook(args) => hook::run(args),
+        ClaudeCommand::Statusline => statusline::run(),
+        ClaudeCommand::Mcp => mcp::run(),
+    }
+}
+
+/// `sinteractive gen …`
+fn generate(command: GenCommand) -> Result<i32> {
+    match command {
+        GenCommand::Completions { shell } => {
             use clap::CommandFactory;
             let mut cmd = crate::cli::Cli::command();
             clap_complete::generate(shell, &mut cmd, "sinteractive", &mut std::io::stdout());
             Ok(0)
         }
-        Command::Man => {
+        GenCommand::Man => {
             use clap::CommandFactory;
             let cmd = crate::cli::Cli::command();
             clap_mangen::Man::new(cmd).render(&mut std::io::stdout())?;
             Ok(0)
         }
-        Command::Schema => {
+        GenCommand::Schema => {
             let schema = serde_json::json!({
                 "session": schemars::schema_for!(sint_core::session::SessionInfo),
                 "state_file": schemars::schema_for!(sint_core::state::StateFile),
@@ -64,25 +123,5 @@ pub fn dispatch(command: Command) -> Result<i32> {
             println!("{}", serde_json::to_string_pretty(&schema)?);
             Ok(0)
         }
-        // Intercepted in main.rs before clap runs; unreachable here.
-        Command::Zellij(args) => {
-            let mut zargs = vec!["zellij".to_string()];
-            zargs.extend(args);
-            crate::zellij_embed::run(zargs)
-        }
-        Command::Queue(args) => queue::run(args),
-        Command::Monitor(args) => monitor::run(args),
-        Command::Snapshot(args) => snapshot::run(args),
-        Command::Events(args) => events::run(args),
-        Command::Peek(args) => peek::run(args),
-        Command::Send(args) => send::run(args),
-        Command::Hook(args) => hook::run(args),
-        Command::Statusline => statusline::run(),
-        Command::Mcp => mcp::run(),
-        Command::InstallClaude => install_claude::run(),
-        Command::Doctor(args) => doctor::run(args),
-        Command::Job(args) => job::run(args),
-        Command::AttachLocal { session } => attach_local::run(&session),
-        Command::Popup { view, job_id } => popup::run(view, job_id),
     }
 }

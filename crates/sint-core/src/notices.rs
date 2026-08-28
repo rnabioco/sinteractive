@@ -115,11 +115,11 @@ pub fn maint_notice(end_epoch: i64, reservation: &str) -> Notice {
     )
 }
 
-/// `Claude Code: run sinteractive install-claude to enable the skills and hooks`.
+/// `Claude Code: run sinteractive claude install to enable the skills and hooks`.
 pub fn claude_hint_notice() -> Notice {
     Notice::new(
         "hint",
-        "Claude Code: run sinteractive install-claude to enable the skills and hooks",
+        "Claude Code: run sinteractive claude install to enable the skills and hooks",
     )
 }
 
@@ -197,7 +197,7 @@ mod tests {
         assert!(path.exists());
         assert_eq!(
             fs::read_to_string(&path).expect("read"),
-            "quota\tQUOTA over by 1M (1G limit)\nhint\tClaude Code: run sinteractive install-claude to enable the skills and hooks\n"
+            "quota\tQUOTA over by 1M (1G limit)\nhint\tClaude Code: run sinteractive claude install to enable the skills and hooks\n"
         );
         assert_eq!(read(&sd, 42), notices);
 

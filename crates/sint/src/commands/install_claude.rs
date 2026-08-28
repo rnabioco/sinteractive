@@ -1,4 +1,4 @@
-//! `sinteractive install-claude` — install the Claude Code skills, hooks,
+//! `sinteractive claude install` — install the Claude Code skills, hooks,
 //! statusline and MCP server for the current user.
 //!
 //! Ports `find_claude_assets`, `install_claude` and `register_claude_hooks`
@@ -59,7 +59,7 @@ pub fn run() -> Result<i32> {
         );
         eprintln!();
         eprintln!(
-            "  {}SINTERACTIVE_SHARE=/path/to/sinteractive sinteractive install-claude{}",
+            "  {}SINTERACTIVE_SHARE=/path/to/sinteractive sinteractive claude install{}",
             e.key, e.reset
         );
         return Ok(1);
@@ -113,11 +113,13 @@ pub fn run() -> Result<i32> {
             backup,
             hooks,
             statusline,
+            migrated,
         }) => {
-            let what = match (hooks, statusline) {
-                (true, true) => "Registered the hooks and statusline",
-                (true, false) => "Registered the hooks",
-                _ => "Registered the statusline",
+            let what = match (hooks, statusline, migrated) {
+                (true, true, _) => "Registered the hooks and statusline",
+                (true, false, _) => "Registered the hooks",
+                (false, true, _) => "Registered the statusline",
+                _ => "Renamed the hooks and statusline onto `sinteractive claude …`",
             };
             println!("{}✓{} {what} in {}{}{}", p.ok, p.reset, p.id, path.display(), p.reset);
             if let Some(b) = backup {
@@ -345,6 +347,9 @@ pub enum SettingsOutcome {
         backup: Option<PathBuf>,
         hooks: bool,
         statusline: bool,
+        /// Entries an earlier install wrote were renamed onto the current
+        /// `sinteractive claude …` spellings.
+        migrated: bool,
     },
 }
 
@@ -352,7 +357,7 @@ pub enum SettingsOutcome {
 fn statusline_value() -> Value {
     json!({
         "type": "command",
-        "command": "sinteractive statusline",
+        "command": "sinteractive claude statusline",
         "refreshInterval": 5
     })
 }
@@ -379,6 +384,10 @@ pub fn register_settings(
     let other = load_object(&claude_dir.join("settings.local.json")).unwrap_or_default();
 
     let mut merged = base.clone();
+    // Bring an earlier install's `sinteractive hook …` / `sinteractive
+    // statusline` entries up to date first, so the merge below sees the same
+    // spellings the snippet carries.
+    let migrated = migrate_commands(&mut merged);
     let hooks = merge_hooks(&mut merged, &snippet, &other).map_err(|m| {
         Refused(format!(
             "could not merge into {}: {m}; it was left alone.",
@@ -387,7 +396,7 @@ pub fn register_settings(
     })?;
     let statusline = merge_statusline(&mut merged);
 
-    if !hooks && !statusline {
+    if !hooks && !statusline && !migrated {
         return Ok(SettingsOutcome::Unchanged);
     }
     let backup = write_json(&settings, &Value::Object(merged))
@@ -397,6 +406,7 @@ pub fn register_settings(
         backup,
         hooks,
         statusline,
+        migrated,
     })
 }
 
@@ -457,16 +467,17 @@ fn hook_scripts(v: &Value, out: &mut BTreeSet<String>) {
     }
 }
 
-/// Which sinteractive hook a `command` string is, if any: the native form
-/// (`sinteractive hook session-start` / `sinteractive hook prompt`) and the
-/// 0.x scripts (`…/sinteractive-session-context.sh`,
-/// `…/sinteractive-walltime-guard.sh`) map to the same identity, so an
-/// upgrade replaces the script entry instead of adding a second hook.
+/// Which sinteractive hook a `command` string is, if any: the current form
+/// (`sinteractive claude hook session-start` / `… hook prompt`), the
+/// ungrouped spelling an earlier install wrote (`sinteractive hook …`) and
+/// the 0.x scripts (`…/sinteractive-session-context.sh`,
+/// `…/sinteractive-walltime-guard.sh`) all map to the same identity, so an
+/// upgrade replaces the old entry instead of adding a second hook.
 fn hook_identity(command: &str) -> Option<&'static str> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| {
         regex::Regex::new(
-            r"sinteractive(?:-session-context\.sh|-walltime-guard\.sh|\s+hook\s+(session-start|prompt))\b",
+            r"sinteractive(?:-session-context\.sh|-walltime-guard\.sh|\s+(?:claude\s+)?hook\s+(session-start|prompt))\b",
         )
         .unwrap()
     });
@@ -478,6 +489,60 @@ fn hook_identity(command: &str) -> Option<&'static str> {
         None if m.get(0).unwrap().as_str().contains("session-context") => "session-start",
         None => "prompt",
     })
+}
+
+/// Rename `command` onto its current spelling, if it is one of ours in the
+/// ungrouped form an earlier install wrote. Anything else — a hand-edited
+/// command, a wrapper script, an argument we do not know — returns `None` and
+/// is left alone; the hidden aliases keep it working either way.
+fn renamed_command(command: &str) -> Option<String> {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(
+            r"^\s*(?<pre>\S*\bsinteractive)\s+(?<verb>hook\s+(?:session-start|prompt)|statusline)\s*$",
+        )
+        .unwrap()
+    });
+    let c = re.captures(command)?;
+    Some(format!("{} claude {}", &c["pre"], &c["verb"]))
+}
+
+/// Rewrite the `command` strings an earlier install wrote onto their current
+/// spellings, anywhere in the settings tree. Returns whether anything changed.
+fn migrate_commands(settings: &mut Map<String, Value>) -> bool {
+    // A plain loop rather than `any`: every entry has to be visited, so
+    // short-circuiting on the first rename would leave the rest untouched.
+    let mut changed = false;
+    for v in settings.values_mut() {
+        changed |= migrate_value(v);
+    }
+    changed
+}
+
+fn migrate_value(value: &mut Value) -> bool {
+    match value {
+        Value::Object(m) => {
+            let mut changed = false;
+            if let Some(Value::String(cmd)) = m.get_mut("command") {
+                if let Some(new) = renamed_command(cmd) {
+                    *cmd = new;
+                    changed = true;
+                }
+            }
+            for child in m.values_mut() {
+                changed |= migrate_value(child);
+            }
+            changed
+        }
+        Value::Array(a) => {
+            let mut changed = false;
+            for v in a {
+                changed |= migrate_value(v);
+            }
+            changed
+        }
+        _ => false,
+    }
 }
 
 /// Whether `command` is a 0.x bash hook (`…/sinteractive-*.sh`).
@@ -655,7 +720,7 @@ fn mcp_server_value() -> Value {
     json!({
         "type": "stdio",
         "command": "sinteractive",
-        "args": ["mcp"]
+        "args": ["claude", "mcp"]
     })
 }
 
@@ -673,6 +738,7 @@ fn register_mcp(claude_dir: &Path) -> Result<McpOutcome, Refused> {
                 "sinteractive",
                 "--",
                 "sinteractive",
+                "claude",
                 "mcp",
             ])
             .output();
@@ -763,8 +829,8 @@ mod tests {
 
     fn snippet() -> Map<String, Value> {
         obj(r#"{"hooks":{
-            "SessionStart":[{"hooks":[{"type":"command","command":"sinteractive hook session-start","timeout":10}]}],
-            "UserPromptSubmit":[{"hooks":[{"type":"command","command":"sinteractive hook prompt","timeout":10}]}]
+            "SessionStart":[{"hooks":[{"type":"command","command":"sinteractive claude hook session-start","timeout":10}]}],
+            "UserPromptSubmit":[{"hooks":[{"type":"command","command":"sinteractive claude hook prompt","timeout":10}]}]
         }}"#)
     }
 
@@ -842,10 +908,45 @@ mod tests {
     }
 
     #[test]
+    fn renames_only_our_own_ungrouped_commands() {
+        assert_eq!(
+            renamed_command("sinteractive hook prompt").as_deref(),
+            Some("sinteractive claude hook prompt")
+        );
+        assert_eq!(
+            renamed_command("/opt/bin/sinteractive statusline").as_deref(),
+            Some("/opt/bin/sinteractive claude statusline")
+        );
+        // Already current, not ours, or carrying extra arguments: left alone.
+        assert_eq!(renamed_command("sinteractive claude hook prompt"), None);
+        assert_eq!(renamed_command("sinteractive status"), None);
+        assert_eq!(renamed_command("sinteractive hook prompt --json"), None);
+        assert_eq!(renamed_command("my-sinteractive-wrapper statusline"), None);
+    }
+
+    #[test]
+    fn migration_rewrites_an_earlier_install() {
+        let mut s = obj(r#"{
+            "hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"sinteractive hook session-start"}]}]},
+            "statusLine":{"type":"command","command":"sinteractive statusline"}
+        }"#);
+        assert!(migrate_commands(&mut s));
+        assert_eq!(
+            s["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+            "sinteractive claude hook session-start"
+        );
+        assert_eq!(s["statusLine"]["command"], "sinteractive claude statusline");
+        // Idempotent, and a hand-written statusline is not ours to touch.
+        assert!(!migrate_commands(&mut s));
+        let mut mine = obj(r#"{"statusLine":{"type":"command","command":"my-prompt"}}"#);
+        assert!(!migrate_commands(&mut mine));
+    }
+
+    #[test]
     fn statusline_only_when_absent() {
         let mut s = Map::new();
         assert!(merge_statusline(&mut s));
-        assert_eq!(s["statusLine"]["command"], "sinteractive statusline");
+        assert_eq!(s["statusLine"]["command"], "sinteractive claude statusline");
         assert!(!merge_statusline(&mut s));
         let mut s = obj(r#"{"statusLine":{"type":"command","command":"mine"}}"#);
         assert!(!merge_statusline(&mut s));
@@ -856,7 +957,10 @@ mod tests {
     fn mcp_only_when_absent() {
         let mut d = Map::new();
         assert!(merge_mcp(&mut d).unwrap());
-        assert_eq!(d["mcpServers"]["sinteractive"]["args"][0], "mcp");
+        assert_eq!(
+            d["mcpServers"]["sinteractive"]["args"],
+            json!(["claude", "mcp"])
+        );
         assert!(!merge_mcp(&mut d).unwrap());
         let mut d = obj(r#"{"mcpServers":{"sinteractive":{"command":"custom"}}}"#);
         assert!(!merge_mcp(&mut d).unwrap());

@@ -5,6 +5,17 @@
 //! `--list`, …) are accepted as hidden aliases for one release and mapped to
 //! subcommands by [`Cli::resolve`], which warns once on stderr.
 //!
+//! What is top-level is what someone types at a prompt: `launch`, `attach`,
+//! `list`, `status`, `cancel`, `queue`, `monitor`, `quota`, `doctor`. The
+//! rest is grouped by who runs it — `session …` for driving a session from a
+//! script rather than from inside it, `claude …` for the Claude Code wiring,
+//! `gen …` for output generated from this very command tree. clap gives
+//! subcommands a single `Commands:` heading, so nesting is the only way to
+//! say that in `--help`.
+//!
+//! Every name those groups replaced is kept as a hidden alias, so nothing
+//! that already invokes sinteractive has to be edited in step.
+//!
 //! sbatch passthrough: like 0.x, any launch-time argument we do not recognise
 //! is forwarded to `sbatch` verbatim, in any order. clap cannot express
 //! "unknown flags go elsewhere", so [`split_launch_argv`] pre-scans argv
@@ -128,51 +139,77 @@ pub enum Command {
     Launch(LaunchArgs),
     /// Reattach to a session by JOBID or NAME (your only session when omitted)
     Attach(AttachArgs),
-    /// Reuse the session named NAME, or launch it if absent (implies --detach)
-    Ensure(EnsureArgs),
-    /// Show one session's status
-    Status(TargetArgs),
-    /// Re-check a session's time budget now and update its cache
-    Refresh(TargetArgs),
     /// List running sessions
     List(JsonFlag),
+    /// Show one session's status
+    Status(TargetArgs),
     /// Cancel a session
     Cancel(CancelArgs),
     /// Your job queue: running, pending (with reasons), and recent history
     Queue(QueueArgs),
     /// Live CPU/GPU/process view of a session's node, or any host
     Monitor(MonitorArgs),
-    /// One-shot resource sample of this host
-    Snapshot(SnapshotArgs),
-    /// Stream session events (NDJSON)
-    Events(EventsArgs),
-    /// Read the last lines of a session's screen
-    Peek(PeekArgs),
-    /// Type a command into a session's shell
-    Send(SendArgs),
-    /// Brief a coding agent on the session it is running inside
-    AgentContext,
     /// Storage quota (Bodhi quota daemons; unavailable on other clusters)
     Quota(QuotaArgs),
-    /// Claude Code hook entry points
-    Hook(HookArgs),
-    /// Claude Code statusLine command
-    Statusline,
-    /// MCP server over stdio
-    Mcp,
-    /// Install the Claude Code skills, hooks, statusline and MCP server
-    InstallClaude,
     /// Check this install and, optionally, every compute node
     Doctor(DoctorArgs),
-    /// Print shell completions
-    Completions { shell: clap_complete::Shell },
-    /// Print the man page (roff)
-    Man,
-    /// Dump the JSON schemas of the machine-readable outputs
-    Schema,
+    /// Drive a session from outside: ensure, peek, send, events
+    Session(SessionArgs),
+    /// Claude Code integration: install, context, hook, statusline, mcp
+    Claude(ClaudeArgs),
+    /// Generated output: completions, man page, JSON schemas
+    Gen(GenArgs),
     /// The embedded zellij's own command line (`sinteractive zellij --help`)
     #[command(external_subcommand)]
     Zellij(Vec<String>),
+
+    // ---- pre-grouping names (hidden aliases) ---------------------------
+    // Kept working, and kept out of `--help`, so scripts, a settings.json
+    // written by an earlier install and a node still running an older binary
+    // all resolve. `monitor --live` and `__job` deliberately still spawn
+    // `snapshot --json` over ssh for that last reason.
+    /// Superseded by `session ensure`
+    #[command(hide = true)]
+    Ensure(EnsureArgs),
+    /// Superseded by `session peek`
+    #[command(hide = true)]
+    Peek(PeekArgs),
+    /// Superseded by `session send`
+    #[command(hide = true)]
+    Send(SendArgs),
+    /// Superseded by `session events`
+    #[command(hide = true)]
+    Events(EventsArgs),
+    /// Superseded by `status --refresh`
+    #[command(hide = true)]
+    Refresh(TargetArgs),
+    /// Superseded by `monitor --once`
+    #[command(hide = true)]
+    Snapshot(SnapshotArgs),
+    /// Superseded by `claude context`
+    #[command(hide = true)]
+    AgentContext,
+    /// Superseded by `claude hook`
+    #[command(hide = true)]
+    Hook(HookArgs),
+    /// Superseded by `claude statusline`
+    #[command(hide = true)]
+    Statusline,
+    /// Superseded by `claude mcp`
+    #[command(hide = true)]
+    Mcp,
+    /// Superseded by `claude install`
+    #[command(hide = true)]
+    InstallClaude,
+    /// Superseded by `gen completions`
+    #[command(hide = true)]
+    Completions { shell: clap_complete::Shell },
+    /// Superseded by `gen man`
+    #[command(hide = true)]
+    Man,
+    /// Superseded by `gen schema`
+    #[command(hide = true)]
+    Schema,
 
     // ---- internal verbs (hidden) --------------------------------------
     /// The batch job body: starts zellij on the node and babysits it
@@ -190,6 +227,68 @@ pub enum Command {
     },
 }
 
+/// `sinteractive session …` — the verbs that act on a session you are not
+/// sitting in. A person at a prompt attaches; a script or an agent reaches in
+/// with these.
+#[derive(Args, Debug, Clone)]
+pub struct SessionArgs {
+    #[command(subcommand)]
+    pub command: SessionCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum SessionCommand {
+    /// Reuse the session named NAME, or launch it if absent (implies --detach)
+    Ensure(EnsureArgs),
+    /// Read the last lines of a session's screen
+    Peek(PeekArgs),
+    /// Type a command into a session's shell
+    Send(SendArgs),
+    /// Stream session events (NDJSON)
+    Events(EventsArgs),
+}
+
+/// `sinteractive claude …` — everything that wires sinteractive into Claude
+/// Code. `install` is the one a person runs; the other four are entry points
+/// Claude Code itself invokes, from the settings `install` writes.
+#[derive(Args, Debug, Clone)]
+pub struct ClaudeArgs {
+    #[command(subcommand)]
+    pub command: ClaudeCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum ClaudeCommand {
+    /// Install the skills, hooks, statusline and MCP server
+    Install,
+    /// Brief a coding agent on the session it is running inside
+    Context,
+    /// Hook entry points (Claude Code runs these)
+    Hook(HookArgs),
+    /// statusLine command (Claude Code runs this)
+    Statusline,
+    /// MCP server over stdio (Claude Code runs this)
+    Mcp,
+}
+
+/// `sinteractive gen …` — output generated from the command tree itself,
+/// for packaging rather than for reading.
+#[derive(Args, Debug, Clone)]
+pub struct GenArgs {
+    #[command(subcommand)]
+    pub command: GenCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum GenCommand {
+    /// Shell completions
+    Completions { shell: clap_complete::Shell },
+    /// The man page (roff)
+    Man,
+    /// The JSON schemas of the machine-readable outputs
+    Schema,
+}
+
 #[derive(Args, Debug, Clone, Default)]
 pub struct JsonFlag {
     /// Machine-readable JSON output
@@ -201,6 +300,9 @@ pub struct JsonFlag {
 pub struct TargetArgs {
     /// JOBID or NAME; defaults to the current session
     pub target: Option<String>,
+    /// Re-check the time budget against Slurm now and update the cache
+    #[arg(long)]
+    pub refresh: bool,
     #[arg(long)]
     pub json: bool,
 }
@@ -250,6 +352,12 @@ pub struct MonitorArgs {
     /// Sample over ssh at 1 Hz instead of reading the shared snapshot
     #[arg(long)]
     pub live: bool,
+    /// Print one sample and exit instead of opening the live view
+    #[arg(long)]
+    pub once: bool,
+    /// With --once and no TARGET: scope to this job's cgroup on this host
+    #[arg(long, value_name = "JOBID", requires = "once")]
+    pub job: Option<u64>,
     #[arg(long)]
     pub json: bool,
 }
@@ -355,11 +463,13 @@ impl Cli {
         } else if let Some(t) = &c.compat_status {
             Command::Status(TargetArgs {
                 target: target(&Some(t.clone())),
+                refresh: false,
                 json,
             })
         } else if let Some(t) = &c.compat_refresh {
             Command::Refresh(TargetArgs {
                 target: target(&Some(t.clone())),
+                refresh: true,
                 json,
             })
         } else if let Some(name) = &c.compat_ensure {
@@ -394,8 +504,8 @@ impl Cli {
 
 /// Split raw argv (after the program name) into the arguments clap should
 /// see and the ones to forward to `sbatch`. Only applies to a bare launch or
-/// `launch`/`ensure` invocations; for any other subcommand `sbatch` is empty
-/// and `ours` is argv unchanged.
+/// a `launch` / `session ensure` invocation (and the `ensure` alias); for any
+/// other subcommand `sbatch` is empty and `ours` is argv unchanged.
 ///
 /// Recognised launch flags (with value): `--node --partition -p --time -t
 /// --threads -j --mem -m --name -n`; (boolean): `--mouse --no-mouse --detach
@@ -410,7 +520,7 @@ pub fn split_launch_argv(argv: &[String]) -> Result<(Vec<String>, Vec<String>), 
         return Ok((ours, sbatch));
     };
 
-    // Help/version and every subcommand except launch/ensure: clap owns the
+    // Help/version and every subcommand that cannot launch: clap owns the
     // whole line, nothing is sbatch's.
     let mut i = 0;
     let mut ensure_name_pending = false;
@@ -424,6 +534,14 @@ pub fn split_launch_argv(argv: &[String]) -> Result<(Vec<String>, Vec<String>), 
             ours.push(first.clone());
             ensure_name_pending = true;
             i = 1;
+        }
+        // `session ensure` launches too, so it splits like `ensure` does.
+        // Any other `session` verb is an ordinary subcommand.
+        "session" if argv.get(1).map(String::as_str) == Some("ensure") => {
+            ours.push(first.clone());
+            ours.push(argv[1].clone());
+            ensure_name_pending = true;
+            i = 2;
         }
         s if is_subcommand(s) => return Ok((argv.to_vec(), sbatch)),
         _ => {}
@@ -849,6 +967,36 @@ mod tests {
         assert!(dep);
         let (ours, _) = split(&["--ensure=web"]);
         assert_eq!(ours, v(&["--ensure=web"]));
+    }
+
+    /// The launch flags have to survive the group, or `session ensure web -t
+    /// 8h --gres=gpu:1` would hand `-t` to sbatch and lose the name.
+    #[test]
+    fn session_ensure_splits_like_ensure() {
+        let args = ["session", "ensure", "web", "--gres=gpu:1", "-t", "2h"];
+        let (ours, sbatch) = split(&args);
+        assert_eq!(ours, v(&["session", "ensure", "web", "-t", "2h"]));
+        assert_eq!(sbatch, v(&["--gres=gpu:1"]));
+        match parse(&args) {
+            (Command::Session(s), sbatch, false) => {
+                let SessionCommand::Ensure(e) = s.command else {
+                    panic!("expected ensure");
+                };
+                assert_eq!(e.name, "web");
+                assert_eq!(e.launch.time.as_deref(), Some("2h"));
+                assert_eq!(sbatch, v(&["--gres=gpu:1"]));
+            }
+            other => panic!("expected session ensure, got {other:?}"),
+        }
+    }
+
+    /// Every other `session` verb is an ordinary subcommand: clap owns the
+    /// whole line and nothing is sbatch's.
+    #[test]
+    fn other_session_verbs_do_not_split() {
+        let (ours, sbatch) = split(&["session", "peek", "web", "-n", "5"]);
+        assert_eq!(ours, v(&["session", "peek", "web", "-n", "5"]));
+        assert!(sbatch.is_empty());
     }
 
     #[test]

@@ -23,7 +23,7 @@ impl Mcp {
     fn spawn(fx: &FakeSlurm, extra_env: &[(&str, String)]) -> Self {
         let exe = assert_cmd::cargo::cargo_bin("sinteractive");
         let mut cmd = Command::new(exe);
-        cmd.arg("mcp")
+        cmd.args(["claude", "mcp"])
             .env_clear()
             .env("PATH", fx.path())
             .env("HOME", fx.home_dir())

@@ -220,7 +220,7 @@ fn refresh_pokes_then_reports() {
     assert!(!poke.exists());
     let v = json_of(
         fx.sinteractive()
-            .args(["refresh", "web", "--json"])
+            .args(["status", "web", "--refresh", "--json"])
             .assert()
             .success(),
     );
@@ -448,7 +448,7 @@ fn quota_check_without_daemons_is_unavailable() {
 fn agent_context_outside_a_session_exits_1() {
     let fx = mixed_queue();
     fx.sinteractive()
-        .arg("agent-context")
+        .args(["claude", "context"])
         .assert()
         .code(1)
         .stdout("")
@@ -461,7 +461,7 @@ fn agent_context_briefing() {
     let out = stdout_of(
         fx.sinteractive()
             .env("SINTERACTIVE_JOB_ID", "147845")
-            .arg("agent-context")
+            .args(["claude", "context"])
             .assert()
             .success(),
     );
@@ -497,7 +497,7 @@ fn agent_context_briefing() {
     let out = stdout_of(
         fx.sinteractive()
             .env("SINTERACTIVE_JOB_ID", "147845")
-            .arg("agent-context")
+            .args(["claude", "context"])
             .assert()
             .success(),
     );
@@ -514,7 +514,7 @@ fn agent_context_for_a_vanished_job_exits_1() {
     let fx = FakeSlurm::new();
     fx.sinteractive()
         .env("SINTERACTIVE_JOB_ID", "5")
-        .arg("agent-context")
+        .args(["claude", "context"])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("job 5 not found"));

@@ -381,7 +381,7 @@ impl SintServer {
 
     #[tool(
         name = "peek",
-        description = "The last lines of a RUNNING session's screen, read over ssh (`sinteractive peek`)."
+        description = "The last lines of a RUNNING session's screen, read over ssh (`sinteractive session peek`)."
     )]
     async fn peek(
         &self,
@@ -408,7 +408,7 @@ impl SintServer {
 
     #[tool(
         name = "send",
-        description = "Type a command into a RUNNING session's shell and press Enter (`sinteractive send`). This is the user's live shell: only when asked."
+        description = "Type a command into a RUNNING session's shell and press Enter (`sinteractive session send`). This is the user's live shell: only when asked."
     )]
     async fn send(
         &self,
@@ -430,7 +430,7 @@ impl SintServer {
 
     #[tool(
         name = "agent_context",
-        description = "The briefing for an agent running inside a session: job, node, allocation, remaining walltime and the rules of the road (`sinteractive agent-context`). Errors outside a session."
+        description = "The briefing for an agent running inside a session: job, node, allocation, remaining walltime and the rules of the road (`sinteractive claude context`). Errors outside a session."
     )]
     async fn agent_context(&self) -> Result<Json<Briefing>, ToolError> {
         let text = self.blocking(|ctx| Ok(briefing(ctx)?)).await?;

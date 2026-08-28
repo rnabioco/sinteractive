@@ -1,11 +1,12 @@
-//! `sinteractive snapshot [--json] [--job JOBID]` — one host snapshot,
+//! `sinteractive monitor --once [--json] [--job JOBID]` — one host snapshot,
 //! scoped to the Slurm job this process runs in (host-wide otherwise), or
 //! to `--job`'s cgroup on this host.
 //!
 //! Two samples one second apart so CPU% is a real delta; the second is
 //! printed. This is also what `monitor --live` runs over ssh on the node,
 //! and what `__job` runs (with `--job`) on the nodes of the user's other
-//! running jobs.
+//! running jobs — both by the hidden `snapshot` verb rather than by
+//! `monitor --once`, so a node running an older binary still answers.
 
 use std::time::Duration;
 

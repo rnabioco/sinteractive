@@ -141,15 +141,15 @@ Get-or-create is one idempotent call — no need to list, parse, and recover
 from a duplicate-name error:
 
 ```bash
-sinteractive ensure agent --time=4h -j 8 -m 32G --json
+sinteractive session ensure agent --time=4h -j 8 -m 32G --json
 # {... ,"created":true}    launched it
 # {... ,"created":false}   one was already running; this is the same object
 ```
 
-`ensure` implies `--detach`, accepts the same launch options as a normal
+`session ensure` implies `--detach`, accepts the same launch options as a normal
 launch, and passes unrecognized flags through to `sbatch`. A `PENDING` match
 counts as existing and is returned with `"state":"PENDING"` rather than waited
-on, so poll if you need it ready. Two concurrent `ensure` calls for the same
+on, so poll if you need it ready. Two concurrent `session ensure` calls for the same
 name can still both launch.
 
 `list --json` and `status --json` return the same shape; `list`
@@ -174,7 +174,7 @@ sinteractive status JOBID --json   # or NAME; includes remaining_seconds
 ```
 
 Inside a session, `status` needs no target, and `sinteractive
-agent-context` prints a briefing on the current session and these rules.
+claude context` prints a briefing on the current session and these rules.
 
 For frequent polling, read the state file instead of hitting the scheduler —
 it is refreshed about every 30 s:
@@ -194,11 +194,11 @@ status`; age it exactly with `remaining_seconds - (now - updated_epoch)`.
 conversation.** Wall time can change underneath you: the user may shorten a
 job with `scontrol update JobId=... TimeLimit=...`, or an administrator may
 extend one. A number read an hour ago is not evidence about now. After any
-such change, `sinteractive refresh JOBID` makes the cached file agree
+such change, `sinteractive status JOBID` --refresh makes the cached file agree
 immediately instead of at the next poll:
 
 ```bash
-sinteractive refresh JOBID --json   # re-check now; same output as status
+sinteractive status JOBID --refresh --json   # re-check now; same output as status
 ```
 
 Note that on most clusters an ordinary user can only *reduce* a job's
@@ -214,13 +214,13 @@ ssh for you, so there is no multiplexer socket or binary path to know.
 To read what is on screen (last 100 lines; `-n` for more or fewer):
 
 ```bash
-sinteractive peek JOBID|NAME [-n 100]
+sinteractive session peek JOBID|NAME [-n 100]
 ```
 
 To type into it — this is the user's live shell, so only when asked:
 
 ```bash
-sinteractive send JOBID|NAME 'command'
+sinteractive session send JOBID|NAME 'command'
 ```
 
 Both exit 1 with a message when the session is not running or the node

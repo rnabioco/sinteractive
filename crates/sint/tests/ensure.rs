@@ -17,7 +17,7 @@ fn ensure(fx: &FakeSlurm, args: &[&str]) -> assert_cmd::Command {
     let mut cmd = fx.sinteractive();
     cmd.env("SINTERACTIVE_POLL_FAST", "0")
         .env("SINTERACTIVE_RUNTIME_DIR", fx.tmp.path().join("runtime"))
-        .arg("ensure")
+        .args(["session", "ensure"])
         .args(args);
     cmd
 }

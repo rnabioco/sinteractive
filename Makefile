@@ -9,7 +9,7 @@ COMPDIR ?= ~/.local/share/bash-completion/completions
 ZSHCOMPDIR ?= ~/.local/share/zsh/site-functions
 FISHCOMPDIR ?= ~/.config/fish/completions
 # Claude Code assets (skills + settings snippet) ship beside the binary so
-# that `sinteractive install-claude` works from an installed copy and not
+# that `sinteractive claude install` works from an installed copy and not
 # only from a git checkout. Mirrors the repo layout, so the lookup in the
 # binary has one code path for both.
 SHAREDIR ?= ~/.local/share/sinteractive
@@ -44,12 +44,12 @@ build:
 # they never drift from the clap definitions. Both need `make build` first;
 # the generated files are committed so a checkout carries them.
 man: $(BIN)
-	$(BIN) man > man/sinteractive.1
+	$(BIN) gen man > man/sinteractive.1
 
 completions: $(BIN)
-	$(BIN) completions bash > completions/sinteractive.bash
-	$(BIN) completions zsh > completions/sinteractive.zsh
-	$(BIN) completions fish > completions/sinteractive.fish
+	$(BIN) gen completions bash > completions/sinteractive.bash
+	$(BIN) gen completions zsh > completions/sinteractive.zsh
+	$(BIN) gen completions fish > completions/sinteractive.fish
 
 $(BIN):
 	@echo "error: $(BIN) is not built; run 'make build' first" >&2; exit 1
@@ -60,7 +60,7 @@ else
 install: install-user
 endif
 
-# The share tree: skills and the settings snippet. `install-claude` probes
+# The share tree: skills and the settings snippet. `claude install` probes
 # beside skills/.
 define install_share
 	install -m 0644 claude/settings-snippet.json $(1)/claude/
@@ -92,12 +92,12 @@ install-system: $(BIN) man completions
 # MCP server, which are all subcommands of the binary and only need
 # registering in the user's settings. All per-user, so this installs into
 # ~/.claude regardless of UID. The merge logic lives in the binary
-# (`sinteractive install-claude`) rather than being mirrored here.
+# (`sinteractive claude install`) rather than being mirrored here.
 # ---------------------------------------------------------------------------
 CLAUDE_DIR ?= $(HOME)/.claude
 
 claude-install: $(BIN)
-	@CLAUDE_CONFIG_DIR=$(CLAUDE_DIR) SINTERACTIVE_SHARE=$(CURDIR) $(BIN) install-claude
+	@CLAUDE_CONFIG_DIR=$(CLAUDE_DIR) SINTERACTIVE_SHARE=$(CURDIR) $(BIN) claude install
 
 # Back-compat alias: this target used to install only the skill.
 skill-install: claude-install
@@ -112,7 +112,7 @@ skill-install: claude-install
 # where it is, and the extracted bundle lives under the (shared) cache dir.
 #
 # The share tree matters on the nodes and not only on the head node, because
-# install-claude resolves it relative to the running binary: someone who runs
+# claude install resolves it relative to the running binary: someone who runs
 # it from inside a session is running the node's /usr/local/bin copy.
 #
 # If this checkout lives on a cluster-wide mount, with pdsh each node can
