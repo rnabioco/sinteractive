@@ -54,7 +54,8 @@ starttime name username`, each padded to 20 columns plus a space like the
 real thing (callers `xargs`/trim it). All `--flag=value` spellings work.
 
 `sbatch` — appends a `RUNNING` job on `fakenode01` with an empty comment and
-prints `Submitted batch job N` (`--parsable`: just `N`). `--partition`,
+prints `Submitted batch job N` (`--parsable`: just `N`). `--wrap CMD` is recorded
+in `sbatch.last` split into words (that is how the Rust tool submits). `--partition`,
 `--time`, `--cpus-per-task`, `--mem`, `--gres`, `--nodelist`, `--comment`
 (short forms too) populate the row; defaults `interactive 8:00:00 2 8G N/A`.
 Other options are accepted and ignored. The first bare token is the script.

@@ -43,9 +43,13 @@ while [[ $# -gt 0 ]]; do
   --parsable) parsable=1; shift ;;
   # Options with a separate value that we do not model.
   -J | --job-name | -o | --output | -e | --error | -N | --nodes | -n | --ntasks | \
-    -A | --account | -q | --qos | --export | --chdir | -D | --wrap | --signal)
+    -A | --account | -q | --qos | --export | --chdir | -D | --signal)
     shift 2
     ;;
+  # --wrap: the job is a shell command line; record it word by word the way
+  # a script and its arguments are, so tests see `exec EXE __job …`.
+  --wrap) eval "script=($2)"; shift 2; break ;;
+  --wrap=*) eval "script=(${1#*=})"; shift; break ;;
   --*=* | -*) shift ;;
   *)
     # First bare token is the script; everything after it is its arguments.

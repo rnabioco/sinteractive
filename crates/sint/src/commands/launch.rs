@@ -38,6 +38,7 @@ use sint_core::time::{
 
 use super::common::{current_exe, pend_reason, print_json, render_status, session_table_line, Ctx};
 use crate::cli::LaunchArgs;
+use crate::zellij_cmd::shell_quote;
 
 pub fn run(args: LaunchArgs) -> Result<i32> {
     launch(&Ctx::new(), args, None)
@@ -639,27 +640,35 @@ pub(crate) fn launch(ctx: &Ctx, args: LaunchArgs, created: Option<bool>) -> Resu
     note_running_sessions(&ctx.running_sessions()?, &p);
 
     // The batch job body: this binary's `__job` verb with the feature flags.
+    // 0.x handed sbatch the script itself; sbatch spools its script into the
+    // controller (MaxScriptSize, 4 MB by default), which a Rust binary with
+    // zellij inside cannot pass through, so the job is a one-line `--wrap`
+    // that execs the binary from wherever it is installed (shared FS).
     let exe = current_exe()?;
-    let mut submit = sbatch_args.clone();
-    submit.push(exe.to_string_lossy().into_owned());
-    submit.push("__job".to_string());
+    let mut job_cmd: Vec<String> = vec![
+        "exec".into(),
+        shell_quote(&exe.to_string_lossy()),
+        "__job".into(),
+    ];
     let mouse = if args.no_mouse {
         false
     } else {
         args.mouse || ctx.cfg.mouse
     };
     if mouse {
-        submit.push("--mouse".to_string());
+        job_cmd.push("--mouse".to_string());
     }
     if let Some(n) = &name {
-        submit.push(format!("--session-name={n}"));
+        job_cmd.push(shell_quote(&format!("--session-name={n}")));
     }
     // Carried rather than recomputed in the session: the reservation is read
     // once, at submit time, and the session should say the same thing about
     // its own allocation for its whole life even if the reservation moves.
     if let Some(m) = &maint_carry {
-        submit.push(format!("--maint={}@{}", m.name, m.ends_epoch));
+        job_cmd.push(shell_quote(&format!("--maint={}@{}", m.name, m.ends_epoch)));
     }
+    let mut submit = sbatch_args.clone();
+    submit.push(format!("--wrap={}", job_cmd.join(" ")));
 
     let submission = match ctx.slurm.submit(&submit) {
         Ok(s) => s,

@@ -125,11 +125,15 @@ fn detach_json_submits_with_defaults_and_reports() {
     assert!(time < gres);
 
     let script = script_args(&fx);
-    assert!(
-        script[0].ends_with("sinteractive"),
-        "the running binary is the script: {script:?}"
+    assert_eq!(
+        script[0], "exec",
+        "the job is `exec EXE __job …`: {script:?}"
     );
-    assert_eq!(script[1], "__job");
+    assert!(
+        script[1].ends_with("sinteractive"),
+        "the running binary is exec'd: {script:?}"
+    );
+    assert_eq!(script[2], "__job");
     assert!(script.contains(&"--mouse".to_string()), "{script:?}");
     assert!(
         script.contains(&"--session-name=web".to_string()),
@@ -200,7 +204,7 @@ fn explicit_flags_and_env_defaults_win_over_builtins() {
         "unnamed: {opts:?}"
     );
     let script = script_args(&fx);
-    assert_eq!(script[1..], ["__job".to_string()], "{script:?}");
+    assert_eq!(script[2..], ["__job".to_string()], "{script:?}");
     assert_eq!(fx.jobs()[0][1], "sinteractive");
 }
 
