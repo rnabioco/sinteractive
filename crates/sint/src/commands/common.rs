@@ -3,6 +3,7 @@
 //! logic belongs in `sint-core` where it can be unit-tested.
 
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 
 use anyhow::{anyhow, Result};
 use sint_core::color::Palette;
@@ -102,6 +103,73 @@ impl Ctx {
                 Ok(None)
             }
         }
+    }
+}
+
+/// A RUNNING session with a node to talk to.
+#[derive(Debug, Clone)]
+pub struct RunningSession {
+    pub job_id: u64,
+    pub node: String,
+}
+
+impl Ctx {
+    /// Resolve `target` and require it to be RUNNING on a node. Anything
+    /// else is reported on stderr and returns `Ok(None)`; the caller exits 1.
+    pub fn resolve_running(&self, target: &str) -> Result<Option<RunningSession>> {
+        let Some(job_id) = self.resolve_reporting(Some(target))? else {
+            return Ok(None);
+        };
+        let p = self.palette(2);
+        match self.slurm.job(job_id)? {
+            Some(row) if row.state == "RUNNING" && !row.node.is_empty() => {
+                Ok(Some(RunningSession {
+                    job_id,
+                    node: row.node,
+                }))
+            }
+            Some(row) => {
+                eprint_error(
+                    &p,
+                    &format!("session {job_id} is not running (state: {})", row.state),
+                );
+                Ok(None)
+            }
+            None => {
+                eprint_error(&p, &format!("job {job_id} not found"));
+                eprintln!(
+                    "{}Run 'sinteractive list' to see available sessions.{}",
+                    p.dim, p.reset
+                );
+                Ok(None)
+            }
+        }
+    }
+}
+
+/// `ssh -o BatchMode=yes -o ConnectTimeout=N NODE REMOTE` with stdin closed:
+/// the non-interactive hop every login-node command uses to reach a session.
+pub fn ssh_batch(node: &str, connect_timeout: u32, remote: &str) -> Command {
+    let mut cmd = Command::new("ssh");
+    cmd.args([
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        &format!("ConnectTimeout={connect_timeout}"),
+        node,
+        remote,
+    ])
+    .stdin(Stdio::null());
+    cmd
+}
+
+/// Humanise squeue's pend reason (script line 722).
+pub fn pend_reason(reason: &str) -> String {
+    match reason {
+        "Resources" => "waiting for free resources".to_string(),
+        "Priority" => "waiting behind higher-priority jobs".to_string(),
+        "None" | "" => "waiting for the job to start".to_string(),
+        other => format!("waiting ({other})"),
     }
 }
 

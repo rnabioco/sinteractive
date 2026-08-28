@@ -11,13 +11,18 @@ pub mod attach;
 pub mod attach_local;
 pub mod cancel;
 pub mod common;
+pub mod doctor;
 pub mod ensure;
 pub mod hook;
 pub mod install_claude;
 pub mod job;
 pub mod launch;
 pub mod list;
+pub mod peek;
+pub mod popup;
+pub mod queue;
 pub mod quota;
+pub mod send;
 pub mod status;
 pub mod statusline;
 
@@ -65,19 +70,19 @@ pub fn dispatch(command: Command) -> Result<i32> {
             zargs.extend(args);
             crate::zellij_embed::run(zargs)
         }
-        Command::Queue(_) => not_yet("queue"),
+        Command::Queue(args) => queue::run(args),
         Command::Monitor(_) => not_yet("monitor"),
         Command::Snapshot(_) => not_yet("snapshot"),
         Command::Events(_) => not_yet("events"),
-        Command::Peek(_) => not_yet("peek"),
-        Command::Send(_) => not_yet("send"),
+        Command::Peek(args) => peek::run(args),
+        Command::Send(args) => send::run(args),
         Command::Hook(args) => hook::run(args),
         Command::Statusline => statusline::run(),
         Command::Mcp => not_yet("mcp"),
         Command::InstallClaude => install_claude::run(),
-        Command::Doctor(_) => not_yet("doctor"),
+        Command::Doctor(args) => doctor::run(args),
         Command::Job(args) => job::run(args),
         Command::AttachLocal { session } => attach_local::run(&session),
-        Command::Popup { .. } => not_yet("__popup"),
+        Command::Popup { view, job_id } => popup::run(view, job_id),
     }
 }

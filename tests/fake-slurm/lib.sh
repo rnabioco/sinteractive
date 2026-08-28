@@ -15,16 +15,15 @@ set -u
 JOBS="${FAKE_SLURM_DIR}/jobs.tsv"
 
 # Append this invocation to calls.log: the shim name, then every argument,
-# tab-separated, one call per line.
+# tab-separated, one call per line. The line is built first and written
+# with a single printf, so shims running concurrently (the `doctor --nodes`
+# sweep probes several "nodes" at once) cannot interleave their columns.
 log_call() {
-  local name=$1
+  local line=$1
   shift
-  {
-    printf '%s' "$name"
-    local a
-    for a in "$@"; do printf '\t%s' "$a"; done
-    printf '\n'
-  } >>"${FAKE_SLURM_DIR}/calls.log"
+  local a
+  for a in "$@"; do line+=$'\t'"$a"; done
+  printf '%s\n' "$line" >>"${FAKE_SLURM_DIR}/calls.log"
 }
 
 # Echo the jobs.tsv rows (nothing when the file is absent).

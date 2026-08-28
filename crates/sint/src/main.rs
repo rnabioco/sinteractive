@@ -1,10 +1,6 @@
-// `Bundle::dir` and `has_plugin` are doctor's, wired next.
-#[allow(dead_code)]
 mod bundle;
 mod cli;
 mod commands;
-// `remote_argv` is peek/send/doctor's (login node → compute node), wired next.
-#[allow(dead_code)]
 mod zellij_cmd;
 mod zellij_embed;
 

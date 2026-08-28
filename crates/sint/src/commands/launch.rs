@@ -36,7 +36,7 @@ use sint_core::time::{
     slurm_timestamp_to_epoch,
 };
 
-use super::common::{current_exe, print_json, render_status, session_table_line, Ctx};
+use super::common::{current_exe, pend_reason, print_json, render_status, session_table_line, Ctx};
 use crate::cli::LaunchArgs;
 
 pub fn run(args: LaunchArgs) -> Result<i32> {
@@ -443,16 +443,6 @@ fn cancelled_by_user(slurm: &Slurm, job_id: u64, p: &Palette) -> i32 {
     eprintln!();
     eprintln!("{ok}✓{reset} {dim}Cancelled job{reset} {id}{job_id}{reset}{dim}.{reset}");
     130
-}
-
-/// Humanise squeue's pend reason (script line 722).
-fn pend_reason(reason: &str) -> String {
-    match reason {
-        "Resources" => "waiting for free resources".to_string(),
-        "Priority" => "waiting behind higher-priority jobs".to_string(),
-        "None" | "" => "waiting for the job to start".to_string(),
-        other => format!("waiting ({other})"),
-    }
 }
 
 /// Slurm's estimated start, only when it is ahead of now (it can be `N/A`,
