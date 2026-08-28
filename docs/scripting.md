@@ -8,7 +8,7 @@ as [Claude Code](https://code.claude.com/docs/):
 sinteractive --detach -n mywork --time=8h
 
 # Get-or-create in one idempotent call
-sinteractive ensure mywork --time=8h --json
+sinteractive session ensure mywork --time=8h --json
 # {..., "created": true}    launched it
 # {..., "created": false}   one was already running
 
@@ -17,15 +17,15 @@ sinteractive list --json
 sinteractive status mywork --json
 
 # Re-check the budget against Slurm now (e.g. right after a scontrol change)
-sinteractive refresh mywork --json
+sinteractive status mywork --refresh --json
 # {"job_id":147845,"name":"mywork","state":"RUNNING","node":"compute20",
 #  "partition":"rna","cpus":8,"memory":"32G","memory_mb":32768,"gpus":0,
 #  "time_limit":"8:00:00","elapsed":"0:43","end_epoch":1783180952,
 #  "remaining_seconds":28757}
 
 # Read the session's screen, or type into it
-sinteractive peek mywork -n 40
-sinteractive send mywork 'make test'
+sinteractive session peek mywork -n 40
+sinteractive session send mywork 'make test'
 
 # Everything else that reports has --json too
 sinteractive queue --json
@@ -36,7 +36,7 @@ sinteractive cancel mywork --json
 
 `status --json` and `list --json` return the same shape, except that `list`
 also carries `cwd` — which costs an SSH round-trip per session, so it stays
-out of the single-session path that agents poll. `sinteractive schema` dumps
+out of the single-session path that agents poll. `sinteractive gen schema` dumps
 the JSON schemas of the session object, the state file, the quota snapshot
 and a notice.
 
@@ -120,7 +120,7 @@ The end time is re-checked against Slurm immediately before every write, so
 ~2 minutes old, treat the file as stale and fall back to `sinteractive
 status`. A walltime change made with `scontrol update JobId=...
 TimeLimit=...` appears within about 30 seconds (`SINTERACTIVE_POLL`), or at
-once with `sinteractive refresh`. When `squeue` cannot be reached the file is
+once with `sinteractive status --refresh`. When `squeue` cannot be reached the file is
 left untouched rather than restamped, so it ages honestly instead of vouching
 for a budget nobody verified; age it exactly with `remaining_seconds - (now -
 updated_epoch)`.
@@ -138,12 +138,12 @@ against the job's cgroup limits, load, GPUs and the busiest processes —
 refreshed every few seconds. `sinteractive monitor TARGET --json` prints it
 once (`no snapshot yet` before the first sample, or when it is more than
 30 s old); without `--json` and with a tty it is the nvitop-style TUI.
-`sinteractive snapshot --json` takes the same sample of whatever host it runs
+`sinteractive monitor --once --json` takes the same sample of whatever host it runs
 on, scoped to the Slurm job it runs in, and `monitor --live HOST` runs that
 over ssh every 2 s.
 
 **`<cache>/JOBID.events.ndjson`** is the session's event log, one
-`{"ts": …, "kind": …, …}` object per line. `sinteractive events [TARGET]`
+`{"ts": …, "kind": …, …}` object per line. `sinteractive session events [TARGET]`
 prints it; `--follow` keeps streaming as lines are appended, `--since EPOCH`
 starts from a point in time. The kinds are the ones the MCP server's
 `wait_for_event` matches on — `walltime_warn`, `walltime_red`,
@@ -154,7 +154,7 @@ starts from a point in time. The kinds are the ones the MCP server's
 Install the skills and register the hooks, statusline and MCP server:
 
 ```bash
-sinteractive install-claude   # from any installed copy
+sinteractive claude install   # from any installed copy
 make claude-install           # equivalent, from a checkout
 ```
 
@@ -233,7 +233,7 @@ the session rather than the cluster: semantic versioning with annotated
 `.claude/worktrees/`, landing work through a pull request rather than
 committing to `main`, and running the repo's own CI gates before pushing.
 
-**`sinteractive agent-context`** prints a briefing on the current session —
+**`sinteractive claude context`** prints a briefing on the current session —
 job, node, partition, allocation size, walltime remaining, and the rules
 above. It exits 1 outside a session. Run it by hand to see exactly what an
 agent is being told.
@@ -243,8 +243,8 @@ subcommands of the binary, so there are no scripts to keep in step:
 
 | Hook | Event | What it does |
 |---|---|---|
-| `sinteractive hook session-start` | `SessionStart` | Emits the `agent-context` briefing so the agent starts out knowing where it is |
-| `sinteractive hook prompt` | `UserPromptSubmit` | Silent until the session drops below `SINTERACTIVE_AGENT_WARN` seconds remaining (default 1800), then warns that long work won't survive |
+| `sinteractive claude hook session-start` | `SessionStart` | Emits the `claude context` briefing so the agent starts out knowing where it is |
+| `sinteractive claude hook prompt` | `UserPromptSubmit` | Silent until the session drops below `SINTERACTIVE_AGENT_WARN` seconds remaining (default 1800), then warns that long work won't survive |
 
 Both exit 0 in every case, including outside a session, so they are harmless
 on the login node and in unrelated projects. The guard prefers the cached
@@ -254,7 +254,7 @@ tool boundaries, so work already in flight cannot be warned about — put long
 work in its own allocation, which outlives the session, rather than relying
 on the guard.
 
-**The statusline.** `sinteractive statusline` is registered as Claude Code's
+**The statusline.** `sinteractive claude statusline` is registered as Claude Code's
 `statusLine` command (`refreshInterval` 5). It shows `⏺ Opus · ctx 42% ·
 ~/proj` on a login node and, inside a session, adds `· sint 147845 mywork ·
 2h41m · ⚠1` — the remaining walltime and the notice count, read from the
@@ -262,7 +262,7 @@ cache files only, so a 5-second refresh never touches the scheduler. Theme
 follows `SINTERACTIVE_THEME` and Claude Code's own dark/light palette.
 
 While Claude Code is running in a session whose hooks are not registered yet,
-a `sinteractive install-claude` hint joins the session's notices — the
+a `sinteractive claude install` hint joins the session's notices — the
 `⚠ N notices` counter on the status bar, read in full with `Ctrl+b n` or
 `sinteractive status`. It is gated on a live `claude` process, so it never
 appears for people who don't use Claude Code, and it clears once the hooks
@@ -270,19 +270,19 @@ are registered.
 
 ## MCP server
 
-`sinteractive mcp` is a [Model Context Protocol](https://modelcontextprotocol.io/)
+`sinteractive claude mcp` is a [Model Context Protocol](https://modelcontextprotocol.io/)
 server over stdio, so an agent can ask about sessions through typed tools
-instead of shelling out and parsing. `sinteractive install-claude` registers
+instead of shelling out and parsing. `sinteractive claude install` registers
 it for Claude Code; by hand, the equivalent is
 
 ```bash
-claude mcp add --scope user sinteractive -- sinteractive mcp
+claude mcp add --scope user sinteractive -- sinteractive claude mcp
 ```
 
 which lands in the Claude settings as
 
 ```json
-"mcpServers": { "sinteractive": { "type": "stdio", "command": "sinteractive", "args": ["mcp"] } }
+"mcpServers": { "sinteractive": { "type": "stdio", "command": "sinteractive", "args": ["claude", "mcp"] } }
 ```
 
 Every tool calls the same code as the corresponding `--json` command and
@@ -292,7 +292,7 @@ return. Failures a caller should see — an unknown name, a session that is not
 running, no snapshot yet — come back as tool results with `isError: true`
 carrying the CLI's wording or its JSON error object; only a malformed request
 is a protocol error. The server's stderr is its log: `ensure_session`
-narrates the launch there exactly as `sinteractive ensure` does, and nothing
+narrates the launch there exactly as `sinteractive session ensure` does, and nothing
 but JSON-RPC ever goes to stdout.
 
 | Tool | Arguments | Returns |
@@ -305,7 +305,7 @@ but JSON-RPC ever goes to stdout.
 | `monitor_snapshot` | `target?` | the session's latest `<jobid>.metrics.json`; `no snapshot yet` before the first sample |
 | `peek` | `target`, `lines?` | `{"job_id", "node", "lines": [...]}` |
 | `send` | `target`, `command` | `{"job_id", "sent": true}` — the user's live shell, so only when asked |
-| `agent_context` | — | `{"text": ...}`, the `agent-context` briefing |
+| `agent_context` | — | `{"text": ...}`, the `claude context` briefing |
 | `quota` | `check?` | the `quota --json` object; `{"error": "quota unavailable"}` as an error |
 | `wait_for_event` | `target?`, `kinds?`, `timeout_secs?` | the next matching event, or `{"timed_out": true}` |
 

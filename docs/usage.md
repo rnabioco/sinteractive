@@ -10,36 +10,66 @@ A bare `sinteractive` launches; everything else is a subcommand
 
 ## Commands
 
+### Sessions
+
 | Command | What it does |
 |---|---|
 | `launch` | Launch a new session (the default when no subcommand is given) |
 | `attach [TARGET] [--ssh]` | Reattach to a session by JOBID or NAME (your only session when omitted) |
-| `ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) |
-| `status [TARGET]` | Show one session's status |
-| `refresh [TARGET]` | Re-check a session's time budget now and update its cache |
 | `list` | List running sessions |
+| `status [TARGET] [--refresh]` | Show one session's status; `--refresh` re-checks its time budget against Slurm first |
 | `cancel TARGET` | Cancel a session |
+
+### Watching
+
+| Command | What it does |
+|---|---|
 | `queue [--all] [--watch]` | Your job queue: running, pending (with reasons), and recent history |
-| `monitor [TARGET\|HOST] [--live]` | Live CPU/GPU/process view of a session's node, or any host |
-| `snapshot` | One-shot resource sample of this host |
-| `events [TARGET] [--follow] [--since EPOCH]` | Stream session events (NDJSON) |
-| `peek TARGET [-n LINES]` | Read the last lines of a session's screen |
-| `send TARGET COMMAND` | Type a command into a session's shell |
-| `agent-context` | Brief a coding agent on the session it is running inside |
+| `monitor [TARGET\|HOST] [--live] [--once]` | Live CPU/GPU/process view of a session's node, or any host; `--once` prints one sample of this host and exits |
 | `quota [--check]` | Storage quota (Bodhi daemons) |
-| `hook session-start\|prompt` | Claude Code hook entry points |
-| `statusline` | Claude Code statusLine command |
-| `mcp` | MCP server over stdio |
-| `install-claude` | Install the Claude Code skills, hooks, statusline and MCP server |
 | `doctor [--nodes]` | Check this install and, optionally, every compute node |
-| `completions SHELL` | Print shell completions (`bash`, `zsh`, `fish`, …) |
-| `man` | Print the man page (roff) |
-| `schema` | Dump the JSON schemas of the machine-readable outputs |
+
+### Driving a session from outside
+
+A person at a prompt attaches; a script or an agent reaches in with these.
+
+| Command | What it does |
+|---|---|
+| `session ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) |
+| `session peek TARGET [-n LINES]` | Read the last lines of a session's screen |
+| `session send TARGET COMMAND` | Type a command into a session's shell |
+| `session events [TARGET] [--follow] [--since EPOCH]` | Stream session events (NDJSON) |
+
+### Claude Code
+
+| Command | What it does |
+|---|---|
+| `claude install` | Install the Claude Code skills, hooks, statusline and MCP server |
+| `claude context` | Brief a coding agent on the session it is running inside |
+| `claude hook session-start\|prompt` | Hook entry points (Claude Code runs these) |
+| `claude statusline` | statusLine command (Claude Code runs this) |
+| `claude mcp` | MCP server over stdio (Claude Code runs this) |
+
+`claude install` writes the last four into your Claude Code settings; you
+never type them yourself.
+
+### Generated output
+
+| Command | What it does |
+|---|---|
+| `gen completions SHELL` | Shell completions (`bash`, `zsh`, `fish`, …) |
+| `gen man` | The man page (roff) |
+| `gen schema` | The JSON schemas of the machine-readable outputs |
 | `zellij ...` | The embedded zellij's own command line |
 
-`status`, `refresh`, `list`, `cancel`, `queue`, `monitor`, `snapshot`,
-`quota`, `doctor` and `launch --detach` take `--json`. `TARGET` is a JOBID or
-a session NAME; inside a session it defaults to the current one.
+`status`, `list`, `cancel`, `queue`, `monitor`, `quota`, `doctor` and
+`launch --detach` take `--json`. `TARGET` is a JOBID or a session NAME;
+inside a session it defaults to the current one.
+
+The pre-grouping spellings — `ensure`, `peek`, `send`, `events`, `refresh`,
+`snapshot`, `agent-context`, `hook`, `statusline`, `mcp`, `install-claude`,
+`completions`, `man` and `schema` as top-level commands — still work but are
+hidden from `--help`.
 
 ### Launch options
 
@@ -58,7 +88,7 @@ a session NAME; inside a session it defaults to the current one.
 
 All other arguments are passed directly to `sbatch`, in any order, so you can
 use any `sbatch` option (`--gres=gpu:1`, `--qos=long`, `--account=...`).
-`ensure` takes the same options after the name.
+`session ensure` takes the same options after the name.
 
 ### Examples
 
@@ -93,7 +123,7 @@ sinteractive queue --watch
 sinteractive monitor build
 
 # Read the last 40 lines of a session's screen
-sinteractive peek build -n 40
+sinteractive session peek build -n 40
 ```
 
 ## Inside a session
@@ -136,7 +166,7 @@ pass through untouched. `Ctrl+b h` shows the same legend in the status bar.
   could show and the panel is closed.
 - `⚠ N notices ^b n` appears when the session has something to say — a
   quota overage (red, shimmering), a walltime trimmed before a maintenance
-  window, a hint to run `install-claude` while Claude Code is running without
+  window, a hint to run `claude install` while Claude Code is running without
   the hooks. Absent when there is nothing to say; `sinteractive status` prints
   the same text from the login node.
 
@@ -307,7 +337,7 @@ Set personal defaults in your `~/.bashrc`; explicit flags always win.
 | `SINTERACTIVE_QUOTA_HOSTS` | Quota daemons to sum usage across | Bodhi's `172.20.8.110-118` |
 | `SINTERACTIVE_QUOTA_PORT` | Port those daemons listen on | `9878` |
 | `SINTERACTIVE_QUOTA_TIMEOUT` | Seconds to wait for each daemon | `5` |
-| `SINTERACTIVE_SHARE` | Where `install-claude` finds the skills (a checkout) | beside the binary |
+| `SINTERACTIVE_SHARE` | Where `claude install` finds the skills (a checkout) | beside the binary |
 | `SINTERACTIVE_RUNTIME_DIR` | Node-local directory for the zellij socket and readiness marker | `/tmp` |
 | `SINTERACTIVE_JOB_ID`, `SINTERACTIVE_NAME` | Exported *inside* a session; not for you to set | |
 
@@ -372,6 +402,6 @@ sinteractive quota --check      # re-checks now, updates every open session
 ## Tab completion
 
 `make install` installs completions for bash, zsh and fish (generated by the
-binary itself: `sinteractive completions bash|zsh|fish`). Start a new shell
+binary itself: `sinteractive gen completions bash|zsh|fish`). Start a new shell
 after installing to pick them up. zsh needs `~/.local/share/zsh/site-functions`
 on `$fpath`.

@@ -54,7 +54,7 @@ fn snapshot_json_describes_this_host() {
     let fx = FakeSlurm::new();
     let v = json_of(
         fx.sinteractive()
-            .args(["snapshot", "--json"])
+            .args(["monitor", "--once", "--json"])
             .assert()
             .success(),
     );
@@ -69,12 +69,16 @@ fn snapshot_json_describes_this_host() {
 #[test]
 fn snapshot_human_dump() {
     let fx = FakeSlurm::new();
-    fx.sinteractive().arg("snapshot").assert().success().stdout(
-        predicate::str::contains("  cpu  ")
-            .and(predicate::str::contains("  mem  "))
-            .and(predicate::str::contains("  gpu  "))
-            .and(predicate::str::contains("PID USER")),
-    );
+    fx.sinteractive()
+        .args(["monitor", "--once"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("  cpu  ")
+                .and(predicate::str::contains("  mem  "))
+                .and(predicate::str::contains("  gpu  "))
+                .and(predicate::str::contains("PID USER")),
+        );
 }
 
 // ---- monitor ------------------------------------------------------------

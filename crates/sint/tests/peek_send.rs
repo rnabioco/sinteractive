@@ -9,9 +9,11 @@ mod common;
 use common::{FakeSlurm, Job};
 use predicates::prelude::*;
 
+/// `args` starts with the `session` verb (`peek` / `send`).
 fn cmd(fx: &FakeSlurm, args: &[&str]) -> assert_cmd::Command {
     let mut c = fx.sinteractive();
     c.env("SINTERACTIVE_RUNTIME_DIR", fx.tmp.path().join("runtime"))
+        .arg("session")
         .args(args);
     c
 }

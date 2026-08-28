@@ -278,7 +278,7 @@ fn job_brings_up_a_session_and_tears_it_down() {
 
     // `events` on the login node reads the same log.
     let mut ev = fx.sinteractive();
-    ev.args(["events", &JOB_ID.to_string()]);
+    ev.args(["session", "events", &JOB_ID.to_string()]);
     let out = ev.assert().success();
     let text = String::from_utf8_lossy(&out.get_output().stdout).into_owned();
     assert!(

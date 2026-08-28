@@ -34,7 +34,7 @@ fn events_prints_the_log_as_ndjson() {
     seed(&fx, &LINES);
     let out = stdout_of(
         fx.sinteractive()
-            .args(["events", &JOB.to_string()])
+            .args(["session", "events", &JOB.to_string()])
             .assert()
             .success(),
     );
@@ -55,12 +55,24 @@ fn events_since_filters_by_timestamp() {
     let fx = FakeSlurm::new();
     seed(&fx, &LINES);
     fx.sinteractive()
-        .args(["events", &JOB.to_string(), "--since", "1783152195"])
+        .args([
+            "session",
+            "events",
+            &JOB.to_string(),
+            "--since",
+            "1783152195",
+        ])
         .assert()
         .success()
         .stdout(format!("{}\n{}\n", LINES[1], LINES[2]));
     fx.sinteractive()
-        .args(["events", &JOB.to_string(), "--since", "1783179200"])
+        .args([
+            "session",
+            "events",
+            &JOB.to_string(),
+            "--since",
+            "1783179200",
+        ])
         .assert()
         .success()
         .stdout("");
@@ -70,13 +82,13 @@ fn events_since_filters_by_timestamp() {
 fn events_missing_log_is_empty_and_malformed_lines_are_skipped() {
     let fx = FakeSlurm::new();
     fx.sinteractive()
-        .args(["events", &JOB.to_string()])
+        .args(["session", "events", &JOB.to_string()])
         .assert()
         .success()
         .stdout("");
     seed(&fx, &["garbage", LINES[0], "", "{\"kind\":\"no-ts\"}"]);
     fx.sinteractive()
-        .args(["events", &JOB.to_string()])
+        .args(["session", "events", &JOB.to_string()])
         .assert()
         .success()
         .stdout(format!("{}\n", LINES[0]));
@@ -87,18 +99,18 @@ fn events_resolves_names_and_the_current_session() {
     let fx = FakeSlurm::with_jobs(&[Job::new(JOB, "sinteractive:web")]);
     seed(&fx, &LINES[..1]);
     fx.sinteractive()
-        .args(["events", "web"])
+        .args(["session", "events", "web"])
         .assert()
         .success()
         .stdout(format!("{}\n", LINES[0]));
     fx.sinteractive()
         .env("SINTERACTIVE_JOB_ID", JOB.to_string())
-        .arg("events")
+        .args(["session", "events"])
         .assert()
         .success()
         .stdout(format!("{}\n", LINES[0]));
     fx.sinteractive()
-        .args(["events", "nosuch"])
+        .args(["session", "events", "nosuch"])
         .assert()
         .code(1)
         .stdout("")
@@ -111,7 +123,7 @@ fn events_resolves_names_and_the_current_session() {
 fn events_without_a_target_needs_a_session() {
     let fx = FakeSlurm::new();
     fx.sinteractive()
-        .arg("events")
+        .args(["session", "events"])
         .assert()
         .code(1)
         .stdout("")
@@ -127,7 +139,7 @@ fn events_follow_tails_until_ended() {
     // Plain std Command: assert_cmd waits for exit, and this one must be
     // observed while it is still following.
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_sinteractive"));
-    cmd.args(["events", "--follow", &JOB.to_string()])
+    cmd.args(["session", "events", "--follow", &JOB.to_string()])
         .env_clear()
         .env("PATH", fx.path())
         .env("HOME", fx.home_dir())
@@ -183,7 +195,7 @@ fn events_follow_stops_when_the_state_file_disappears() {
     let state = fx.cache_dir().join(format!("{JOB}.json"));
     fs::write(&state, "{}").unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_sinteractive"));
-    cmd.args(["events", "--follow", &JOB.to_string()])
+    cmd.args(["session", "events", "--follow", &JOB.to_string()])
         .env_clear()
         .env("PATH", fx.path())
         .env("HOME", fx.home_dir())

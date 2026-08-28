@@ -939,15 +939,13 @@ pub fn gpu_line(snap: &Snapshot) -> String {
 /// (`$CLAUDE_CONFIG_DIR`, else `~/.claude`): the session-context hook
 /// exists and one of the settings files mentions it (script line 1244).
 pub fn claude_integration_active(dir: &Path) -> bool {
-    // The native hook (`sinteractive hook session-start`) or the 0.x script
+    // The native hook (`sinteractive claude hook session-start`, or the
+    // ungrouped spelling an earlier install wrote) or the 0.x script
     // registered in either settings file counts; a string test, not JSON
     // parsing, on purpose (the file is the user's).
     ["settings.json", "settings.local.json"].iter().any(|f| {
         std::fs::read_to_string(dir.join(f))
-            .map(|s| {
-                s.contains("sinteractive hook session-start")
-                    || s.contains("sinteractive-session-context")
-            })
+            .map(|s| s.contains("hook session-start") || s.contains("sinteractive-session-context"))
             .unwrap_or(false)
     })
 }

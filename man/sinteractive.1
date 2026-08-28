@@ -52,17 +52,11 @@ Launch a new session (the default when no subcommand is given)
 sinteractive\-attach(1)
 Reattach to a session by JOBID or NAME (your only session when omitted)
 .TP
-sinteractive\-ensure(1)
-Reuse the session named NAME, or launch it if absent (implies \-\-detach)
+sinteractive\-list(1)
+List running sessions
 .TP
 sinteractive\-status(1)
 Show one session\*(Aqs status
-.TP
-sinteractive\-refresh(1)
-Re\-check a session\*(Aqs time budget now and update its cache
-.TP
-sinteractive\-list(1)
-List running sessions
 .TP
 sinteractive\-cancel(1)
 Cancel a session
@@ -73,47 +67,20 @@ Your job queue: running, pending (with reasons), and recent history
 sinteractive\-monitor(1)
 Live CPU/GPU/process view of a session\*(Aqs node, or any host
 .TP
-sinteractive\-snapshot(1)
-One\-shot resource sample of this host
-.TP
-sinteractive\-events(1)
-Stream session events (NDJSON)
-.TP
-sinteractive\-peek(1)
-Read the last lines of a session\*(Aqs screen
-.TP
-sinteractive\-send(1)
-Type a command into a session\*(Aqs shell
-.TP
-sinteractive\-agent\-context(1)
-Brief a coding agent on the session it is running inside
-.TP
 sinteractive\-quota(1)
 Storage quota (Bodhi quota daemons; unavailable on other clusters)
-.TP
-sinteractive\-hook(1)
-Claude Code hook entry points
-.TP
-sinteractive\-statusline(1)
-Claude Code statusLine command
-.TP
-sinteractive\-mcp(1)
-MCP server over stdio
-.TP
-sinteractive\-install\-claude(1)
-Install the Claude Code skills, hooks, statusline and MCP server
 .TP
 sinteractive\-doctor(1)
 Check this install and, optionally, every compute node
 .TP
-sinteractive\-completions(1)
-Print shell completions
+sinteractive\-session(1)
+Drive a session from outside: ensure, peek, send, events
 .TP
-sinteractive\-man(1)
-Print the man page (roff)
+sinteractive\-claude(1)
+Claude Code integration: install, context, hook, statusline, mcp
 .TP
-sinteractive\-schema(1)
-Dump the JSON schemas of the machine\-readable outputs
+sinteractive\-gen(1)
+Generated output: completions, man page, JSON schemas
 .TP
 sinteractive\-help(1)
 Print this message or the help of the given subcommand(s)

@@ -1,4 +1,4 @@
-//! `sinteractive monitor [TARGET|HOST] [--live] [--json]` — watch a
+//! `sinteractive monitor [TARGET|HOST] [--live] [--once] [--json]` — watch a
 //! session's node, nvitop-style.
 //!
 //! Where the numbers come from:
@@ -9,8 +9,11 @@
 //! - `--live`, or a bare hostname: `ssh -o BatchMode=yes HOST <exe>
 //!   snapshot --json` every 2 s (run locally when HOST is this machine).
 //!
-//! `--json` prints the latest snapshot once. Without a tty the human dump
-//! is printed once instead of the TUI.
+//! `--json`, `--once`, and a non-tty stdout each print one sample instead of
+//! opening the TUI. `--once` with no TARGET samples *this* host directly —
+//! two samples a second apart, scoped to this process's Slurm job or to
+//! `--job`'s cgroup — which is what the hidden `snapshot` verb still does for
+//! the ssh callers below.
 
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -26,7 +29,7 @@ use sint_core::theme::{is_tty, Theme};
 use super::common::{current_exe, eprint_error, print_json, Ctx};
 use super::monitor_tui;
 use super::snapshot::render_human;
-use crate::cli::MonitorArgs;
+use crate::cli::{MonitorArgs, SnapshotArgs};
 use crate::zellij_cmd::shell_quote;
 
 /// How often the TUI refreshes its source.
@@ -147,6 +150,16 @@ pub fn run(args: MonitorArgs) -> Result<i32> {
     let ctx = Ctx::new();
     let p = ctx.palette(2);
 
+    // `--once` with nothing to name a session: sample this host here and now,
+    // rather than sending the user away to find a target. `--job` says the
+    // same thing explicitly, so it takes this path even inside a session.
+    if args.once && args.target.is_none() && (args.job.is_some() || ctx.cfg.job_id.is_none()) {
+        return super::snapshot::run(SnapshotArgs {
+            json: args.json,
+            job: args.job,
+        });
+    }
+
     // Resolve the target to a source and a label.
     let (mut source, mut label) = match args.target.as_deref() {
         None => match ctx.cfg.job_id {
@@ -243,8 +256,8 @@ pub fn run(args: MonitorArgs) -> Result<i32> {
         };
     }
 
-    // No tty: the human dump once, like `snapshot`.
-    if !is_tty(1) {
+    // `--once`, or no tty: the human dump once, like `snapshot`.
+    if args.once || !is_tty(1) {
         return match poll(&source, &ctx.state) {
             Msg::Snapshot(s) => {
                 print!("{}", render_human(&s, None, &ctx.palette(1)));

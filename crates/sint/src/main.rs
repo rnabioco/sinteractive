@@ -53,7 +53,18 @@ fn main() {
             p.warn, p.bold, p.reset, p.warn, p.key, p.warn, p.reset
         );
     }
-    if let Command::Launch(l) | Command::Ensure(cli::EnsureArgs { launch: l, .. }) = &mut command {
+    // The launch flags `split_launch_argv` kept for us belong to whichever
+    // verb is doing the launching.
+    let launching = match &mut command {
+        Command::Launch(l) => Some(l),
+        Command::Ensure(e) => Some(&mut e.launch),
+        Command::Session(s) => match &mut s.command {
+            cli::SessionCommand::Ensure(e) => Some(&mut e.launch),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some(l) = launching {
         l.sbatch_args = sbatch_args;
     }
     let code = match commands::dispatch(command) {

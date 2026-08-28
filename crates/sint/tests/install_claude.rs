@@ -15,7 +15,7 @@ use serde_json::Value;
 fn install(fx: &FakeSlurm) -> assert_cmd::assert::Assert {
     fx.sinteractive()
         .env("SINTERACTIVE_SHARE", repo_root())
-        .arg("install-claude")
+        .args(["claude", "install"])
         .assert()
 }
 
@@ -83,7 +83,10 @@ fn fresh_install_creates_skills_hooks_settings_and_mcp() {
             .len(),
         1
     );
-    assert_eq!(settings["statusLine"]["command"], "sinteractive statusline");
+    assert_eq!(
+        settings["statusLine"]["command"],
+        "sinteractive claude statusline"
+    );
     assert_eq!(settings["statusLine"]["refreshInterval"], 5);
     assert!(backups(&claude, "settings.json").is_empty());
 
@@ -92,7 +95,7 @@ fn fresh_install_creates_skills_hooks_settings_and_mcp() {
     assert_eq!(cfg["mcpServers"]["sinteractive"]["command"], "sinteractive");
     assert_eq!(
         cfg["mcpServers"]["sinteractive"]["args"],
-        serde_json::json!(["mcp"])
+        serde_json::json!(["claude", "mcp"])
     );
     assert_eq!(cfg["mcpServers"]["sinteractive"]["type"], "stdio");
     // No shim was touched.
@@ -163,7 +166,7 @@ fn existing_settings_are_preserved_and_backed_up() {
     assert_eq!(start[0]["hooks"][0]["command"], "echo mine");
     assert_eq!(
         start[1]["hooks"][0]["command"],
-        "sinteractive hook session-start"
+        "sinteractive claude hook session-start"
     );
     assert_eq!(
         settings["hooks"]["UserPromptSubmit"]
@@ -295,6 +298,44 @@ fn compat_flag_still_works() {
     assert!(fx.claude_dir().join("settings.json").is_file());
 }
 
+/// A settings.json written by an earlier install: the entries are renamed in
+/// place rather than duplicated, and the user's own hook is untouched.
+#[test]
+fn an_earlier_installs_entries_are_renamed_not_duplicated() {
+    let fx = FakeSlurm::new();
+    let claude = fx.claude_dir();
+    fs::create_dir_all(&claude).unwrap();
+    fs::write(
+        claude.join("settings.json"),
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo mine"}]},{"hooks":[{"type":"command","command":"sinteractive hook session-start","timeout":10}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"sinteractive hook prompt","timeout":10}]}]},"statusLine":{"type":"command","command":"sinteractive statusline","refreshInterval":5}}"#,
+    )
+    .unwrap();
+    install(&fx).success();
+
+    let settings = read_json(&claude.join("settings.json"));
+    let start = settings["hooks"]["SessionStart"].as_array().unwrap();
+    assert_eq!(start.len(), 2, "renamed in place, not appended to");
+    assert_eq!(start[0]["hooks"][0]["command"], "echo mine");
+    assert_eq!(
+        start[1]["hooks"][0]["command"],
+        "sinteractive claude hook session-start"
+    );
+    let prompt = settings["hooks"]["UserPromptSubmit"].as_array().unwrap();
+    assert_eq!(prompt.len(), 1);
+    assert_eq!(
+        prompt[0]["hooks"][0]["command"],
+        "sinteractive claude hook prompt"
+    );
+    assert_eq!(
+        settings["statusLine"]["command"],
+        "sinteractive claude statusline"
+    );
+
+    // Nothing left to do the second time.
+    install(&fx).success();
+    assert_eq!(read_json(&claude.join("settings.json")), settings);
+}
+
 #[test]
 fn legacy_script_hooks_are_replaced_by_native_ones() {
     let fx = FakeSlurm::new();
@@ -319,12 +360,15 @@ fn legacy_script_hooks_are_replaced_by_native_ones() {
     assert_eq!(start.len(), 1);
     assert_eq!(
         start[0]["hooks"][0]["command"],
-        "sinteractive hook session-start"
+        "sinteractive claude hook session-start"
     );
     let prompt = settings["hooks"]["UserPromptSubmit"].as_array().unwrap();
     assert_eq!(prompt.len(), 2);
     assert_eq!(prompt[0]["hooks"][0]["command"], "echo keep");
-    assert_eq!(prompt[1]["hooks"][0]["command"], "sinteractive hook prompt");
+    assert_eq!(
+        prompt[1]["hooks"][0]["command"],
+        "sinteractive claude hook prompt"
+    );
     // Idempotent afterwards.
     install(&fx).success();
     let again = read_json(&claude.join("settings.json"));

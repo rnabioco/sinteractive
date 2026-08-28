@@ -13,8 +13,9 @@ the Slurm plumbing are all inside it, so there is nothing to install on the
 compute nodes and no multiplexer to find there.
 
 It is also built for coding agents as much as for people. Every reporting
-command has a `--json` form, `peek`/`send` read and drive a session from the
-login node, `events` streams what happens in one, and `install-claude` wires
+command has a `--json` form, `session peek`/`send` read and drive a session
+from the login node, `session events` streams what happens in one, and
+`claude install` wires
 [Claude Code](https://code.claude.com/docs/) up with skills, hooks, a
 statusline and an MCP server.
 
@@ -35,7 +36,7 @@ environment variables.
 | Mouse and copy | Terminal's own | Mouse on by default; select-to-copy lands in your local clipboard |
 | Status bar | None | Job id, node, walltime left, your queue, notices (`⚠ N notices`) |
 | Monitor panel | None | `Ctrl+b m`: CPU, memory and GPU bars for every job you can see, in-session; `t` for the full process view |
-| Remote read/drive | None | `sinteractive peek` / `send` from the login node or an agent |
+| Remote read/drive | None | `sinteractive session peek` / `send` from the login node or an agent |
 | X11 forwarding | Manual setup | `attach --ssh` (`ssh -X`) |
 
 > [!TIP]
@@ -102,36 +103,66 @@ sinteractive <COMMAND> [ARGS...]
 A bare `sinteractive` launches; everything else is a subcommand
 (`sinteractive --help`, `sinteractive <command> --help`, `man sinteractive`).
 
+### Sessions
+
 | Command | What it does |
 |---|---|
 | `launch` | Launch a new session (the default when no subcommand is given) |
 | `attach [TARGET] [--ssh]` | Reattach to a session by JOBID or NAME (your only session when omitted) |
-| `ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) |
-| `status [TARGET]` | Show one session's status |
-| `refresh [TARGET]` | Re-check a session's time budget now and update its cache |
 | `list` | List running sessions |
+| `status [TARGET] [--refresh]` | Show one session's status; `--refresh` re-checks its time budget against Slurm first |
 | `cancel TARGET` | Cancel a session |
+
+### Watching
+
+| Command | What it does |
+|---|---|
 | `queue [--all] [--watch]` | Your job queue: running, pending (with reasons), and recent history |
-| `monitor [TARGET\|HOST] [--live]` | Live CPU/GPU/process view of a session's node, or any host |
-| `snapshot` | One-shot resource sample of this host |
-| `events [TARGET] [--follow] [--since EPOCH]` | Stream session events (NDJSON) |
-| `peek TARGET [-n LINES]` | Read the last lines of a session's screen |
-| `send TARGET COMMAND` | Type a command into a session's shell |
-| `agent-context` | Brief a coding agent on the session it is running inside |
+| `monitor [TARGET\|HOST] [--live] [--once]` | Live CPU/GPU/process view of a session's node, or any host; `--once` prints one sample of this host and exits |
 | `quota [--check]` | Storage quota (Bodhi daemons) |
-| `hook session-start\|prompt` | Claude Code hook entry points |
-| `statusline` | Claude Code statusLine command |
-| `mcp` | MCP server over stdio |
-| `install-claude` | Install the Claude Code skills, hooks, statusline and MCP server |
 | `doctor [--nodes]` | Check this install and, optionally, every compute node |
-| `completions SHELL` | Print shell completions |
-| `man` | Print the man page (roff) |
-| `schema` | Dump the JSON schemas of the machine-readable outputs |
+
+### Driving a session from outside
+
+A person at a prompt attaches; a script or an agent reaches in with these.
+
+| Command | What it does |
+|---|---|
+| `session ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) |
+| `session peek TARGET [-n LINES]` | Read the last lines of a session's screen |
+| `session send TARGET COMMAND` | Type a command into a session's shell |
+| `session events [TARGET] [--follow] [--since EPOCH]` | Stream session events (NDJSON) |
+
+### Claude Code
+
+| Command | What it does |
+|---|---|
+| `claude install` | Install the Claude Code skills, hooks, statusline and MCP server |
+| `claude context` | Brief a coding agent on the session it is running inside |
+| `claude hook session-start\|prompt` | Hook entry points (Claude Code runs these) |
+| `claude statusline` | statusLine command (Claude Code runs this) |
+| `claude mcp` | MCP server over stdio (Claude Code runs this) |
+
+`claude install` writes the last four into your Claude Code settings; you
+never type them yourself.
+
+### Generated output
+
+| Command | What it does |
+|---|---|
+| `gen completions SHELL` | Shell completions |
+| `gen man` | The man page (roff) |
+| `gen schema` | The JSON schemas of the machine-readable outputs |
 | `zellij ...` | The embedded zellij's own command line |
 
-`status`, `refresh`, `list`, `cancel`, `queue`, `monitor`, `snapshot`,
-`quota`, `doctor` and `launch --detach` take `--json`. `TARGET` is a JOBID or
-a session NAME; inside a session it defaults to the current one.
+`status`, `list`, `cancel`, `queue`, `monitor`, `quota`, `doctor` and
+`launch --detach` take `--json`. `TARGET` is a JOBID or a session NAME;
+inside a session it defaults to the current one.
+
+The pre-grouping spellings — `ensure`, `peek`, `send`, `events`, `refresh`,
+`snapshot`, `agent-context`, `hook`, `statusline`, `mcp`, `install-claude`,
+`completions`, `man` and `schema` as top-level commands — still work but are
+hidden from `--help`.
 
 ### Launch options
 
@@ -172,7 +203,7 @@ sinteractive list
 sinteractive status build
 
 # Read the last 40 lines of a session's screen from the login node
-sinteractive peek build -n 40
+sinteractive session peek build -n 40
 ```
 
 ### Inside a session
@@ -241,7 +272,7 @@ Set personal defaults in your `~/.bashrc`; explicit flags always win.
 | `SINTERACTIVE_QUOTA_HOSTS` | Quota daemons to sum usage across | Bodhi's `172.20.8.110-118` |
 | `SINTERACTIVE_QUOTA_PORT` | Port those daemons listen on | `9878` |
 | `SINTERACTIVE_QUOTA_TIMEOUT` | Seconds to wait for each daemon | `5` |
-| `SINTERACTIVE_SHARE` | Where `install-claude` finds the skills (a checkout) | beside the binary |
+| `SINTERACTIVE_SHARE` | Where `claude install` finds the skills (a checkout) | beside the binary |
 | `SINTERACTIVE_RUNTIME_DIR` | Node-local directory for the zellij socket and readiness marker | `/tmp` |
 | `SINTERACTIVE_JOB_ID`, `SINTERACTIVE_NAME` | Exported *inside* a session; not for you to set | |
 
@@ -330,31 +361,36 @@ session is not a compute target**.
 ## Claude Code integration
 
 ```bash
-sinteractive install-claude   # from any installed copy
+sinteractive claude install   # from any installed copy
 make claude-install           # equivalent, from a checkout
 ```
 
 This installs the six skills (`hpc-compute`, `slurm-discovery`, `hpc-storage`,
 `hpc-software`, `slurm-batch`, `git-workflow`) into `~/.claude/skills/`, then
-registers in your `settings.json` the two hooks (`sinteractive hook
-session-start` briefs the agent on the session it is in; `sinteractive hook
+registers in your `settings.json` the two hooks (`sinteractive claude hook
+session-start` briefs the agent on the session it is in; `sinteractive claude hook
 prompt` warns when walltime is short), the statusline (`sinteractive
 statusline`, which shows model, context usage and the session's remaining time
-under the input box) and the MCP server (`sinteractive mcp`, via `claude mcp
+under the input box) and the MCP server (`sinteractive claude mcp`, via `claude mcp
 add`). The merge is additive, idempotent and backed up; a `settings.json` that
 does not parse is left alone and the snippet printed instead. Old 0.x hook
 scripts are removed and their entries replaced.
 
-`sinteractive agent-context` prints the briefing by hand, so you can see
+`sinteractive claude context` prints the briefing by hand, so you can see
 exactly what the agent is told.
 
 ## Migrating from 0.x
 
 - **Subcommands.** `--status`, `--list`, `--attach`, `--ensure`, `--cancel`,
   `--refresh`, `--check-quota`, `--agent-context` and `--install-claude` are
-  now `status`, `list`, `attach`, `ensure`, `cancel`, `refresh`, `quota
-  --check`, `agent-context` and `install-claude`. The old flags are accepted
-  for one release and warn on stderr.
+  now `status`, `list`, `attach`, `session ensure`, `cancel`, `status --refresh`,
+  `quota --check`, `claude context` and `claude install`. The old flags are
+  accepted for one release and warn on stderr.
+- **Grouped.** Everything that wires sinteractive into Claude Code lives under
+  `claude` (`install`, `context`, `hook`, `statusline`, `mcp`), and the
+  generated output under `gen` (`completions`, `man`, `schema`). `refresh`
+  became `status --refresh` and `snapshot` became `monitor --once`. Every old
+  spelling still resolves; none of them show in `--help`.
 - **No tmux.** zellij is compiled in; `SINTERACTIVE_TMUX` is gone and nothing
   needs installing on the compute nodes. The `make tmux*` and `nodes-check`
   targets are gone with it. Keys are the same `Ctrl+b` chords, except that
@@ -362,8 +398,8 @@ exactly what the agent is told.
   launch with `-n`.
 - **Mouse is on by default.** `--no-mouse` or `SINTERACTIVE_MOUSE=off` to
   turn it off.
-- **Hooks are native.** `install-claude` replaces the
-  `sinteractive-*.sh` hook scripts with `sinteractive hook …` and also
+- **Hooks are native.** `claude install` replaces the
+  `sinteractive-*.sh` hook scripts with `sinteractive claude hook …` and also
   registers the statusline and the MCP server.
 - **Attach goes through `srun --overlap`** rather than ssh; `attach --ssh` is
   the old path (and the one that forwards X11).
