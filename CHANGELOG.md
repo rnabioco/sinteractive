@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-28
+
 sinteractive 1.0 is a rewrite in Rust with [zellij](https://zellij.dev)
 compiled in. The bash script and its tmux dependency are gone; what is left
 is one binary that is the launcher, the batch job, the zellij server and
@@ -704,7 +706,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/rnabioco/sinteractive/compare/v0.7.0...v1.0.0
 [0.7.0]: https://github.com/rnabioco/sinteractive/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/rnabioco/sinteractive/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/rnabioco/sinteractive/compare/v0.5.0...v0.5.1

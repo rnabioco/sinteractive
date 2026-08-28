@@ -51,8 +51,17 @@ fn bundle_id(mouse: bool) -> String {
     h.update(LAYOUT_KDL.as_bytes());
     h.update(PANEL_LAYOUT_KDL.as_bytes());
     h.update(if mouse { "mouse" } else { "nomouse" }.as_bytes());
+    h.update(exe_path().as_bytes());
     let hex = format!("{:x}", h.finalize());
     hex[..12].to_string()
+}
+
+/// This binary's path, for the keybindings that run `sinteractive` in a
+/// floating pane (it is usually not on the job's PATH).
+fn exe_path() -> String {
+    std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "sinteractive".to_string())
 }
 
 /// Whether this binary carries the plugin (built without `SINT_SKIP_BUNDLE`).
@@ -84,6 +93,7 @@ pub fn ensure(cfg: &Config, mouse: bool) -> Result<Bundle> {
         s.replace("__PLUGIN__", &bundle.plugin.to_string_lossy())
             .replace("__LAYOUTS__", &bundle.layouts.to_string_lossy())
             .replace("__MOUSE__", if mouse { "true" } else { "false" })
+            .replace("__EXE__", &exe_path())
     };
     fs::write(t.join("config.kdl"), sub(CONFIG_KDL))?;
     fs::write(t.join("layouts/sint.kdl"), sub(LAYOUT_KDL))?;
@@ -114,6 +124,8 @@ mod tests {
         let conf = fs::read_to_string(&b.config).unwrap();
         assert!(!conf.contains("__PLUGIN__") && !conf.contains("__LAYOUTS__"));
         assert!(conf.contains("mouse_mode true"));
+        assert!(!conf.contains("__EXE__"));
+        assert!(conf.contains(&format!("Run \"{}\"", exe_path())));
         assert!(conf.contains(&format!("layout_dir \"{}\"", b.layouts.display())));
         let lay = fs::read_to_string(b.layouts.join("sint.kdl")).unwrap();
         let panel = fs::read_to_string(b.layouts.join("sint-panel.kdl")).unwrap();

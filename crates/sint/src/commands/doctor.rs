@@ -495,8 +495,8 @@ mod tests {
     #[test]
     fn probe_parsing() {
         assert_eq!(
-            parse_probe("sinteractive 1.0.0-dev\nsint-bundle=yes\n"),
-            (Some("1.0.0-dev".to_string()), true)
+            parse_probe("sinteractive 1.0.0\nsint-bundle=yes\n"),
+            (Some("1.0.0".to_string()), true)
         );
         assert_eq!(parse_probe("sint-bundle=no\n"), (None, false));
         assert_eq!(parse_probe(""), (None, false));

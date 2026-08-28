@@ -354,11 +354,13 @@ impl JobLoop {
     /// Ask Slurm now, bypassing the rate floor. Returns the confirmed end
     /// time; a failure leaves the previous one alone.
     fn refresh_end_epoch(&mut self, now: i64, deps: &mut dyn Deps) -> Option<i64> {
+        self.end_query = now;
+        let e = deps.query_end_epoch();
+        // The same query read the Comment; a rename shows up here.
         if let Some(name) = deps.current_name() {
             self.cfg.name = name;
         }
-        self.end_query = now;
-        let e = deps.query_end_epoch()?;
+        let e = e?;
         self.end_epoch = Some(e);
         self.end_checked = now;
         Some(e)

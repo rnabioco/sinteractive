@@ -1,6 +1,6 @@
 // sinteractive's zellij configuration. Written next to the extracted bundle
-// by `sinteractive` at first use; `__PLUGIN__` and `__LAYOUTS__` are
-// substituted with absolute paths, `__MOUSE__` with true/false.
+// by `sinteractive` at first use; `__PLUGIN__`, `__LAYOUTS__` and `__EXE__`
+// are substituted with absolute paths, `__MOUSE__` with true/false.
 //
 // Keys: Ctrl+b is the only global chord (tmux muscle memory). Inside the
 // prefix mode, keys act once and return to normal. Everything else zellij
@@ -21,8 +21,8 @@ keybinds clear-defaults=true {
         bind "," { MessagePlugin { name "sint-ui"; payload "host-prev"; }; SwitchToMode "Normal"; }
         bind "." { MessagePlugin { name "sint-ui"; payload "host-next"; }; SwitchToMode "Normal"; }
         bind "Esc" { MessagePlugin { name "sint-ui"; payload "escape"; }; SwitchToMode "Normal"; }
-        bind "q" { Run "sinteractive" "__popup" "queue" { floating true; close_on_exit true; name "queue"; }; SwitchToMode "Normal"; }
-        bind "$" { Run "sinteractive" "__popup" "rename" { floating true; close_on_exit true; name "rename"; }; SwitchToMode "Normal"; }
+        bind "q" { Run "__EXE__" "__popup" "queue" { floating true; close_on_exit true; name "queue"; }; SwitchToMode "Normal"; }
+        bind "$" { Run "__EXE__" "__popup" "rename" { floating true; close_on_exit true; name "rename"; }; SwitchToMode "Normal"; }
         // tmux-compatible pane keys
         bind "Ctrl b" { Write 2; SwitchToMode "Normal"; }
         bind "d" { Detach; }

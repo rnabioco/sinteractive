@@ -13,7 +13,14 @@ use super::common::{eprint_error, Ctx};
 use super::queue;
 use crate::cli::{PopupView, QueueArgs};
 
-pub fn run(view: PopupView, job_id: u64) -> Result<i32> {
+pub fn run(view: PopupView, job_id: Option<u64>) -> Result<i32> {
+    let job_id = job_id
+        .or_else(|| {
+            std::env::var("SINTERACTIVE_JOB_ID")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+        })
+        .ok_or_else(|| anyhow::anyhow!("__popup needs a JOBID or SINTERACTIVE_JOB_ID"))?;
     match view {
         PopupView::Queue => queue::run(QueueArgs {
             watch: true,

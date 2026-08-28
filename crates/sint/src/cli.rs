@@ -156,7 +156,11 @@ pub enum Command {
     AttachLocal { session: String },
     /// In-session floating views
     #[command(name = "__popup", hide = true)]
-    Popup { view: PopupView, job_id: u64 },
+    Popup {
+        view: PopupView,
+        /// Defaults to `SINTERACTIVE_JOB_ID` (set in every session pane)
+        job_id: Option<u64>,
+    },
 }
 
 #[derive(Args, Debug, Clone, Default)]

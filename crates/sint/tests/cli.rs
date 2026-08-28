@@ -34,12 +34,12 @@ fn version_prints_the_workspace_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout("sinteractive 1.0.0-dev\n");
+        .stdout("sinteractive 1.0.0\n");
     fx.sinteractive()
         .arg("-V")
         .assert()
         .success()
-        .stdout("sinteractive 1.0.0-dev\n");
+        .stdout("sinteractive 1.0.0\n");
 }
 
 #[test]
