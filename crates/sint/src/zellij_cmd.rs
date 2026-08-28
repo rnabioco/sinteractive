@@ -159,7 +159,11 @@ pub fn grant_plugin_permissions(xdg_cache_home: &Path, plugin: &Path) -> std::io
     if existing.contains(&format!("\"{key}\"")) {
         return Ok(());
     }
-    let block = format!("\"{key}\" {{\n    ReadApplicationState\n    ChangeApplicationState\n}}\n");
+    // RunCommands is the monitor panel's `t`, which opens `sinteractive
+    // monitor` for the selected job in a floating pane.
+    let block = format!(
+        "\"{key}\" {{\n    ReadApplicationState\n    ChangeApplicationState\n    RunCommands\n}}\n"
+    );
     sint_core::state::atomic_write(&file, format!("{existing}{block}").as_bytes())
 }
 

@@ -107,8 +107,8 @@ pass through untouched. `Ctrl+b h` shows the same legend in the status bar.
 | `Ctrl+b d` | Detach — the session keeps running |
 | `Ctrl+b h` (or `?`) | Key legend in the bar; again for the next page, `Esc` to close |
 | `Ctrl+b n` | Read the notices (quota, trimmed end time, hints) one at a time; `n` for the next, `Esc` back |
-| `Ctrl+b m` | Toggle the monitor panel (CPU, memory, GPUs, processes of the job) |
-| `Ctrl+b ,` / `Ctrl+b .` | Previous / next host in the monitor panel |
+| `Ctrl+b m` | Focus the monitor panel (CPU, memory and GPU bars), opening it if it is closed; again to hand the focus back to the shell |
+| `Ctrl+b ,` / `Ctrl+b .` | Previous / next job in the monitor panel, without focusing it |
 | `Ctrl+b q` | Your queue in a floating pane (`sinteractive queue --watch`); `Ctrl+c` closes it |
 | `Ctrl+b c` | New pane |
 | `Ctrl+b "` / `Ctrl+b %` | Split down / split right |
@@ -145,11 +145,33 @@ to go.
 
 ### The monitor panel
 
-`Ctrl+b m` opens a 12-row panel between the shell and the bar with the same
-numbers `sinteractive monitor` shows: CPU and memory against the job's
-cgroup limits, load, GPUs when there are any, and the busiest processes.
-With more than one host to show, `Ctrl+b ,` and `Ctrl+b .` step through them.
-`Ctrl+b m` again closes it.
+`Ctrl+b m` opens a six-row panel between the shell and the bar: a strip of
+every job you can monitor, then bars for CPU and memory against the job's
+cgroup limits, and a row per GPU. A job with no GPU spends the spare row on
+where its load has been.
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+147845 mywork · 246422 sint-mods   1/2      ←→ job · t top · esc shell · x close
+cpu ███████░░░░░░░░░░░░░  34% of 8 · load 3.2
+mem ███████░░░░░░░░░░░░░  37% 12.0G / 32G
+gpu0 █████████████████░░░  87% 31/40G 61°C 240W ████░░░░
+```
+
+`Ctrl+b m` **focuses** the panel rather than toggling it, so the panel is a
+pane you step into and out of:
+
+| In the focused panel | |
+|---|---|
+| `←` / `→` (or `h` / `l`) | Previous / next job |
+| `t` (or `Enter`) | The full `sinteractive monitor` TUI for the selected job, in a floating pane — the process table, sorted and scrollable. `q` closes it |
+| `Esc` / `q` | Back to the shell; the panel stays open |
+| `x` (or `Ctrl+b x`) | Close the panel |
+
+`Ctrl+b` chords keep working while the panel holds the focus — zellij reads
+the prefix before the focused pane sees a key — so `Ctrl+b m` steps back out
+to the shell, `Ctrl+b d` detaches, and so on. From the shell, `Ctrl+b ,` and
+`Ctrl+b .` step through jobs without taking the focus at all.
 
 ### Mouse, copy and paste
 
