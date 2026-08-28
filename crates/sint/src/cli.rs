@@ -125,7 +125,7 @@ pub enum Command {
     Send(SendArgs),
     /// Brief a coding agent on the session it is running inside
     AgentContext,
-    /// Storage quota (Bodhi daemons; wraps curc-quota on Alpine)
+    /// Storage quota (Bodhi quota daemons; unavailable on other clusters)
     Quota(QuotaArgs),
     /// Claude Code hook entry points
     Hook(HookArgs),
@@ -306,6 +306,7 @@ pub enum PopupView {
     Queue,
     Help,
     Notices,
+    Rename,
 }
 
 impl Cli {

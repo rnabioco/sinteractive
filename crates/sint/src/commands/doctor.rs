@@ -318,14 +318,23 @@ fn home_check() -> Check {
         );
     };
     const SMALL: u64 = 5 * 1024 * 1024 * 1024;
-    if is_local_fs(&name) && total < SMALL {
+    if total < SMALL {
         Check::new(
             "home",
             Status::Warn,
             format!(
-                "{} is on a small local filesystem ({name}, {}); set SINTERACTIVE_CACHE to a shared one",
+                "{} is a small filesystem ({name}, {}); set SINTERACTIVE_CACHE to a roomier shared one",
                 home.display(),
                 fmt_bytes(total)
+            ),
+        )
+    } else if is_local_fs(&name) {
+        Check::new(
+            "home",
+            Status::Warn,
+            format!(
+                "{} is on a local filesystem ({name}); compute nodes cannot see it — set SINTERACTIVE_CACHE to a shared one",
+                home.display()
             ),
         )
     } else {

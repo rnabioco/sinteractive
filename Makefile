@@ -61,9 +61,8 @@ install: install-user
 endif
 
 # The share tree: skills and the settings snippet. `install-claude` probes
-# for claude/hooks beside skills/, so the (empty) directory is created too.
+# beside skills/.
 define install_share
-	install -d -m 0755 $(1)/claude/hooks
 	install -m 0644 claude/settings-snippet.json $(1)/claude/
 	for s in $(SKILLS); do install -D -m 0644 $$s $(1)/$$s || exit 1; done
 endef
@@ -150,7 +149,6 @@ nodes: require-root $(BIN)
 	     && mv /usr/local/bin/sinteractive.new /usr/local/bin/sinteractive \
 	     && install -D -m 0644 $(CURDIR)/man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1 \
 	     && install -D -m 0644 $(CURDIR)/completions/sinteractive.bash /usr/local/share/bash-completion/completions/sinteractive \
-	     && install -d -m 0755 /usr/local/share/sinteractive/claude/hooks \
 	     && install -m 0644 $(CURDIR)/claude/settings-snippet.json /usr/local/share/sinteractive/claude/ \
 	     && for s in $(SKILLS); do install -D -m 0644 $(CURDIR)/$$s /usr/local/share/sinteractive/$$s || exit 1; done \
 	     && echo ok'; \
@@ -165,7 +163,6 @@ nodes: require-root $(BIN)
 	         mv /usr/local/bin/sinteractive.new /usr/local/bin/sinteractive; \
 	         install -D -m 0644 "$$d/man/sinteractive.1" /usr/local/share/man/man1/sinteractive.1; \
 	         install -D -m 0644 "$$d/completions/sinteractive.bash" /usr/local/share/bash-completion/completions/sinteractive; \
-	         install -d -m 0755 /usr/local/share/sinteractive/claude/hooks; \
 	         install -m 0644 "$$d/claude/settings-snippet.json" /usr/local/share/sinteractive/claude/; \
 	         cd "$$d" && for s in skills/*/*.md; do install -D -m 0644 "$$s" "/usr/local/share/sinteractive/$$s"; done; \
 	         echo ok' \

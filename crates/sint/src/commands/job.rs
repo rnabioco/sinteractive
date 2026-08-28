@@ -141,6 +141,12 @@ fn help_pages() -> Vec<Vec<(String, String)>> {
 pub trait Deps {
     /// Ask Slurm for this job's end time; `Some` only when confirmed.
     fn query_end_epoch(&mut self) -> Option<i64>;
+    /// The session name Slurm currently carries in the job's Comment
+    /// (`Some(name)` once known; `None` before the first query). A rename
+    /// (`Ctrl+b $`) rewrites the Comment, and the loop follows it.
+    fn current_name(&mut self) -> Option<Option<String>> {
+        None
+    }
     /// Consume a pending `<jobid>.poke` (true when one was there).
     fn take_poke(&mut self) -> bool;
     /// The current quota snapshot (cache, re-probed when stale); `None`
@@ -348,6 +354,9 @@ impl JobLoop {
     /// Ask Slurm now, bypassing the rate floor. Returns the confirmed end
     /// time; a failure leaves the previous one alone.
     fn refresh_end_epoch(&mut self, now: i64, deps: &mut dyn Deps) -> Option<i64> {
+        if let Some(name) = deps.current_name() {
+            self.cfg.name = name;
+        }
         self.end_query = now;
         let e = deps.query_end_epoch()?;
         self.end_epoch = Some(e);
@@ -870,12 +879,15 @@ pub fn gpu_line(snap: &Snapshot) -> String {
 /// (`$CLAUDE_CONFIG_DIR`, else `~/.claude`): the session-context hook
 /// exists and one of the settings files mentions it (script line 1244).
 pub fn claude_integration_active(dir: &Path) -> bool {
-    if !dir.join("hooks/sinteractive-session-context.sh").exists() {
-        return false;
-    }
+    // The native hook (`sinteractive hook session-start`) or the 0.x script
+    // registered in either settings file counts; a string test, not JSON
+    // parsing, on purpose (the file is the user's).
     ["settings.json", "settings.local.json"].iter().any(|f| {
         std::fs::read_to_string(dir.join(f))
-            .map(|s| s.contains("sinteractive-session-context"))
+            .map(|s| {
+                s.contains("sinteractive hook session-start")
+                    || s.contains("sinteractive-session-context")
+            })
             .unwrap_or(false)
     })
 }
@@ -1122,6 +1134,8 @@ fn job_names(slurm: &Slurm) -> HashMap<u64, String> {
 
 /// The real side effects.
 struct NodeDeps<'a> {
+    /// Session name from the last Comment read (see `Deps::current_name`).
+    seen_name: Option<Option<String>>,
     ctx: &'a Ctx,
     zellij: &'a ZellijEnv,
     job_id: u64,
@@ -1133,8 +1147,13 @@ struct NodeDeps<'a> {
 }
 
 impl Deps for NodeDeps<'_> {
+    fn current_name(&mut self) -> Option<Option<String>> {
+        self.seen_name.clone()
+    }
+
     fn query_end_epoch(&mut self) -> Option<i64> {
         let row = self.ctx.slurm.job(self.job_id).ok()??;
+        self.seen_name = Some(sint_core::session::parse_comment(&row.comment).flatten());
         slurm_timestamp_to_epoch(&row.end_time)
     }
 
@@ -1389,6 +1408,7 @@ pub fn run(args: JobArgs) -> Result<i32> {
     };
     let exe = std::env::current_exe().unwrap_or_else(|_| zellij.exe.clone());
     let mut deps = NodeDeps {
+        seen_name: None,
         ctx: &ctx,
         zellij: &zellij,
         job_id,

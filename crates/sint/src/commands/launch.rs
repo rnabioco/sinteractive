@@ -2,8 +2,8 @@
 //!
 //! Ports `main` (script lines 510-856): nesting guard, name validation and
 //! duplicate check, default sbatch flags from [`Config`], the maintenance
-//! fit, the job-limit check, submission with the running binary as the
-//! batch script (`… <exe> __job …`), Comment tagging, the pending wait,
+//! fit, the job-limit check, submission of a one-line `--wrap` that execs
+//! this binary's `__job` verb on the node, Comment tagging, the pending wait,
 //! the readiness wait over one ssh, then either the detached report or an
 //! interactive attach followed by the teardown summary.
 //!

@@ -25,8 +25,6 @@ pub struct Config {
     /// `SINTERACTIVE_MOUSE` — `on/1/true/yes` enables mouse mode,
     /// `off/0/false/no` disables it. Default **on** (0.x defaulted to off).
     pub mouse: bool,
-    /// `SINTERACTIVE_ZELLIJ` — path to a zellij binary; bypasses the bundle.
-    pub zellij: Option<PathBuf>,
     /// `SINTERACTIVE_CACHE` — state dir; default `$XDG_CACHE_HOME/sinteractive`
     /// or `~/.cache/sinteractive`.
     pub cache_dir: PathBuf,
@@ -120,7 +118,6 @@ impl Config {
             cpus: 2,
             mem: "8G".to_string(),
             mouse: true,
-            zellij: None,
             cache_dir: cache_dir_from_env(),
             share_dir: None,
             warn_yellow: 3600,
@@ -152,7 +149,6 @@ impl Config {
             mouse: env_str("SINTERACTIVE_MOUSE")
                 .and_then(|v| parse_bool(&v))
                 .unwrap_or(d.mouse),
-            zellij: env_str("SINTERACTIVE_ZELLIJ").map(PathBuf::from),
             cache_dir: d.cache_dir,
             share_dir: env_str("SINTERACTIVE_SHARE").map(PathBuf::from),
             warn_yellow: env_parse("SINTERACTIVE_WARN_YELLOW", d.warn_yellow),
@@ -231,7 +227,6 @@ pub(crate) mod test_env {
         "SINTERACTIVE_CPUS",
         "SINTERACTIVE_MEM",
         "SINTERACTIVE_MOUSE",
-        "SINTERACTIVE_ZELLIJ",
         "SINTERACTIVE_CACHE",
         "SINTERACTIVE_SHARE",
         "SINTERACTIVE_WARN_YELLOW",
@@ -300,7 +295,6 @@ mod tests {
         assert_eq!(c.cpus, 2);
         assert_eq!(c.mem, "8G");
         assert!(c.mouse, "mouse defaults on");
-        assert_eq!(c.zellij, None);
         assert_eq!(c.cache_dir, PathBuf::from("/home/test/.cache/sinteractive"));
         assert_eq!(c.share_dir, None);
         assert_eq!(c.warn_yellow, 3600);
@@ -330,7 +324,6 @@ mod tests {
         std::env::set_var("SINTERACTIVE_CPUS", "8");
         std::env::set_var("SINTERACTIVE_MEM", "32G");
         std::env::set_var("SINTERACTIVE_MOUSE", "off");
-        std::env::set_var("SINTERACTIVE_ZELLIJ", "/opt/zellij");
         std::env::set_var("SINTERACTIVE_CACHE", "/tmp/sint-cache");
         std::env::set_var("SINTERACTIVE_SHARE", "/opt/share");
         std::env::set_var("SINTERACTIVE_WARN_YELLOW", "1200");
@@ -353,7 +346,6 @@ mod tests {
         assert_eq!(c.cpus, 8);
         assert_eq!(c.mem, "32G");
         assert!(!c.mouse);
-        assert_eq!(c.zellij, Some(PathBuf::from("/opt/zellij")));
         assert_eq!(c.cache_dir, PathBuf::from("/tmp/sint-cache"));
         assert_eq!(c.share_dir, Some(PathBuf::from("/opt/share")));
         assert_eq!(c.warn_yellow, 1200);

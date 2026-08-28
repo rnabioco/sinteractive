@@ -42,7 +42,7 @@ pub fn run() -> Result<i32> {
         );
         eprintln!();
         eprintln!(
-            "{}Looked for claude/hooks and skills/ beside this binary, in its{}",
+            "{}Looked for claude/settings-snippet.json and skills/ beside this binary, in its{}",
             e.dim, e.reset
         );
         eprintln!(
@@ -215,7 +215,7 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
-/// Locate the directory holding `claude/hooks` and `skills/`: an explicit
+/// Locate the directory holding `claude/settings-snippet.json` and `skills/`: an explicit
 /// `SINTERACTIVE_SHARE`, the share dir beside the installed binary
 /// (`bin/../share/sinteractive`), the binary's own directory, then the
 /// checkout the binary was built in (`target/debug/` and
@@ -248,7 +248,7 @@ fn find_assets() -> Option<PathBuf> {
 /// `skills/` left by a half-finished install does not pass; `bodhi-compute`
 /// accepts a tree from before the 2026-08 rename.
 fn has_assets(root: &Path) -> bool {
-    root.join("claude/hooks").is_dir()
+    root.join("claude/settings-snippet.json").is_file()
         && (root.join("skills/hpc-compute").is_dir() || root.join("skills/bodhi-compute").is_dir())
 }
 
