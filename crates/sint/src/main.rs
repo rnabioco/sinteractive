@@ -3,6 +3,9 @@
 mod bundle;
 mod cli;
 mod commands;
+// Used by __job/__attach/peek/send/doctor, wired next.
+#[allow(dead_code)]
+mod zellij_cmd;
 mod zellij_embed;
 
 use clap::Parser;
