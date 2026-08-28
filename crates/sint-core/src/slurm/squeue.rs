@@ -147,12 +147,9 @@ pub fn parse_job_briefs(output: &str) -> Result<Vec<JobBrief>, SlurmError> {
             continue;
         }
         let mut fields = line.splitn(4, '|');
-        let (Some(id), Some(state), Some(node), Some(name)) = (
-            fields.next(),
-            fields.next(),
-            fields.next(),
-            fields.next(),
-        ) else {
+        let (Some(id), Some(state), Some(node), Some(name)) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
+        else {
             return Err(bad(line));
         };
         let name = name.trim();

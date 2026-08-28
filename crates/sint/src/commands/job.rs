@@ -2186,10 +2186,8 @@ mod tests {
 
     #[test]
     fn the_queue_comes_from_one_squeue_call() {
-        let q = sint_core::slurm::squeue::parse_job_briefs(
-            "1|RUNNING|n1|train\n2|PENDING||\n",
-        )
-        .unwrap();
+        let q = sint_core::slurm::squeue::parse_job_briefs("1|RUNNING|n1|train\n2|PENDING||\n")
+            .unwrap();
         assert_eq!(
             q,
             vec![
