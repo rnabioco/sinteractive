@@ -76,10 +76,17 @@ pub fn run() -> Result<i32> {
             p.dim, p.reset
         );
     }
-    install_hooks(&assets, &claude_dir)?;
+    for old in remove_legacy_hook_scripts(&claude_dir)? {
+        println!(
+            "{}Removed the 0.x hook script {} (hooks are `sinteractive hook …` now){}",
+            p.dim,
+            old.display(),
+            p.reset
+        );
+    }
 
     println!(
-        "{}✓{} Installed the Claude Code hooks and skills ({}{}{}) into {}{}{}",
+        "{}✓{} Installed the Claude Code skills ({}{}{}) into {}{}{}",
         p.ok,
         p.reset,
         p.key,
@@ -302,28 +309,26 @@ fn remove_stale_skills(claude_dir: &Path, installed: &[String]) -> Result<Vec<(S
     Ok(removed)
 }
 
-/// Install `claude/hooks/*.sh` as 0755 into `<claude_dir>/hooks/`.
-fn install_hooks(assets: &Path, claude_dir: &Path) -> Result<()> {
-    let src = assets.join("claude/hooks");
-    let mut hooks: Vec<PathBuf> = fs::read_dir(&src)
-        .with_context(|| format!("could not read {}", src.display()))?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.is_file() && p.extension() == Some(OsStr::new("sh")))
-        .collect();
-    hooks.sort();
-    for h in hooks {
-        let target = claude_dir
-            .join("hooks")
-            .join(h.file_name().unwrap_or_default());
-        // Write through a copy rather than fs::copy so a read-only source
-        // mode never sticks to the installed file.
-        let bytes = fs::read(&h).with_context(|| format!("could not read {}", h.display()))?;
-        fs::write(&target, bytes)
-            .with_context(|| format!("could not write {}", target.display()))?;
-        fs::set_permissions(&target, fs::Permissions::from_mode(0o755))
-            .with_context(|| format!("could not chmod {}", target.display()))?;
+/// Remove the 0.x hook scripts from `<claude_dir>/hooks/`; the hooks are
+/// subcommands of the binary now (`sinteractive hook …`). Returns what was
+/// removed.
+fn remove_legacy_hook_scripts(claude_dir: &Path) -> Result<Vec<PathBuf>> {
+    let dir = claude_dir.join("hooks");
+    let mut removed = Vec::new();
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return Ok(removed);
+    };
+    for e in entries.flatten() {
+        let path = e.path();
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        if name.starts_with("sinteractive-") && name.ends_with(".sh") && path.is_file() {
+            fs::remove_file(&path)
+                .with_context(|| format!("could not remove {}", path.display()))?;
+            removed.push(path);
+        }
     }
-    Ok(())
+    removed.sort();
+    Ok(removed)
 }
 
 // ---- settings.json ---------------------------------------------------------
@@ -429,14 +434,14 @@ fn load_object(path: &Path) -> Result<Map<String, Value>, String> {
     }
 }
 
-/// Every `sinteractive-*.sh` script named in a `command` string anywhere
+/// Every sinteractive hook identity named in a `command` string anywhere
 /// under `v` (jq: `.. | objects | .command? | strings`).
 fn hook_scripts(v: &Value, out: &mut BTreeSet<String>) {
     match v {
         Value::Object(m) => {
             if let Some(Value::String(cmd)) = m.get("command") {
-                if let Some(name) = script_name(cmd) {
-                    out.insert(name);
+                if let Some(name) = hook_identity(cmd) {
+                    out.insert(name.to_string());
                 }
             }
             for child in m.values() {
@@ -452,11 +457,32 @@ fn hook_scripts(v: &Value, out: &mut BTreeSet<String>) {
     }
 }
 
-/// The first `sinteractive-[A-Za-z0-9._-]*\.sh` in `command`, if any.
-fn script_name(command: &str) -> Option<String> {
+/// Which sinteractive hook a `command` string is, if any: the native form
+/// (`sinteractive hook session-start` / `sinteractive hook prompt`) and the
+/// 0.x scripts (`…/sinteractive-session-context.sh`,
+/// `…/sinteractive-walltime-guard.sh`) map to the same identity, so an
+/// upgrade replaces the script entry instead of adding a second hook.
+fn hook_identity(command: &str) -> Option<&'static str> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| regex::Regex::new(r"sinteractive-[A-Za-z0-9._-]*\.sh").unwrap());
-    re.find(command).map(|m| m.as_str().to_string())
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(
+            r"sinteractive(?:-session-context\.sh|-walltime-guard\.sh|\s+hook\s+(session-start|prompt))\b",
+        )
+        .unwrap()
+    });
+    let m = re.captures(command)?;
+    Some(match m.get(1).map(|g| g.as_str()) {
+        Some("session-start") => "session-start",
+        Some("prompt") => "prompt",
+        Some(_) => return None,
+        None if m.get(0).unwrap().as_str().contains("session-context") => "session-start",
+        None => "prompt",
+    })
+}
+
+/// Whether `command` is a 0.x bash hook (`…/sinteractive-*.sh`).
+fn is_legacy_hook(command: &str) -> bool {
+    hook_identity(command).is_some() && command.contains(".sh")
 }
 
 /// Append the snippet's hook entries to `settings.hooks`, skipping any entry
@@ -474,6 +500,9 @@ pub fn merge_hooks(
         return Ok(false);
     };
 
+    // Upgrade path: drop 0.x script entries so the native ones replace them.
+    let mut changed = strip_legacy_hooks(settings);
+
     let mut registered = BTreeSet::new();
     for doc in [settings as &Map<String, Value>, other] {
         if let Some(h) = doc.get("hooks") {
@@ -481,7 +510,6 @@ pub fn merge_hooks(
         }
     }
 
-    let mut changed = false;
     for (event, entries) in add {
         let Value::Array(entries) = entries else {
             continue;
@@ -517,6 +545,36 @@ pub fn merge_hooks(
         changed = true;
     }
     Ok(changed)
+}
+
+/// Remove hook entries whose every command is a 0.x `sinteractive-*.sh`
+/// script. Entries mixing ours with the user's own commands are left alone.
+/// Returns whether anything was removed.
+fn strip_legacy_hooks(settings: &mut Map<String, Value>) -> bool {
+    let Some(Value::Object(hooks)) = settings.get_mut("hooks") else {
+        return false;
+    };
+    let mut changed = false;
+    for entries in hooks.values_mut() {
+        let Value::Array(entries) = entries else {
+            continue;
+        };
+        let before = entries.len();
+        entries.retain(|entry| {
+            let cmds: Vec<&str> = entry
+                .get("hooks")
+                .and_then(Value::as_array)
+                .map(|hs| {
+                    hs.iter()
+                        .filter_map(|h| h.get("command").and_then(Value::as_str))
+                        .collect()
+                })
+                .unwrap_or_default();
+            !(!cmds.is_empty() && cmds.iter().all(|c| is_legacy_hook(c)))
+        });
+        changed |= entries.len() != before;
+    }
+    changed
 }
 
 /// Add the statusline when the user has none. Returns whether it was added.
@@ -705,23 +763,32 @@ mod tests {
 
     fn snippet() -> Map<String, Value> {
         obj(r#"{"hooks":{
-            "SessionStart":[{"hooks":[{"type":"command","command":"bash ~/.claude/hooks/sinteractive-session-context.sh","timeout":10}]}],
-            "UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash ~/.claude/hooks/sinteractive-walltime-guard.sh","timeout":10}]}]
+            "SessionStart":[{"hooks":[{"type":"command","command":"sinteractive hook session-start","timeout":10}]}],
+            "UserPromptSubmit":[{"hooks":[{"type":"command","command":"sinteractive hook prompt","timeout":10}]}]
         }}"#)
     }
 
     #[test]
-    fn script_name_extracts_the_basename() {
+    fn hook_identity_covers_legacy_and_native() {
         assert_eq!(
-            script_name("bash ~/.claude/hooks/sinteractive-session-context.sh").as_deref(),
-            Some("sinteractive-session-context.sh")
+            hook_identity("bash ~/.claude/hooks/sinteractive-session-context.sh"),
+            Some("session-start")
         );
         assert_eq!(
-            script_name("/opt/x/sinteractive-walltime-guard.sh --x").as_deref(),
-            Some("sinteractive-walltime-guard.sh")
+            hook_identity("/opt/x/sinteractive-walltime-guard.sh --x"),
+            Some("prompt")
         );
-        assert_eq!(script_name("sinteractive statusline"), None);
-        assert_eq!(script_name("my-hook.sh"), None);
+        assert_eq!(
+            hook_identity("sinteractive hook session-start"),
+            Some("session-start")
+        );
+        assert_eq!(hook_identity("sinteractive  hook prompt"), Some("prompt"));
+        assert_eq!(hook_identity("sinteractive statusline"), None);
+        assert_eq!(hook_identity("my-hook.sh"), None);
+        assert!(is_legacy_hook(
+            "bash ~/.claude/hooks/sinteractive-walltime-guard.sh"
+        ));
+        assert!(!is_legacy_hook("sinteractive hook prompt"));
     }
 
     #[test]

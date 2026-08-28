@@ -39,7 +39,7 @@ fn fresh_install_creates_skills_hooks_settings_and_mcp() {
     let fx = FakeSlurm::new();
     let claude = fx.claude_dir();
     install(&fx).success().stdout(
-        predicate::str::contains("Installed the Claude Code hooks and skills")
+        predicate::str::contains("Installed the Claude Code skills")
             .and(predicate::str::contains("hpc-compute"))
             .and(predicate::str::contains("git-workflow"))
             .and(predicate::str::contains(
@@ -65,18 +65,10 @@ fn fresh_install_creates_skills_hooks_settings_and_mcp() {
     assert!(claude.join("skills/hpc-compute/alpine.md").is_file());
     assert!(claude.join("skills/hpc-compute/bodhi.md").is_file());
 
-    // Hooks, executable.
-    for hook in [
-        "sinteractive-session-context.sh",
-        "sinteractive-walltime-guard.sh",
-    ] {
-        let p = claude.join("hooks").join(hook);
-        assert!(p.is_file(), "{hook}");
-        assert_eq!(
-            fs::metadata(&p).unwrap().permissions().mode() & 0o777,
-            0o755
-        );
-    }
+    // No hook scripts: the hooks are subcommands of the binary.
+    assert!(fs::read_dir(claude.join("hooks"))
+        .map(|d| d.count() == 0)
+        .unwrap_or(true));
 
     // settings.json: both hooks and the statusline, no backup (new file).
     let settings = read_json(&claude.join("settings.json"));
@@ -169,10 +161,10 @@ fn existing_settings_are_preserved_and_backed_up() {
     let start = settings["hooks"]["SessionStart"].as_array().unwrap();
     assert_eq!(start.len(), 2);
     assert_eq!(start[0]["hooks"][0]["command"], "echo mine");
-    assert!(start[1]["hooks"][0]["command"]
-        .as_str()
-        .unwrap()
-        .contains("sinteractive-session-context.sh"));
+    assert_eq!(
+        start[1]["hooks"][0]["command"],
+        "sinteractive hook session-start"
+    );
     assert_eq!(
         settings["hooks"]["UserPromptSubmit"]
             .as_array()
@@ -227,11 +219,8 @@ fn invalid_settings_json_is_refused_and_untouched() {
         broken
     );
     assert!(backups(&claude, "settings.json").is_empty());
-    // Skills, hooks and the MCP server were still installed.
+    // Skills and the MCP server were still installed.
     assert!(claude.join("skills/hpc-compute/SKILL.md").is_file());
-    assert!(claude
-        .join("hooks/sinteractive-walltime-guard.sh")
-        .is_file());
     assert!(claude.join(".claude.json").is_file());
 
     // Same for a broken .claude.json.
@@ -304,4 +293,40 @@ fn compat_flag_still_works() {
         .success()
         .stderr(predicate::str::contains("deprecated"));
     assert!(fx.claude_dir().join("settings.json").is_file());
+}
+
+#[test]
+fn legacy_script_hooks_are_replaced_by_native_ones() {
+    let fx = FakeSlurm::new();
+    let claude = fx.claude_dir();
+    fs::create_dir_all(claude.join("hooks")).unwrap();
+    fs::write(
+        claude.join("hooks/sinteractive-walltime-guard.sh"),
+        "#!/bin/sh\n",
+    )
+    .unwrap();
+    fs::write(
+        claude.join("settings.json"),
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"bash ~/.claude/hooks/sinteractive-session-context.sh","timeout":10}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"echo keep"}]},{"hooks":[{"type":"command","command":"bash ~/.claude/hooks/sinteractive-walltime-guard.sh","timeout":10}]}]}}"#,
+    )
+    .unwrap();
+    install(&fx)
+        .success()
+        .stdout(predicate::str::contains("Removed the 0.x hook script"));
+    assert!(!claude.join("hooks/sinteractive-walltime-guard.sh").exists());
+    let settings = read_json(&claude.join("settings.json"));
+    let start = settings["hooks"]["SessionStart"].as_array().unwrap();
+    assert_eq!(start.len(), 1);
+    assert_eq!(
+        start[0]["hooks"][0]["command"],
+        "sinteractive hook session-start"
+    );
+    let prompt = settings["hooks"]["UserPromptSubmit"].as_array().unwrap();
+    assert_eq!(prompt.len(), 2);
+    assert_eq!(prompt[0]["hooks"][0]["command"], "echo keep");
+    assert_eq!(prompt[1]["hooks"][0]["command"], "sinteractive hook prompt");
+    // Idempotent afterwards.
+    install(&fx).success();
+    let again = read_json(&claude.join("settings.json"));
+    assert_eq!(again, settings);
 }

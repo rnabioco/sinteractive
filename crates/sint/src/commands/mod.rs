@@ -11,11 +11,13 @@ pub mod attach;
 pub mod cancel;
 pub mod common;
 pub mod ensure;
+pub mod hook;
 pub mod install_claude;
 pub mod launch;
 pub mod list;
 pub mod quota;
 pub mod status;
+pub mod statusline;
 
 /// Everything not yet implemented in this phase.
 fn not_yet(what: &str) -> Result<i32> {
@@ -45,7 +47,16 @@ pub fn dispatch(command: Command) -> Result<i32> {
             clap_mangen::Man::new(cmd).render(&mut std::io::stdout())?;
             Ok(0)
         }
-        Command::Schema => not_yet("schema"),
+        Command::Schema => {
+            let schema = serde_json::json!({
+                "session": schemars::schema_for!(sint_core::session::SessionInfo),
+                "state_file": schemars::schema_for!(sint_core::state::StateFile),
+                "quota": schemars::schema_for!(sint_core::quota::QuotaSnapshot),
+                "notice": schemars::schema_for!(sint_core::notices::Notice),
+            });
+            println!("{}", serde_json::to_string_pretty(&schema)?);
+            Ok(0)
+        }
         // Intercepted in main.rs before clap runs; unreachable here.
         Command::Zellij(args) => {
             let mut zargs = vec!["zellij".to_string()];
@@ -58,8 +69,8 @@ pub fn dispatch(command: Command) -> Result<i32> {
         Command::Events(_) => not_yet("events"),
         Command::Peek(_) => not_yet("peek"),
         Command::Send(_) => not_yet("send"),
-        Command::Hook(_) => not_yet("hook"),
-        Command::Statusline => not_yet("statusline"),
+        Command::Hook(args) => hook::run(args),
+        Command::Statusline => statusline::run(),
         Command::Mcp => not_yet("mcp"),
         Command::InstallClaude => install_claude::run(),
         Command::Doctor(_) => not_yet("doctor"),
