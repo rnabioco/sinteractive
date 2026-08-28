@@ -9,6 +9,7 @@ use crate::cli::Command;
 pub mod agent_context;
 pub mod attach;
 pub mod cancel;
+pub mod common;
 pub mod ensure;
 pub mod install_claude;
 pub mod launch;
