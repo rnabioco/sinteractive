@@ -15,7 +15,13 @@ pub struct Colors {
     pub ok: (u8, u8, u8),
     pub warn: (u8, u8, u8),
     pub err: (u8, u8, u8),
+    /// Values. Set on every one of them, because a cell this plugin leaves
+    /// unstyled takes zellij's theme `fg`, a mid grey dimmer than the labels.
+    pub text: (u8, u8, u8),
     pub dim: (u8, u8, u8),
+    /// The unfilled half of a gauge — below `dim`, so a trough never
+    /// outshines the words beside it.
+    pub track: (u8, u8, u8),
     pub hint: (u8, u8, u8),
 }
 
@@ -24,8 +30,10 @@ pub const DARK: Colors = Colors {
     ok: (0x4E, 0xBA, 0x65),
     warn: (0xFF, 0xC1, 0x07),
     err: (0xFF, 0x6B, 0x80),
-    dim: (0xCC, 0xCC, 0xCC),
-    hint: (0xC8, 0xCE, 0xFF),
+    text: (0xFF, 0xFF, 0xFF),
+    dim: (0xD9, 0xD9, 0xD9),
+    track: (0x59, 0x59, 0x59),
+    hint: (0xD7, 0xE0, 0xFF),
 };
 
 pub const LIGHT: Colors = Colors {
@@ -33,7 +41,9 @@ pub const LIGHT: Colors = Colors {
     ok: (0x2C, 0x7A, 0x39),
     warn: (0x96, 0x6C, 0x1E),
     err: (0xAB, 0x2B, 0x3F),
-    dim: (0x55, 0x55, 0x55),
+    text: (0x1A, 0x1A, 0x1A),
+    dim: (0x3F, 0x3F, 0x3F),
+    track: (0xA6, 0xA6, 0xA6),
     hint: (0x57, 0x69, 0xF7),
 };
 
@@ -143,13 +153,13 @@ pub fn status_line(st: &State, cols: usize) -> String {
     }
     if !m.host.is_empty() {
         segs.push(Seg {
-            text: m.host.clone(),
+            text: format!("{}{}{RESET}", fg(c.text), m.host),
             drop_prio: 4,
         });
     }
     if !m.remaining.is_empty() {
         let value = match m.severity {
-            Severity::Ok => m.remaining.clone(),
+            Severity::Ok => format!("{}{}{RESET}", fg(c.text), m.remaining),
             Severity::Yellow => format!("{}{}{RESET}", fg(c.warn), m.remaining),
             Severity::Red | Severity::Ending => {
                 format!("{}{BOLD}{}{RESET}", fg(c.err), m.remaining)
@@ -162,19 +172,19 @@ pub fn status_line(st: &State, cols: usize) -> String {
     }
     if !m.load.is_empty() {
         segs.push(Seg {
-            text: m.load.clone(),
+            text: format!("{}{}{RESET}", fg(c.text), m.load),
             drop_prio: 3,
         });
     }
     if !m.gpu.is_empty() {
         segs.push(Seg {
-            text: m.gpu.clone(),
+            text: format!("{}{}{RESET}", fg(c.text), m.gpu),
             drop_prio: 3,
         });
     }
     if !m.jobs.is_empty() {
         segs.push(Seg {
-            text: format!("{}jobs{RESET} {}", fg(c.dim), m.jobs),
+            text: format!("{}jobs{RESET} {}{}{RESET}", fg(c.dim), fg(c.text), m.jobs),
             drop_prio: 4,
         });
     }
@@ -311,11 +321,11 @@ pub fn help_line(st: &State, page: usize, cols: usize) -> String {
 }
 
 /// A horizontal bar of `width` cells for `pct` (0–100).
-pub fn bar(pct: u8, width: usize, col: (u8, u8, u8), dim: (u8, u8, u8)) -> String {
+pub fn bar(pct: u8, width: usize, col: (u8, u8, u8), track: (u8, u8, u8)) -> String {
     let filled = (width * pct.min(100) as usize).div_ceil(100);
     let mut s = fg(col);
     s.push_str(&"█".repeat(filled));
-    s.push_str(&fg(dim));
+    s.push_str(&fg(track));
     s.push_str(&"░".repeat(width.saturating_sub(filled)));
     s.push_str(RESET);
     s
@@ -368,11 +378,12 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         String::new()
     };
     out.push(format!(
-        "{}◀{RESET} {}{BOLD}{}{RESET} {}·{RESET} {} {}{stale} {}{}/{n}{RESET} {}▶{RESET}   {}^b ,/. host · ^b m close{RESET}",
+        "{}◀{RESET} {}{BOLD}{}{RESET} {}·{RESET} {}{} {}{stale} {}{}/{n}{RESET} {}▶{RESET}   {}^b ,/. host · ^b m close{RESET}",
         fg(c.hint),
         fg(c.accent),
         h.host,
         fg(c.dim),
+        fg(c.text),
         h.job_id,
         name,
         fg(c.dim),
@@ -383,24 +394,31 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
     // Resource rows.
     let bw = 20usize.min(cols.saturating_sub(30).max(5));
     out.push(format!(
-        "{}cpu{RESET} {} {:>3}% {}of{RESET} {} {}·{RESET} load {:.1}  {}",
+        "{}cpu{RESET} {} {}{:>3}%{RESET} {}of{RESET} {}{} {}·{RESET} {}load{RESET} {}{:.1}{RESET}  {}{}{RESET}",
         fg(c.dim),
-        bar(h.cpu_pct, bw, c.ok, c.dim),
+        bar(h.cpu_pct, bw, c.ok, c.track),
+        fg(c.text),
         h.cpu_pct,
         fg(c.dim),
+        fg(c.text),
         h.cpu_alloc,
         fg(c.dim),
+        fg(c.dim),
+        fg(c.text),
         h.load1,
+        fg(c.dim),
         sparkline(&h.cpu_history, cols.saturating_sub(bw + 40).min(30))
     ));
     let mem_pct = pct_of(h.mem_used_mb, h.mem_alloc_mb);
     out.push(format!(
-        "{}mem{RESET} {} {:>3}% {} {}/{RESET} {}",
+        "{}mem{RESET} {} {}{:>3}% {}{RESET} {}/{RESET} {}{}{RESET}",
         fg(c.dim),
-        bar(mem_pct, bw, c.accent, c.dim),
+        bar(mem_pct, bw, c.accent, c.track),
+        fg(c.text),
         mem_pct,
         mb_to_g(h.mem_used_mb),
         fg(c.dim),
+        fg(c.text),
         mb_to_g(h.mem_alloc_mb)
     ));
     for g in &h.gpus {
@@ -414,16 +432,18 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         .collect::<Vec<_>>()
         .join(" ");
         out.push(format!(
-            "{}gpu{}{RESET} {} {:>3}% {}{}/{}{RESET} {} {}",
+            "{}gpu{}{RESET} {} {}{:>3}%{RESET} {}{}/{}{RESET} {}{}{RESET} {}",
             fg(c.dim),
             g.index,
-            bar(g.util_pct, bw, c.warn, c.dim),
+            bar(g.util_pct, bw, c.warn, c.track),
+            fg(c.text),
             g.util_pct,
             fg(c.dim),
             mb_to_g(g.mem_used_mb),
             mb_to_g(g.mem_total_mb),
+            fg(c.text),
             extra,
-            bar(mem_pct, 8, c.accent, c.dim)
+            bar(mem_pct, 8, c.accent, c.track)
         ));
     }
     // Process table in the remaining rows.
@@ -443,7 +463,8 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
             let cmd_room = cols.saturating_sub(31);
             let cmd: String = p.command.chars().take(cmd_room).collect();
             out.push(format!(
-                "{:>7} {:>5.1} {:>7} {:>6}  {cmd}",
+                "{}{:>7} {:>5.1} {:>7} {:>6}  {cmd}{RESET}",
+                fg(c.text),
                 p.pid,
                 p.cpu_pct,
                 mb_to_g(p.rss_mb),
@@ -655,6 +676,6 @@ mod tests {
             );
         }
         assert_eq!(sparkline(&[0, 50, 100], 10).chars().count(), 3);
-        assert_eq!(visible_width(&bar(50, 10, c.ok, c.dim)), 10);
+        assert_eq!(visible_width(&bar(50, 10, c.ok, c.track)), 10);
     }
 }

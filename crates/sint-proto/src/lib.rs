@@ -87,6 +87,22 @@ pub struct HostPanel {
     pub cpu_history: Vec<u8>,
 }
 
+/// Which palette the bar and panel should draw with.
+///
+/// Zellij offers `HostTerminalThemeChanged`, but it is only as good as the
+/// host terminal's answer to an OSC 11 that many terminals never send — and a
+/// wrong `Light` there paints the light palette's dark grey (`#555555`) and
+/// indigo (`#5769F7`) onto a dark background, where they read as barely-there
+/// text. The session resolves the mode itself (`SINTERACTIVE_THEME`, then
+/// `COLORFGBG`, then dark) and says so here; the plugin trusts this over the
+/// event whenever it is set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ThemePref {
+    Dark,
+    Light,
+}
+
 /// The whole message. Every field is a plain value the plugin can print.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -112,6 +128,8 @@ pub struct StatusMsg {
     pub hosts: Vec<HostPanel>,
     /// Sampler-side timestamp (epoch seconds), so the plugin can show staleness.
     pub sent_epoch: i64,
+    /// The palette the session resolved; `None` leaves it to zellij's event.
+    pub theme: Option<ThemePref>,
 }
 
 /// Keybinding-driven UI actions, sent as the payload on [`UI_PIPE_NAME`].

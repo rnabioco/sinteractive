@@ -1,6 +1,6 @@
 //! Plugin UI state and its transitions — no zellij types here.
 
-use sint_proto::{StatusMsg, UiAction};
+use sint_proto::{StatusMsg, ThemePref, UiAction};
 
 /// Which content the bar line shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -13,7 +13,9 @@ pub enum BarMode {
     Help { page: usize },
 }
 
-/// Terminal background, from zellij's `HostTerminalThemeChanged`.
+/// Which palette to draw with. Dark by default: the light palette's grey and
+/// indigo are unreadable on a dark background, so an unknown terminal is
+/// assumed dark rather than guessed at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThemeMode {
     #[default]
@@ -29,6 +31,12 @@ pub struct State {
     pub msg: StatusMsg,
     pub mode: BarMode,
     pub theme: ThemeMode,
+    /// Set once a `StatusMsg` names a palette. The session resolves the mode
+    /// from `SINTERACTIVE_THEME`/`COLORFGBG` and knows better than zellij's
+    /// `HostTerminalThemeChanged`, which reports the host terminal's answer to
+    /// an OSC 11 many terminals never send — and a wrong `Light` there is the
+    /// bug that painted dark grey and indigo onto a dark background.
+    pub theme_from_session: bool,
     pub panel_open: bool,
     /// Index into `msg.hosts` shown by the panel.
     pub host_idx: usize,
@@ -49,6 +57,14 @@ pub const MODE_IDLE_TICKS: u32 = 40;
 
 impl State {
     pub fn apply_msg(&mut self, msg: StatusMsg) {
+        // The session's own answer wins over zellij's, for good.
+        if let Some(pref) = msg.theme {
+            self.theme = match pref {
+                ThemePref::Light => ThemeMode::Light,
+                ThemePref::Dark => ThemeMode::Dark,
+            };
+            self.theme_from_session = true;
+        }
         // Keep the selector stable across refreshes: follow the same job id.
         if let Some(cur) = self.msg.hosts.get(self.host_idx) {
             if let Some(i) = msg.hosts.iter().position(|h| h.job_id == cur.job_id) {
@@ -164,6 +180,39 @@ impl State {
 mod tests {
     use super::*;
     use sint_proto::{HostPanel, Notice};
+
+    #[test]
+    fn the_session_names_the_palette_and_zellij_stops_guessing() {
+        let mut st = State::default();
+        // Nothing said yet: dark, and zellij's report still lands.
+        assert_eq!(st.theme, ThemeMode::Dark);
+        assert!(!st.theme_from_session);
+
+        // A dark session pins the palette even though zellij said light.
+        st.theme = ThemeMode::Light;
+        st.apply_msg(StatusMsg {
+            theme: Some(ThemePref::Dark),
+            ..Default::default()
+        });
+        assert_eq!(st.theme, ThemeMode::Dark);
+        assert!(st.theme_from_session, "a later report must not override it");
+
+        // A session that really is light still gets the light palette.
+        st.apply_msg(StatusMsg {
+            theme: Some(ThemePref::Light),
+            ..Default::default()
+        });
+        assert_eq!(st.theme, ThemeMode::Light);
+
+        // A message from an older session says nothing and changes nothing.
+        let mut old = State {
+            theme: ThemeMode::Light,
+            ..Default::default()
+        };
+        old.apply_msg(StatusMsg::default());
+        assert_eq!(old.theme, ThemeMode::Light);
+        assert!(!old.theme_from_session);
+    }
 
     fn msg_with(n_notices: usize, n_hosts: usize) -> StatusMsg {
         StatusMsg {

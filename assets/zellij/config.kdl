@@ -123,11 +123,16 @@ default_layout "sint"
 // Web client stays off unless `sinteractive web` turns it on for a session.
 web_server false
 
-// Colours: terminal defaults; the plugin draws its own accents.
+// Colours: the terminal's own palette; the plugin draws its own accents.
+//
+// `fg` is 15, not 7: index 7 is the palette's *dim* white — around #AAAAAA in
+// most terminals — so every cell a pane left unstyled came out greyer than
+// the labels printed beside it. 15 is the bright white the terminal's default
+// foreground actually is.
 theme "sint"
 themes {
     sint {
-        fg 7
+        fg 15
         bg 0
         black 0
         red 1

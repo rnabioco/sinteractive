@@ -49,7 +49,13 @@ pub struct Colors {
     pub ok: Color,
     pub warn: Color,
     pub err: Color,
+    /// Values. Set explicitly on every one, because an unstyled cell takes
+    /// the terminal's default foreground — inside zellij that is the theme's
+    /// `fg`, a mid grey dimmer than the labels beside it.
+    pub text: Color,
     pub dim: Color,
+    /// The unfilled half of a gauge, below `dim`.
+    pub track: Color,
     pub hint: Color,
 }
 
@@ -64,7 +70,9 @@ impl From<&Theme> for Colors {
             ok: rgb(t.ok),
             warn: rgb(t.warn),
             err: rgb(t.err),
+            text: rgb(t.text),
             dim: rgb(t.dim),
+            track: rgb(t.track),
             hint: rgb(t.hint),
         }
     }
@@ -212,14 +220,14 @@ fn event_loop(terminal: &mut DefaultTerminal, rx: &Receiver<Msg>, app: &mut App)
 // ---- rendering ------------------------------------------------------------
 
 /// `█` × filled, `░` × rest.
-pub fn bar<'a>(pct: u8, width: u16, col: Color, dim: Color) -> Vec<Span<'a>> {
+pub fn bar<'a>(pct: u8, width: u16, col: Color, track: Color) -> Vec<Span<'a>> {
     let width = width as usize;
     let filled = (width * pct.min(100) as usize).div_ceil(100);
     vec![
         Span::styled("█".repeat(filled), Style::default().fg(col)),
         Span::styled(
             "░".repeat(width.saturating_sub(filled)),
-            Style::default().fg(dim),
+            Style::default().fg(track),
         ),
     ]
 }
@@ -293,7 +301,10 @@ fn header_line(app: &App) -> Line<'static> {
         .or_else(|| app.latest.as_ref().and_then(|s| s.scope.job_id));
     if let Some(id) = job_id {
         spans.push(Span::styled(" · ", dim));
-        spans.push(Span::raw(format!("job {id}")));
+        spans.push(Span::styled(
+            format!("job {id}"),
+            Style::default().fg(c.text),
+        ));
         if let Some(n) = &app.label.job_name {
             spans.push(Span::styled(format!(" ({n})"), dim));
         }
@@ -358,21 +369,24 @@ fn gpu_lines(s: &Snapshot, c: &Colors, width: u16) -> Vec<Line<'static>> {
         }
         out.push(Line::from(vec![
             Span::styled(format!("gpu{:<2}", g.index), Style::default().fg(c.hint)),
-            Span::raw(format!(" {:<28}", truncate(&g.name, 28))),
+            Span::styled(
+                format!(" {:<28}", truncate(&g.name, 28)),
+                Style::default().fg(c.text),
+            ),
             Span::styled(format!("  {}", extra.join("  ")), dim),
         ]));
         let mem_pct = pct_of(g.mem_used_mb, g.mem_total_mb);
         let mut spans = vec![Span::styled("     util ", dim)];
-        spans.extend(bar(g.util_pct, bw, c.level(g.util_pct), c.dim));
+        spans.extend(bar(g.util_pct, bw, c.level(g.util_pct), c.track));
         spans.push(Span::styled(
             format!(" {:>3}%", g.util_pct),
             Style::default().fg(c.level(g.util_pct)),
         ));
         spans.push(Span::styled("   mem ", dim));
-        spans.extend(bar(mem_pct, bw, c.accent, c.dim));
+        spans.extend(bar(mem_pct, bw, c.accent, c.track));
         spans.push(Span::styled(
             format!(" {}/{}", mb_to_g(g.mem_used_mb), mb_to_g(g.mem_total_mb)),
-            dim,
+            Style::default().fg(c.text),
         ));
         out.push(Line::from(spans));
     }
@@ -385,7 +399,7 @@ fn cpu_lines(s: &Snapshot, c: &Colors, width: u16) -> Vec<Line<'static>> {
     let cpu_pct = s.cpu.pct.round().clamp(0.0, 100.0) as u8;
     let of = s.scope.cpus_alloc.unwrap_or(s.cpu.ncpu);
     let mut cpu = vec![Span::styled("cpu  ", Style::default().fg(c.hint))];
-    cpu.extend(bar(cpu_pct, bw, c.level(cpu_pct), c.dim));
+    cpu.extend(bar(cpu_pct, bw, c.level(cpu_pct), c.track));
     cpu.push(Span::styled(
         format!(" {cpu_pct:>3}%"),
         Style::default().fg(c.level(cpu_pct)),
@@ -401,22 +415,22 @@ fn cpu_lines(s: &Snapshot, c: &Colors, width: u16) -> Vec<Line<'static>> {
 
     let mem_pct = pct_of(s.mem.used_mb, s.mem.total_mb);
     let mut mem = vec![Span::styled("mem  ", Style::default().fg(c.hint))];
-    mem.extend(bar(mem_pct, bw, c.level(mem_pct), c.dim));
+    mem.extend(bar(mem_pct, bw, c.level(mem_pct), c.track));
     mem.push(Span::styled(
         format!(" {mem_pct:>3}%"),
         Style::default().fg(c.level(mem_pct)),
     ));
     mem.push(Span::styled(
         format!("  {} / {}", mb_to_g(s.mem.used_mb), mb_to_g(s.mem.total_mb)),
-        dim,
+        Style::default().fg(c.text),
     ));
 
     let load = Line::from(vec![
         Span::styled("load ", Style::default().fg(c.hint)),
-        Span::raw(format!(
-            "{:.1} {:.1} {:.1}",
-            s.cpu.load1, s.cpu.load5, s.cpu.load15
-        )),
+        Span::styled(
+            format!("{:.1} {:.1} {:.1}", s.cpu.load1, s.cpu.load5, s.cpu.load15),
+            Style::default().fg(c.text),
+        ),
         Span::styled(
             format!(
                 " · host {} CPUs · {} proc{}",
@@ -469,13 +483,16 @@ fn table_lines(app: &App, s: &Snapshot, area: Rect) -> Vec<Line<'static>> {
             dim
         };
         out.push(Line::from(vec![
-            Span::raw(format!("{:>7} ", p.pid)),
+            Span::styled(format!("{:>7} ", p.pid), Style::default().fg(c.text)),
             Span::styled(format!("{:<10} ", truncate(&p.user, 10)), dim),
             Span::styled(format!("{:>6.1} ", p.cpu_pct), Style::default().fg(cpu_c)),
-            Span::raw(format!("{:>7} ", mb_to_g(p.rss_mb))),
+            Span::styled(
+                format!("{:>7} ", mb_to_g(p.rss_mb)),
+                Style::default().fg(c.text),
+            ),
             Span::styled(format!("{gpu_mem:>8} {sm:>4}"), gpu_style),
             Span::styled(format!("  {}  ", p.state), dim),
-            Span::raw(truncate(&p.command, cmd_room)),
+            Span::styled(truncate(&p.command, cmd_room), Style::default().fg(c.text)),
         ]));
     }
     if start + visible < rows.len() {
