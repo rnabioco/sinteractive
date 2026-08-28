@@ -176,6 +176,16 @@ pub trait Deps {
     /// The user's RUNNING/PENDING jobs (this one included); `None` when
     /// squeue failed, so a hiccup is never read as "every job finished".
     fn other_jobs(&mut self) -> Option<Vec<QueueJob>>;
+    /// Which of those jobs are sinteractive sessions, by Comment.
+    ///
+    /// A session is an orchestration shell, so its CPU and memory are not
+    /// the numbers the panel is opened to read, and a second session would
+    /// push the job that matters down the list. They are left out unless
+    /// `monitor_sessions` says otherwise — which is also why this is a
+    /// second `squeue`: the Comment that decides it cannot share
+    /// [`JOB_BRIEF_FORMAT`]'s row with the free-text job name. Asked once
+    /// per [`JOBS_EVERY`], and not at all when the user has opted in.
+    fn session_ids(&mut self) -> HashSet<u64>;
     /// Whether zellij still lists the session.
     fn session_alive(&mut self) -> bool;
     /// Write `<jobid>.json`.
@@ -245,6 +255,9 @@ pub struct LoopConfig {
     pub quota_poll: i64,
     /// `(reservation, ends_epoch)` from `--maint=NAME@EPOCH`.
     pub maint: Option<(String, i64)>,
+    /// `SINTERACTIVE_MONITOR_SESSIONS`: show the user's *other* sinteractive
+    /// sessions in the monitor panel. Off by default — see [`Deps::session_ids`].
+    pub monitor_sessions: bool,
 }
 
 impl LoopConfig {
@@ -259,6 +272,7 @@ impl LoopConfig {
             poll: cfg.poll,
             quota_poll: cfg.quota_poll,
             maint: None,
+            monitor_sessions: cfg.monitor_sessions,
         }
     }
 }
@@ -296,6 +310,10 @@ pub struct JobLoop {
     queue: Vec<QueueJob>,
     /// Other jobs seen RUNNING/PENDING, by id, for `job_done`.
     seen_jobs: HashMap<u64, Option<String>>,
+    /// Which queued jobs are sinteractive sessions, refreshed with the
+    /// queue. Always empty when the user has opted in to seeing them,
+    /// because then nothing needs classifying.
+    sessions: HashSet<u64>,
     alive_checked: Option<i64>,
     /// Consecutive failed alive checks.
     alive_misses: u32,
@@ -343,6 +361,7 @@ impl JobLoop {
             jobs: String::new(),
             queue: Vec::new(),
             seen_jobs: HashMap::new(),
+            sessions: HashSet::new(),
             alive_checked: None,
             alive_misses: 0,
             last_sent: None,
@@ -523,6 +542,19 @@ impl JobLoop {
         }
         self.seen_jobs = present;
 
+        // Classification costs a squeue, so it is only asked for when it
+        // can change something.
+        self.sessions = if self.cfg.monitor_sessions {
+            HashSet::new()
+        } else {
+            deps.session_ids()
+        };
+
+        // Two different questions: a job that is merely not monitored is
+        // still running, and its `<id>.metrics.json` belongs to whoever
+        // wrote it — for another sinteractive session, to that session's
+        // own sampler. Only a job that has actually left the queue has its
+        // file removed.
         let running: HashSet<u64> = queue
             .iter()
             .filter(|j| j.state == "RUNNING" && j.job_id != self_id)
@@ -531,22 +563,31 @@ impl JobLoop {
         let dropped: Vec<u64> = self
             .remotes
             .keys()
-            .filter(|id| !running.contains(id))
+            .filter(|id| !running.contains(id) || !self.monitored(**id))
             .copied()
             .collect();
         for id in dropped {
             self.remotes.remove(&id);
-            deps.remove_metrics(id);
+            if !running.contains(&id) {
+                deps.remove_metrics(id);
+            }
         }
         self.jobs = jobs_summary(&queue, self_id);
         self.queue = queue;
     }
 
-    /// The other running jobs not on this node.
+    /// Whether the panel should carry this job at all. See
+    /// [`Deps::session_ids`]; `self.sessions` is empty when the user has
+    /// opted in, so this is then true for every other job.
+    fn monitored(&self, job_id: u64) -> bool {
+        job_id != self.cfg.job_id && !self.sessions.contains(&job_id)
+    }
+
+    /// The other monitored running jobs not on this node.
     fn remote_targets(&self) -> Vec<RemoteTarget> {
         self.queue
             .iter()
-            .filter(|j| j.state == "RUNNING" && j.job_id != self.cfg.job_id)
+            .filter(|j| j.state == "RUNNING" && self.monitored(j.job_id))
             .filter_map(|j| {
                 let node = first_node(&j.node)?;
                 (node != self.cfg.host).then_some(RemoteTarget {
@@ -568,6 +609,13 @@ impl JobLoop {
             }
         }
         for r in deps.take_remote() {
+            // A round in flight when the classification changed can still
+            // land: drop it whole rather than cache it. Writing
+            // `<id>.metrics.json` for another session would overwrite what
+            // that session's own sampler put there.
+            if !self.monitored(r.job_id) {
+                continue;
+            }
             if r.fetched {
                 deps.write_metrics(r.job_id, &r.snapshot);
             }
@@ -1190,6 +1238,10 @@ impl Deps for NodeDeps<'_> {
         self.ctx.slurm.my_job_briefs(&["RUNNING", "PENDING"]).ok()
     }
 
+    fn session_ids(&mut self) -> HashSet<u64> {
+        self.ctx.slurm.my_session_ids(&["RUNNING", "PENDING"])
+    }
+
     fn session_alive(&mut self) -> bool {
         session_alive(self.zellij)
     }
@@ -1484,6 +1536,9 @@ mod tests {
         /// Handed back on the next `take_remote`.
         remote_ready: Vec<RemoteSnapshot>,
         events: Vec<Event>,
+        /// Ids `session_ids` reports as sinteractive sessions.
+        sessions: HashSet<u64>,
+        session_id_queries: usize,
     }
 
     impl Fake {
@@ -1517,6 +1572,10 @@ mod tests {
         }
         fn other_jobs(&mut self) -> Option<Vec<QueueJob>> {
             self.queue.clone()
+        }
+        fn session_ids(&mut self) -> HashSet<u64> {
+            self.session_id_queries += 1;
+            self.sessions.clone()
         }
         fn session_alive(&mut self) -> bool {
             self.alive
@@ -1617,6 +1676,7 @@ mod tests {
             poll: 30,
             quota_poll: 600,
             maint: None,
+            monitor_sessions: false,
         }
     }
 
@@ -2151,6 +2211,103 @@ mod tests {
         at(&mut lp, &mut f, T0 + 1902, 0, true);
         at(&mut lp, &mut f, T0 + 2502, 0, true);
         assert_eq!(f.kinds(), ["started", "gpu_idle", "gpu_idle"]);
+    }
+
+    /// A queue with one real job and one other sinteractive session, both
+    /// RUNNING on other nodes.
+    fn mixed_queue() -> Fake {
+        let mut f = Fake::alive(Some(T0 + 7200));
+        f.local = Some(snap(T0, 10.0, 1024));
+        f.queue = Some(vec![
+            qjob(4242, "RUNNING", "node01", Some("sint-t")),
+            qjob(9001, "RUNNING", "c3cpu-a2-u3", Some("train")),
+            qjob(9002, "RUNNING", "c3cpu-a2-u9", Some("sint-other")),
+        ]);
+        // 4242 is us; 9002 is the user's other session.
+        f.sessions = [4242, 9002].into_iter().collect();
+        f
+    }
+
+    #[test]
+    fn other_sessions_are_left_out_of_the_panel_by_default() {
+        let mut f = mixed_queue();
+        let mut lp = JobLoop::new(cfg());
+        lp.step(T0, &mut f);
+        assert_eq!(
+            f.remote_requests,
+            vec![vec![RemoteTarget {
+                job_id: 9001,
+                node: "c3cpu-a2-u3".into(),
+            }]],
+            "the other session is not even polled"
+        );
+        assert_eq!(f.session_id_queries, 1);
+
+        // Both answer anyway; only the real job is carried.
+        f.remote_ready = vec![
+            RemoteSnapshot {
+                job_id: 9001,
+                snapshot: snap(T0 + 1, 75.0, 2048),
+                fetched: true,
+            },
+            RemoteSnapshot {
+                job_id: 9002,
+                snapshot: snap(T0 + 1, 3.0, 128),
+                fetched: true,
+            },
+        ];
+        lp.step(T0 + 2, &mut f);
+        let hosts = &f.sent.last().unwrap().hosts;
+        assert_eq!(hosts.len(), 2, "our own host plus the real job");
+        assert_eq!(hosts[1].job_id, 9001);
+    }
+
+    #[test]
+    fn opting_in_shows_other_sessions_and_asks_slurm_nothing_extra() {
+        let mut f = mixed_queue();
+        let mut lp = JobLoop::new(LoopConfig {
+            monitor_sessions: true,
+            ..cfg()
+        });
+        lp.step(T0, &mut f);
+        let mut ids: Vec<u64> = f.remote_requests[0].iter().map(|t| t.job_id).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![9001, 9002]);
+        assert_eq!(
+            f.session_id_queries, 0,
+            "nothing to classify once everything is shown"
+        );
+    }
+
+    #[test]
+    fn dropping_a_session_from_the_panel_leaves_its_metrics_file_alone() {
+        // It is still running, and that file is its own sampler's.
+        let mut f = mixed_queue();
+        f.sessions = HashSet::new();
+        let mut lp = JobLoop::new(cfg());
+        lp.step(T0, &mut f);
+        f.remote_ready = vec![RemoteSnapshot {
+            job_id: 9002,
+            snapshot: snap(T0 + 1, 3.0, 128),
+            fetched: true,
+        }];
+        lp.step(T0 + 2, &mut f);
+        assert_eq!(f.sent.last().unwrap().hosts.len(), 2);
+
+        // Now it is classified as a session: dropped from the panel, file kept.
+        f.sessions = [9002].into_iter().collect();
+        lp.step(T0 + JOBS_EVERY, &mut f);
+        assert_eq!(f.sent.last().unwrap().hosts.len(), 1);
+        assert_eq!(f.removed, Vec::<u64>::new());
+
+        // And when that session ends for real, still not ours to delete:
+        // every session removes its own per-job files at teardown
+        // (`StateDir::cleanup`). A monitored job that leaves the queue does
+        // have its file removed — see
+        // `other_running_jobs_are_polled_and_listed_as_hosts`.
+        f.queue = Some(vec![qjob(4242, "RUNNING", "node01", Some("sint-t"))]);
+        lp.step(T0 + 2 * JOBS_EVERY, &mut f);
+        assert_eq!(f.removed, Vec::<u64>::new());
     }
 
     #[test]

@@ -50,6 +50,14 @@ pub struct Config {
     /// `SINTERACTIVE_THEME` — `dark`/`light` force a theme; `auto`/unset
     /// (`None`) lets [`crate::theme::Theme::detect`] ask the terminal.
     pub theme: Option<crate::theme::Mode>,
+    /// `SINTERACTIVE_MONITOR_SESSIONS` — `on/1/true/yes` puts your *other*
+    /// sinteractive sessions in the monitor panel alongside your real jobs.
+    /// Default **off**: a session is an orchestration shell, so its CPU and
+    /// memory are not the numbers you opened the panel to read, and a
+    /// second session would otherwise push the job you care about down the
+    /// list. Your own session's entry is always shown — it is the host the
+    /// status line's `cpu … / mem …` fields come from.
+    pub monitor_sessions: bool,
 }
 
 /// Default quota file (Bodhi).
@@ -133,6 +141,7 @@ impl Config {
             job_id: None,
             name: None,
             theme: None,
+            monitor_sessions: false,
         }
     }
 
@@ -169,6 +178,9 @@ impl Config {
             job_id: env_str("SINTERACTIVE_JOB_ID").and_then(|v| v.trim().parse().ok()),
             name: env_str("SINTERACTIVE_NAME"),
             theme: env_str("SINTERACTIVE_THEME").and_then(|v| crate::theme::Mode::parse(&v)),
+            monitor_sessions: env_str("SINTERACTIVE_MONITOR_SESSIONS")
+                .and_then(|v| parse_bool(&v))
+                .unwrap_or(d.monitor_sessions),
         };
         // Floors, as in the script: the loop must not spin on the scheduler.
         if c.poll < 5 {
@@ -282,6 +294,20 @@ pub(crate) mod test_env {
 mod tests {
     use super::test_env::{lock, EnvRestore};
     use super::*;
+
+    #[test]
+    fn monitor_sessions_is_opt_in() {
+        let _g = lock();
+        let _r = EnvRestore::clean();
+        assert!(!Config::from_env().monitor_sessions, "off unless asked for");
+        std::env::set_var("SINTERACTIVE_MONITOR_SESSIONS", "on");
+        assert!(Config::from_env().monitor_sessions);
+        std::env::set_var("SINTERACTIVE_MONITOR_SESSIONS", "off");
+        assert!(!Config::from_env().monitor_sessions);
+        // An unparseable value is not an opt-in.
+        std::env::set_var("SINTERACTIVE_MONITOR_SESSIONS", "maybe");
+        assert!(!Config::from_env().monitor_sessions);
+    }
 
     #[test]
     fn defaults_when_nothing_set() {

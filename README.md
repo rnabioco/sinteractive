@@ -234,6 +234,7 @@ Set personal defaults in your `~/.bashrc`; explicit flags always win.
 | `SINTERACTIVE_WARN_RED` | Seconds left at which the bar turns red | `600` |
 | `SINTERACTIVE_GRACE` | Seconds before the walltime limit at which the session ends itself cleanly | `10` |
 | `SINTERACTIVE_POLL` | Seconds between scheduler re-checks in the session (floor 5) | `30` |
+| `SINTERACTIVE_MONITOR_SESSIONS` | Show your *other* sinteractive sessions in the monitor panel alongside your real jobs | `off` |
 | `SINTERACTIVE_AGENT_WARN` | Seconds left below which the Claude Code prompt hook warns | `1800` |
 | `SINTERACTIVE_QUOTA_POLL` | Seconds between storage-quota checks (floor 30) | `600` |
 | `SINTERACTIVE_QUOTA_FILE` | Pipe-delimited file of hard quotas | `/cluster/scripts/quota_current.txt` |

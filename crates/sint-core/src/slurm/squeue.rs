@@ -4,7 +4,7 @@
 //! 921-1000 (`--list`), 1012-1140 (`--status`), 1140-1236 (agent context),
 //! 2152 (`resolve_session_jobid`), 2431 (`refresh_end_epoch`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 use regex::Regex;
@@ -163,6 +163,24 @@ pub fn parse_job_briefs(output: &str) -> Result<Vec<JobBrief>, SlurmError> {
     Ok(rows)
 }
 
+/// Parse `squeue --me -h -o '%i|%k'` output into the ids whose Comment
+/// marks them as sinteractive sessions.
+///
+/// The Comment is the identity (`crate::session`); the job Name is
+/// decorative, so a job merely *called* `sint-something` is not a session.
+/// Like [`JOB_BRIEF_FORMAT`] this puts the one free-text field last, so a
+/// Comment containing `|` cannot shift anything.
+pub fn parse_session_ids(output: &str) -> HashSet<u64> {
+    output
+        .lines()
+        .filter_map(|l| {
+            let (id, comment) = l.trim_end_matches('\r').split_once('|')?;
+            crate::session::parse_comment(comment.trim())?;
+            id.trim().parse().ok()
+        })
+        .collect()
+}
+
 /// Parse `squeue --me -h -o '%i|%j'` output into id → name. Nameless jobs
 /// are left out.
 pub fn parse_job_names(output: &str) -> HashMap<u64, String> {
@@ -253,6 +271,21 @@ impl Slurm {
     /// (a name and a Comment cannot share one pipe-delimited row without
     /// one of them being able to shift the other). `extra` narrows the
     /// query (`["--partition", "rna"]`). Empty when squeue fails.
+    /// The ids among the user's jobs that are sinteractive sessions, by
+    /// Comment. Empty when squeue fails — a classification we could not
+    /// make must not hide a job the user asked to see.
+    pub fn my_session_ids(&self, states: &[&str]) -> HashSet<u64> {
+        let states = states.join(",");
+        let mut args = vec!["--me"];
+        if !states.is_empty() {
+            args.extend(["--states", states.as_str()]);
+        }
+        args.extend(["--noheader", "-o", "%i|%k"]);
+        self.run("squeue", &args)
+            .map(|out| parse_session_ids(&out))
+            .unwrap_or_default()
+    }
+
     pub fn my_job_names(&self, extra: &[&str]) -> HashMap<u64, String> {
         let mut args = vec!["--me"];
         args.extend_from_slice(extra);
@@ -427,6 +460,22 @@ mod tests {
         // Fail closed: a short or unparseable row is never "no such job".
         assert!(parse_job_briefs("1|RUNNING|n1\n").is_err());
         assert!(parse_job_briefs("JOBID|RUNNING|n1|x\n").is_err());
+    }
+
+    #[test]
+    fn session_ids_come_from_the_comment_not_the_name() {
+        let ids = parse_session_ids(
+            "1|sinteractive\n\
+             2|sinteractive:alpha\n\
+             3|cargo-ci\n\
+             4|\n\
+             \n\
+             5| sinteractive:with spaces \n\
+             6|sinteractive-ish\n",
+        );
+        let mut v: Vec<u64> = ids.into_iter().collect();
+        v.sort_unstable();
+        assert_eq!(v, vec![1, 2, 5], "a lookalike comment is not a session");
     }
 
     #[test]
