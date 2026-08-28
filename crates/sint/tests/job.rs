@@ -15,6 +15,10 @@ use std::time::{Duration, Instant};
 
 use common::{FakeSlurm, Job};
 
+/// The two headless tests each start a zellij server; run them one at a time
+/// so the 8-CPU CI slot is not shared between two cold zellij starts.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 const JOB_ID: u64 = 4242;
 const SESSION: &str = "sinteractive-4242";
 
@@ -106,6 +110,7 @@ fn wait_for(what: &str, timeout: Duration, mut cond: impl FnMut() -> bool) -> bo
 
 #[test]
 fn job_brings_up_a_session_and_tears_it_down() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     if option_env!("SINT_SKIP_BUNDLE").is_some() {
         println!("skipping: built with SINT_SKIP_BUNDLE, no plugin embedded");
         return;
@@ -234,6 +239,7 @@ fn job_brings_up_a_session_and_tears_it_down() {
 /// not Slurm's SIGTERM) and exits 0.
 #[test]
 fn job_ends_the_session_at_the_grace_line() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     if option_env!("SINT_SKIP_BUNDLE").is_some() {
         println!("skipping: built with SINT_SKIP_BUNDLE, no plugin embedded");
         return;
