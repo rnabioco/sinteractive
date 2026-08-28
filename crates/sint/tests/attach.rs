@@ -82,8 +82,8 @@ fn attach_by_id_execs_srun_overlap() {
             "--pty"
         ]
     );
-    assert!(call[3].ends_with("sinteractive"), "{call:?}");
-    assert_eq!(call[4..], ["__attach", "sinteractive-147845"]);
+    assert!(call[6].ends_with("sinteractive"), "{call:?}");
+    assert_eq!(call[7..], ["__attach", "sinteractive-147845"]);
     assert!(fx.calls_to("ssh").is_empty());
 }
 
