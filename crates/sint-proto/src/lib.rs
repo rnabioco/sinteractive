@@ -133,8 +133,20 @@ pub enum UiAction {
 }
 
 impl UiAction {
+    /// The inverse of [`UiAction::as_str`]. A plain match, not a serde
+    /// round trip: this is the plugin's keypress path, and every byte of
+    /// deserializer it does not pull in is a byte the zellij server does
+    /// not load.
     pub fn parse(s: &str) -> Option<UiAction> {
-        serde_json::from_value(serde_json::Value::String(s.trim().to_string())).ok()
+        Some(match s.trim() {
+            "notices" => UiAction::Notices,
+            "help" => UiAction::Help,
+            "monitor" => UiAction::Monitor,
+            "host-prev" => UiAction::HostPrev,
+            "host-next" => UiAction::HostNext,
+            "escape" => UiAction::Escape,
+            _ => return None,
+        })
     }
     pub fn as_str(self) -> &'static str {
         match self {
