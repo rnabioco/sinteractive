@@ -8,25 +8,41 @@ as [Claude Code](https://code.claude.com/docs/):
 sinteractive --detach -n mywork --time=8h
 
 # Get-or-create in one idempotent call
-sinteractive --ensure mywork --time=8h --json
+sinteractive ensure mywork --time=8h --json
 # {..., "created": true}    launched it
 # {..., "created": false}   one was already running
 
 # Machine-readable session info
-sinteractive --list --json
-sinteractive --status mywork --json
+sinteractive list --json
+sinteractive status mywork --json
 
 # Re-check the budget against Slurm now (e.g. right after a scontrol change)
-sinteractive --refresh mywork --json
+sinteractive refresh mywork --json
 # {"job_id":147845,"name":"mywork","state":"RUNNING","node":"compute20",
 #  "partition":"rna","cpus":8,"memory":"32G","memory_mb":32768,"gpus":0,
 #  "time_limit":"8:00:00","elapsed":"0:43","end_epoch":1783180952,
 #  "remaining_seconds":28757}
+
+# Read the session's screen, or type into it
+sinteractive peek mywork -n 40
+sinteractive send mywork 'make test'
+
+# Everything else that reports has --json too
+sinteractive queue --json
+sinteractive monitor mywork --json
+sinteractive quota --json
+sinteractive cancel mywork --json
 ```
 
-`--status --json` and `--list --json` return the same shape, except that
-`--list` also carries `cwd` — which costs an SSH round-trip per session, so it
-stays out of the single-session path that agents poll.
+`status --json` and `list --json` return the same shape, except that `list`
+also carries `cwd` — which costs an SSH round-trip per session, so it stays
+out of the single-session path that agents poll. `sinteractive schema` dumps
+the JSON schemas of the session object, the state file, the quota snapshot
+and a notice.
+
+Exit codes follow 0.x: 0 success, 1 not found or failure, 2 usage. The 0.x
+top-level flags (`--status`, `--list`, `--ensure`, …) still work for one
+release with a warning on stderr.
 
 ## A session is not a compute target
 
@@ -77,76 +93,96 @@ Every `SLURM_*` variable is stripped from a session, so that tools inside it
 consequence: `srun` and `salloc` run from inside a session create their own
 allocations rather than steps of the session's job.
 
-The `cpus`, `memory`, `memory_mb` and `gpus` fields in `--status`/`--list`
+The `cpus`, `memory`, `memory_mb` and `gpus` fields in `status`/`list`
 JSON describe the *session's* allocation. `cpus` is what Slurm **allocated**,
 which can exceed the request — on a cluster that hands out whole cores, a
-`-j 1` session reports 2. That is the number you actually have. They are there to help size a
-separate allocation — they are deliberately not exported into the session
-environment, because a `SINTERACTIVE_CPUS` sitting in the environment is an
-invitation to run `make -j` in the wrong place.
+`-j 1` session reports 2. That is the number you actually have. They are
+there to help size a separate allocation — they are deliberately not exported
+into the session environment, because a `SINTERACTIVE_CPUS` sitting in the
+environment is an invitation to run `make -j` in the wrong place.
 
 ## Time budget
 
 Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`, if named)
-are exported, and `sinteractive --status` with no argument reports on the
-current session. A state file at `~/.cache/sinteractive/JOBID.json` carries
-`remaining_seconds`, so tools can poll the time budget without querying the
-scheduler; it is removed when the session ends. The end time is re-checked
-against Slurm immediately before every write, so `updated_epoch` is when the
-whole snapshot was confirmed: if it is more than ~2 minutes old, treat the
-file as stale and fall back to `sinteractive --status`. A walltime change made
-with `scontrol update JobId=... TimeLimit=...` appears within about 30
-seconds, or at once with `sinteractive --refresh`. When `squeue` cannot be
-reached the file is left untouched rather than restamped, so it ages honestly
-instead of vouching for a budget nobody verified; age it exactly with
-`remaining_seconds - (now - updated_epoch)`.
+are exported, and `sinteractive status` with no argument reports on the
+current session. A state file at `<cache>/JOBID.json` (`SINTERACTIVE_CACHE`,
+default `~/.cache/sinteractive`) carries `remaining_seconds`, so tools can
+poll the time budget without querying the scheduler; it is removed when the
+session ends:
 
-In-session renames (`Ctrl-b $`) are reflected in the state file, `--status`,
-and new panes, but shells already running keep their original
-`SINTERACTIVE_NAME`.
+```json
+{"job_id":147845,"name":"mywork","node":"compute20",
+ "end_epoch":1783180952,"remaining_seconds":869,"updated_epoch":1783180083}
+```
+
+The end time is re-checked against Slurm immediately before every write, so
+`updated_epoch` is when the whole snapshot was confirmed: if it is more than
+~2 minutes old, treat the file as stale and fall back to `sinteractive
+status`. A walltime change made with `scontrol update JobId=...
+TimeLimit=...` appears within about 30 seconds (`SINTERACTIVE_POLL`), or at
+once with `sinteractive refresh`. When `squeue` cannot be reached the file is
+left untouched rather than restamped, so it ages honestly instead of vouching
+for a budget nobody verified; age it exactly with `remaining_seconds - (now -
+updated_epoch)`.
+
+The schema and field order of this file are frozen — it is the 0.x contract,
+unchanged.
+
+## Events and metrics
+
+The in-session sampler writes two more files beside the state file, both
+readable from the login node without ssh.
+
+**`<cache>/JOBID.metrics.json`** is the latest host snapshot — CPU and memory
+against the job's cgroup limits, load, GPUs and the busiest processes —
+refreshed every few seconds. `sinteractive monitor TARGET --json` prints it
+once (`no snapshot yet` before the first sample, or when it is more than
+30 s old); without `--json` and with a tty it is the nvitop-style TUI.
+`sinteractive snapshot --json` takes the same sample of whatever host it runs
+on, scoped to the Slurm job it runs in, and `monitor --live HOST` runs that
+over ssh every 2 s.
+
+**`<cache>/JOBID.events.ndjson`** is the session's event log, one
+`{"ts": …, "kind": …, …}` object per line. `sinteractive events [TARGET]`
+prints it; `--follow` keeps streaming as lines are appended, `--since EPOCH`
+starts from a point in time. The kinds are the ones the MCP server's
+`wait_for_event` matches on — `walltime_warn`, `walltime_red`,
+`session_ended` among them — and that tool reads this file.
 
 ## Claude Code integration
 
-Install the skills and hooks:
+Install the skills and register the hooks, statusline and MCP server:
 
 ```bash
-sinteractive --install-claude   # from any installed copy
-make claude-install             # equivalent, from a checkout
+sinteractive install-claude   # from any installed copy
+make claude-install           # equivalent, from a checkout
 ```
 
-Both write every skill under `~/.claude/skills/` and the hooks to
-`~/.claude/hooks/`, then register the hooks in `~/.claude/settings.json`.
-Skills are discovered from what ships beside the script rather than named in
-the installer, so a new one arrives with an upgrade and needs no new flag.
-That settings file is yours and
-usually already has hooks in it, so the merge is done by `jq` and only by
-`jq` — string surgery on it in bash could silently disable every setting in
-the file. What the merge guarantees:
+It writes every skill under `~/.claude/skills/`, then merges the hooks and
+the statusline into `~/.claude/settings.json` and registers the MCP server
+with `claude mcp add`. Skills are discovered from what ships beside the
+binary (`<prefix>/share/sinteractive`, or the checkout named by
+`SINTERACTIVE_SHARE`) rather than named in the installer, so a new one
+arrives with an upgrade and needs no new flag. The settings file is yours and
+usually already has hooks in it, so the merge guarantees:
 
 - **Additive.** Entries are appended to whatever `.hooks` already holds;
   nothing else in the file is touched, and key order survives.
-- **Idempotent.** A hook is skipped when a script of that name is already
-  registered in `settings.json` or `settings.local.json` — matched by script
-  name, so a hand-edited path or a dropped `bash ` prefix still counts, and a
-  half-registered pair gets only its missing half. When the merge changes
-  nothing, nothing is written.
+- **Idempotent.** A hook is skipped when it is already registered in
+  `settings.json` or `settings.local.json`, and a half-registered pair gets
+  only its missing half. When the merge changes nothing, nothing is written.
 - **Recoverable.** The new file is written through a temp file beside the
   original, and the version it replaces is kept as
   `settings.json.bak-<stamp>`. A symlinked `settings.json` is resolved first,
   so a dotfiles repo gets its target edited rather than its link replaced.
 - **Cautious.** A `settings.json` that does not parse is reported and left
-  alone rather than merged into.
+  alone rather than merged into, and the block to merge by hand is printed.
 
-Without `jq` on `$PATH` the block is printed to merge by hand, as before
-(`pixi global install jq` is one way to get one).
-
-`make install` puts the assets in `<prefix>/share/sinteractive` beside the
-script, and `--install-claude` finds them relative to its own location. So it
-works on a cluster where an admin ran `make install-system` and `make nodes`
-and you never cloned the repo — both ship the assets, and the compute nodes
-need them too, since running `--install-claude` from inside a session runs
-the node's copy of the script. Point `SINTERACTIVE_SHARE` at a checkout to
-override, and `make nodes-check` to see which nodes actually have them.
+The 0.x hook scripts (`~/.claude/hooks/sinteractive-*.sh`) are removed and
+their entries replaced with the native subcommands; stale `bodhi-*` skills
+are removed when their `hpc-*` successor is installed. Exit codes: 0 done,
+1 no assets found, 2 a settings file was refused (everything else was still
+installed).
 
 **Six [skills](https://code.claude.com/docs/en/skills)** teach agents how work
 is done here. Skills load on demand from their descriptions, so an agent picks
@@ -159,7 +195,7 @@ never fed the other one's partitions, paths, and quotas.
 `hpc-compute` covers cluster etiquette: neither the login node nor an
 sinteractive session is a compute target, real work goes into an allocation
 sized for it, reuse sessions rather than piling them up, check the time budget
-before long jobs, and clean up.
+before long jobs, observe a session with `peek`/`send`, and clean up.
 
 `slurm-discovery` covers finding out what the cluster offers rather than
 assuming it: what the partitions are and how big, which accounts and QOS you
@@ -197,33 +233,40 @@ the session rather than the cluster: semantic versioning with annotated
 `.claude/worktrees/`, landing work through a pull request rather than
 committing to `main`, and running the repo's own CI gates before pushing.
 
-**`sinteractive --agent-context`** prints a briefing on the current session —
+**`sinteractive agent-context`** prints a briefing on the current session —
 job, node, partition, allocation size, walltime remaining, and the rules
 above. It exits 1 outside a session. Run it by hand to see exactly what an
 agent is being told.
 
-**Two hooks** wire that into an agent running inside a session:
+**Two hooks** wire that into an agent running inside a session. Both are
+subcommands of the binary, so there are no scripts to keep in step:
 
 | Hook | Event | What it does |
 |---|---|---|
-| `sinteractive-session-context.sh` | `SessionStart` | Emits `--agent-context` so the agent starts out knowing where it is |
-| `sinteractive-walltime-guard.sh` | `UserPromptSubmit` | Silent until the session drops below `SINTERACTIVE_AGENT_WARN` seconds remaining (default 1800), then warns that long work won't survive |
+| `sinteractive hook session-start` | `SessionStart` | Emits the `agent-context` briefing so the agent starts out knowing where it is |
+| `sinteractive hook prompt` | `UserPromptSubmit` | Silent until the session drops below `SINTERACTIVE_AGENT_WARN` seconds remaining (default 1800), then warns that long work won't survive |
 
 Both exit 0 in every case, including outside a session, so they are harmless
 on the login node and in unrelated projects. The guard prefers the cached
-state file and only falls back to the scheduler when it is stale, so a quiet
-session costs nothing.
+state file, aged exactly, and only falls back to the scheduler when it is
+missing or stale, so a quiet session costs nothing. Hooks fire at turn and
+tool boundaries, so work already in flight cannot be warned about — put long
+work in its own allocation, which outlives the session, rather than relying
+on the guard.
+
+**The statusline.** `sinteractive statusline` is registered as Claude Code's
+`statusLine` command (`refreshInterval` 5). It shows `⏺ Opus · ctx 42% ·
+~/proj` on a login node and, inside a session, adds `· sint 147845 mywork ·
+2h41m · ⚠1` — the remaining walltime and the notice count, read from the
+cache files only, so a 5-second refresh never touches the scheduler. Theme
+follows `SINTERACTIVE_THEME` and Claude Code's own dark/light palette.
 
 While Claude Code is running in a session whose hooks are not registered yet,
-a `sinteractive --install-claude` hint joins the session's notices — the
-`⚠ N notices` counter on the status line, read in full with `Ctrl-b n` or
-`sinteractive --status`. It is gated on a live `claude` process, so it never
+a `sinteractive install-claude` hint joins the session's notices — the
+`⚠ N notices` counter on the status bar, read in full with `Ctrl+b n` or
+`sinteractive status`. It is gated on a live `claude` process, so it never
 appears for people who don't use Claude Code, and it clears once the hooks
 are registered.
-
-Hooks fire at turn and tool boundaries, so work already in flight cannot be
-warned about — put long work in its own allocation, which outlives the
-session, rather than relying on the guard.
 
 ## MCP server
 
@@ -272,14 +315,14 @@ in a session.
 
 `wait_for_event` blocks — default 300 s, at most 3600 — until a line matching
 one of `kinds` (any kind when omitted) is appended to the session's event log
-(`~/.cache/sinteractive/JOBID.events.ndjson`, one `{"ts": …, "kind": …, …}`
-object per line, written by the in-session sampler) and returns that line.
-Only lines appended after the call started count, so it is a wait, not a
-replay. While the session has no event log, the state file stands in:
-`remaining_seconds` crossing 1800 or 600 (`SINTERACTIVE_AGENT_WARN` /
-`SINTERACTIVE_WARN_RED`) yields a synthetic `walltime_warn` / `walltime_red`
-event, and the state file disappearing yields `session_ended`; those carry
-`"synthetic": true`. Use it in place of polling `session_status`.
+(`<cache>/JOBID.events.ndjson`, one `{"ts": …, "kind": …, …}` object per
+line, written by the in-session sampler) and returns that line. Only lines
+appended after the call started count, so it is a wait, not a replay. While
+the session has no event log, the state file stands in: `remaining_seconds`
+crossing 1800 or 600 (`SINTERACTIVE_AGENT_WARN` / `SINTERACTIVE_WARN_RED`)
+yields a synthetic `walltime_warn` / `walltime_red` event, and the state file
+disappearing yields `session_ended`; those carry `"synthetic": true`. Use it
+in place of polling `session_status`.
 
 The server also exposes read-only resources: `sinteractive://sessions` (the
 list) and, per session, `sinteractive://sessions/JOBID/status`, `.../notices`

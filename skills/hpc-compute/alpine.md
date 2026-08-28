@@ -40,13 +40,15 @@ no benefit from asking otherwise.
 
 ## sinteractive on Alpine
 
-sinteractive works as described in SKILL.md. `SINTERACTIVE_TMUX=/usr/bin/tmux`
-— tmux is a system package here. There is no dedicated interactive
+sinteractive works as described in SKILL.md; nothing needs installing on
+the nodes (zellij is inside the binary). There is no dedicated interactive
 partition; sessions land on `acpu` via `SINTERACTIVE_PARTITION`/
 `SINTERACTIVE_QOS` (this user sets `acpu`/`cpu-normal` in their bashrc,
 along with `SBATCH_PARTITION`/`SBATCH_QOS` so plain `sbatch` inherits the
 same defaults). An `interactive` QOS exists (12h, ≤16 CPUs, 1 job) but is
-not what the user's setup uses.
+not what the user's setup uses. `/home` is 2 GB, so the session state and
+the extracted zellij bundle belong on `/projects`:
+`SINTERACTIVE_CACHE=/projects/$USER/.cache/sinteractive`.
 
 There is no recurring all-node maintenance pattern to assume, but
 `scontrol show reservation` before long walltime still applies — the
