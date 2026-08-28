@@ -575,6 +575,7 @@ name = "sint-core"
 version = "1.0.0-dev"
 dependencies = [
  "anyhow",
+ "libc",
  "regex",
  "schemars",
  "serde",

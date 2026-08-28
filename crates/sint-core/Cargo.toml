@@ -16,5 +16,6 @@ time.workspace = true
 regex.workspace = true
 tempfile.workspace = true
 schemars.workspace = true
+libc.workspace = true
 
 [dev-dependencies]
