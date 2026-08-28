@@ -10,6 +10,7 @@ pub mod agent_context;
 pub mod attach;
 pub mod cancel;
 pub mod ensure;
+pub mod install_claude;
 pub mod launch;
 pub mod list;
 pub mod quota;
@@ -53,7 +54,7 @@ pub fn dispatch(command: Command) -> Result<i32> {
         Command::Hook(_) => not_yet("hook"),
         Command::Statusline => not_yet("statusline"),
         Command::Mcp => not_yet("mcp"),
-        Command::InstallClaude => not_yet("install-claude"),
+        Command::InstallClaude => install_claude::run(),
         Command::Doctor(_) => not_yet("doctor"),
         Command::Job(_) => not_yet("__job"),
         Command::AttachLocal { .. } => not_yet("__attach"),

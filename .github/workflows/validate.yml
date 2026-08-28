@@ -1,6 +1,7 @@
 # Validate the things that can be checked without a Slurm cluster to run
-# against: the script parses, shellcheck is happy, the man page has no groff
-# warnings, and the settings snippet is real JSON.
+# against: the script and the fake-slurm test shims parse, shellcheck is
+# happy, the man page has no groff warnings, and the settings snippet is real
+# JSON.
 #
 # The script runs under `set -u` with no `-e`, so an unset variable or a typo
 # in a rarely-taken branch is a runtime surprise rather than a load error.
@@ -23,7 +24,8 @@ jobs:
 
       - name: Syntax
         run: |
-          for f in sinteractive claude/hooks/*.sh completions/sinteractive.bash; do
+          for f in sinteractive claude/hooks/*.sh completions/sinteractive.bash \
+                   tests/fake-slurm/lib.sh tests/fake-slurm/s*; do
             bash -n "$f"
             echo "ok  $f"
           done
@@ -32,7 +34,8 @@ jobs:
         run: |
           shellcheck --version
           shellcheck --severity=warning \
-            sinteractive claude/hooks/*.sh completions/sinteractive.bash
+            sinteractive claude/hooks/*.sh completions/sinteractive.bash \
+            tests/fake-slurm/lib.sh tests/fake-slurm/s*
 
       - name: Man page
         run: |

@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# Fake squeue: replays $FAKE_SLURM_DIR/jobs.tsv. See README.md.
+#
+# Supported: --me / -u USER (every job is yours), --jobs ID[,ID] / -j,
+# --states A,B / -t / --state, --partition P / -p, --noheader / -h,
+# -o FORMAT / --format (codes %i %k %N %P %M %l %e %C %m %b %T %r %S %j %u,
+# optional width like %.10i, any other character literal), and
+# --Format FIELD[,FIELD] / -O (jobid comment batchhost nodelist partition
+# timeused timelimit endtime numcpus minmemory tres tres-per-node state
+# statecompact reason starttime name), 20 columns wide each like the real one.
+# Anything else is an error, so a test never silently gets the wrong answer.
+
+# shellcheck source=tests/fake-slurm/lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+log_call squeue "$@"
+
+jobs='' states='' partition='' fmt='' Format='' noheader=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --me) shift ;;
+  -u | --user) shift 2 ;;
+  --user=*) shift ;;
+  -j | --jobs | --job)
+    jobs=$2
+    shift 2
+    ;;
+  --jobs=* | --job=*) jobs=${1#*=}; shift ;;
+  -t | --states | --state)
+    states=$2
+    shift 2
+    ;;
+  --states=* | --state=*) states=${1#*=}; shift ;;
+  -p | --partition)
+    partition=$2
+    shift 2
+    ;;
+  --partition=*) partition=${1#*=}; shift ;;
+  -h | --noheader) noheader=1; shift ;;
+  -o | --format)
+    fmt=$2
+    shift 2
+    ;;
+  --format=*) fmt=${1#*=}; shift ;;
+  -O | --Format)
+    Format=$2
+    shift 2
+    ;;
+  --Format=*) Format=${1#*=}; shift ;;
+  *) die "squeue: unsupported option '$1' (fake-slurm)" ;;
+  esac
+done
+
+[[ -n "$fmt" || -n "$Format" ]] || fmt='%.18i %.9P %.8j %.8u %.2t %.10M %.6D %R'
+
+read_jobs | awk -F'\t' -v jobs="$jobs" -v states="$states" -v part="$partition" \
+  -v fmt="$fmt" -v Format="$Format" -v noheader="$noheader" -v user="${USER:-user}" '
+function fld(c,   v) {
+  if (c == "i") return $1
+  if (c == "k") return ($2 == "") ? "(null)" : $2
+  if (c == "N") return $3
+  if (c == "P") return $4
+  if (c == "M") return $5
+  if (c == "l") return $6
+  if (c == "e") return $7
+  if (c == "C") return $8
+  if (c == "m") return $9
+  if (c == "b") return $10
+  if (c == "T") return $11
+  if (c == "t") { v = substr($11, 1, 2); return (v == "RU") ? "R" : (v == "PE") ? "PD" : v }
+  if (c == "r" || c == "R") return $12
+  if (c == "S") return $13
+  if (c == "D") return 1
+  if (c == "j") return ($2 ~ /^sinteractive:/) ? "sint-" substr($2, 14) : "sinteractive"
+  if (c == "u") return user
+  return "\001"
+}
+function title(c) {
+  if (c == "i") return "JOBID"
+  if (c == "k") return "COMMENT"
+  if (c == "N") return "NODELIST"
+  if (c == "P") return "PARTITION"
+  if (c == "M") return "TIME"
+  if (c == "l") return "TIME_LIMIT"
+  if (c == "e") return "END_TIME"
+  if (c == "C") return "CPUS"
+  if (c == "m") return "MIN_MEMORY"
+  if (c == "b") return "TRES_PER_NODE"
+  if (c == "T") return "STATE"
+  if (c == "t") return "ST"
+  if (c == "r" || c == "R") return "REASON"
+  if (c == "S") return "START_TIME"
+  if (c == "D") return "NODES"
+  if (c == "j") return "NAME"
+  if (c == "u") return "USER"
+  return "?"
+}
+# Render an -o format string for the current row (header=1: column titles).
+function render(header,   out, i, ch, code, v) {
+  out = ""
+  for (i = 1; i <= length(fmt); i++) {
+    ch = substr(fmt, i, 1)
+    if (ch != "%") { out = out ch; continue }
+    i++
+    while (substr(fmt, i, 1) ~ /[.0-9]/) i++
+    code = substr(fmt, i, 1)
+    v = header ? title(code) : fld(code)
+    if (v == "\001") {
+      printf "squeue: unsupported format code %%%s (fake-slurm)\n", code > "/dev/stderr"
+      exit 1
+    }
+    out = out v
+  }
+  return out
+}
+# Map a --Format field name onto a -o code.
+function fcode(name) {
+  name = tolower(name)
+  if (name == "jobid") return "i"
+  if (name == "comment") return "k"
+  if (name == "batchhost" || name == "nodelist") return "N"
+  if (name == "partition") return "P"
+  if (name == "timeused") return "M"
+  if (name == "timelimit") return "l"
+  if (name == "endtime") return "e"
+  if (name == "numcpus") return "C"
+  if (name == "minmemory") return "m"
+  if (name == "tres" || name == "tres-per-node" || name == "trespernode") return "b"
+  if (name == "state") return "T"
+  if (name == "statecompact") return "t"
+  if (name == "reason") return "r"
+  if (name == "starttime") return "S"
+  if (name == "name") return "j"
+  if (name == "username") return "u"
+  printf "squeue: unsupported --Format field %s (fake-slurm)\n", name > "/dev/stderr"
+  exit 1
+}
+function renderF(header,   out, i, v) {
+  out = ""
+  for (i = 1; i <= nF; i++) {
+    v = header ? title(fcodes[i]) : fld(fcodes[i])
+    out = out sprintf("%-20s ", v)
+  }
+  return out
+}
+BEGIN {
+  nj = split(jobs, a, ","); for (i = 1; i <= nj; i++) if (a[i] != "") wantjob[a[i]] = 1
+  ns = split(toupper(states), a, ","); nstates = 0
+  for (i = 1; i <= ns; i++) if (a[i] != "" && a[i] != "ALL") { wantstate[a[i]] = 1; nstates++ }
+  nF = 0
+  if (Format != "") {
+    nF = split(Format, names, ",")
+    for (i = 1; i <= nF; i++) fcodes[i] = fcode(names[i])
+  }
+  if (!noheader) print (Format != "") ? renderF(1) : render(1)
+}
+$1 == "" { next }
+jobs != "" && !($1 in wantjob) { next }
+nstates > 0 && !(toupper($11) in wantstate) { next }
+part != "" && $4 != part { next }
+{ print (Format != "") ? renderF(0) : render(0) }
+'

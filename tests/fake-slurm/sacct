@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Fake sacct: prints $FAKE_SLURM_DIR/sacct verbatim (nothing when absent),
+# whatever the arguments. See README.md.
+
+# shellcheck source=tests/fake-slurm/lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+log_call sacct "$@"
+cat_fixture sacct

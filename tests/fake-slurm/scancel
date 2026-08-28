@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Fake scancel: removes the named jobs from jobs.tsv. See README.md.
+# Flags (--quiet, -Q, ...) are accepted and ignored; an unknown job fails
+# with the real error text and exit 1.
+
+# shellcheck source=tests/fake-slurm/lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+log_call scancel "$@"
+
+rc=0
+for id in "$@"; do
+  [[ "$id" == -* ]] && continue
+  if ! job_exists "$id"; then
+    echo 1>&2 "scancel: error: Kill job error on job id $id: Invalid job id specified"
+    rc=1
+    continue
+  fi
+  read_jobs | awk -F'\t' -v id="$id" '$1 != id' | write_jobs
+done
+exit $rc
