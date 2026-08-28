@@ -298,6 +298,48 @@ pub fn render_status(info: &SessionInfo, p: &Palette) -> String {
     out
 }
 
+/// [`render_status`] on stdout, followed by the session's active notices —
+/// the full text behind the status line's "⚠ N notices" indicator, readable
+/// without attaching (script line 1127). What `status`, `refresh` and
+/// `ensure` all print.
+pub fn print_status_human(ctx: &Ctx, info: &SessionInfo) {
+    let p = ctx.palette(1);
+    print!("{}", render_status(info, &p));
+    for n in sint_core::notices::read(&ctx.state, info.job_id) {
+        if n.text.is_empty() {
+            continue;
+        }
+        let c = if n.is_severe() {
+            format!("{}{}", p.err, p.bold)
+        } else {
+            p.warn.clone()
+        };
+        println!(
+            "  {}{:<11}{} {c}{}{}",
+            p.key, "Notice:", p.reset, n.text, p.reset
+        );
+    }
+}
+
+/// The "this verb needs a target outside a session" refusal, in the wording
+/// `status`/`refresh`/`events` share. `true` when there is nothing to work
+/// on and the caller should exit 1.
+pub fn missing_target(ctx: &Ctx, target: Option<&str>, verb: &str) -> bool {
+    if target.is_some() || ctx.cfg.job_id.is_some() {
+        return false;
+    }
+    let p = ctx.palette(2);
+    eprintln!(
+        "{}{}Error:{}{} {verb} requires a JOBID or NAME outside a session.{}",
+        p.err, p.bold, p.reset, p.err, p.reset
+    );
+    eprintln!(
+        "{}Run 'sinteractive list' to see available sessions.{}",
+        p.dim, p.reset
+    );
+    true
+}
+
 /// One row of the "other sessions" tables (script lines 826, 848): the
 /// header when `row` is `None`.
 pub fn session_table_line(row: Option<&JobRow>, p: &Palette) -> String {

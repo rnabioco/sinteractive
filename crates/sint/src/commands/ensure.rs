@@ -12,8 +12,8 @@
 use anyhow::Result;
 use sint_core::session::{comment_for, SessionInfo};
 
-use super::common::{print_json, Ctx};
-use super::launch::{bring_up, launch, print_status_human, Launched};
+use super::common::{print_json, print_status_human, Ctx};
+use super::launch::{bring_up, launch, Launched};
 use crate::cli::{EnsureArgs, LaunchArgs};
 
 /// The RUNNING or PENDING session named `name`, if any.
