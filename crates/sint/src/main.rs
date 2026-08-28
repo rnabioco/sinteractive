@@ -1,9 +1,10 @@
-// Used by __job/__attach/doctor, wired in phase 2.
+// Fully used once __job/__attach land; doctor uses part of it now.
 #[allow(dead_code)]
 mod bundle;
 mod cli;
 mod commands;
-// Used by __job/__attach/peek/send/doctor, wired next.
+// `command` and the socket helpers are __job/__attach's; peek/send use
+// `remote_argv`.
 #[allow(dead_code)]
 mod zellij_cmd;
 mod zellij_embed;
