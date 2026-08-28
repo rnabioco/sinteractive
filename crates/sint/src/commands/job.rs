@@ -78,6 +78,26 @@ pub const ALIVE_EVERY: i64 = 2;
 const ALIVE_MISSES: u32 = 3;
 /// How often the local host sampler is read.
 pub const SAMPLE_EVERY: i64 = 2;
+/// The shortest gap between two pipes to the status plugin, by severity.
+///
+/// Piping forks and execs this binary as `zellij pipe`, on the node that is
+/// also running the user's work — at one a second that is ~86k execs a day
+/// for every open session, so the cadence is a real cost rather than a
+/// detail. In `Ok` nothing on the line moves faster than the sampler behind
+/// it ([`SAMPLE_EVERY`]): the countdown is coarse text there
+/// (`format_short_duration`), the panel only calls a host stale past 30s,
+/// and the spinner and the seconds between messages are the plugin's own
+/// timer. A second message inside one sample would repeat itself.
+///
+/// `Yellow` keeps the one-second cadence because it is the first thing the
+/// user is meant to notice, and `Red`/`Ending` count down in `M:SS` and
+/// must not skip a second.
+pub fn send_every(severity: Severity) -> i64 {
+    match severity {
+        Severity::Ok => SAMPLE_EVERY,
+        Severity::Yellow | Severity::Red | Severity::Ending => 1,
+    }
+}
 /// How often the local snapshot is written to `<jobid>.metrics.json`.
 pub const METRICS_EVERY: i64 = 5;
 /// How often the user's other running jobs are sampled on their nodes.
@@ -572,10 +592,18 @@ impl JobLoop {
         }
     }
 
-    /// Pipe at most once per wall-clock second: the plugin animates its
-    /// own spinner and counts down between messages.
+    /// Pipe no more often than [`send_every`] allows: the plugin animates
+    /// its own spinner and counts down between messages.
+    ///
+    /// A severity that has just climbed sends on the tick it changes rather
+    /// than waiting out the gap it is leaving — with `last_sent` at most
+    /// one `Ok` gap old and every other severity on a one-second cadence,
+    /// that falls out of the comparison without a special case.
     fn send(&mut self, now: i64, deps: &mut dyn Deps, severity: Severity, remaining: Option<i64>) {
-        if self.last_sent == Some(now) {
+        if self
+            .last_sent
+            .is_some_and(|t| now - t < send_every(severity))
+        {
             return;
         }
         self.last_sent = Some(now);
@@ -1865,17 +1893,49 @@ mod tests {
     }
 
     #[test]
-    fn status_is_piped_once_per_second() {
+    fn a_steady_session_is_piped_once_per_sample_not_once_per_second() {
+        // 7200s left is well clear of the yellow threshold, so this is the
+        // Ok cadence — the one a session spends nearly all of its life in.
         let mut f = Fake::alive(Some(T0 + 7200));
         let mut lp = JobLoop::new(cfg());
         for _ in 0..5 {
             lp.step(T0, &mut f);
         }
-        assert_eq!(f.sent.len(), 1);
+        assert_eq!(f.sent.len(), 1, "many ticks in one second are one pipe");
+        lp.step(T0 + 1, &mut f);
+        assert_eq!(
+            f.sent.len(),
+            1,
+            "a second message inside one sample would repeat itself"
+        );
+        lp.step(T0 + 2, &mut f);
+        assert_eq!(f.sent.len(), 2);
+        assert_eq!(f.sent[1].sent_epoch, T0 + 2);
+        assert_eq!(f.sent[1].name.as_deref(), Some("t"));
+        assert_eq!(f.sent[1].severity, Severity::Ok);
+    }
+
+    #[test]
+    fn the_countdown_severities_still_pipe_every_second() {
+        // Under WALLTIME_RED_SECS: `M:SS` must not skip a second.
+        let mut f = Fake::alive(Some(T0 + 300));
+        let mut lp = JobLoop::new(cfg());
+        lp.step(T0, &mut f);
         lp.step(T0 + 1, &mut f);
         assert_eq!(f.sent.len(), 2);
         assert_eq!(f.sent[1].sent_epoch, T0 + 1);
-        assert_eq!(f.sent[1].name.as_deref(), Some("t"));
+        assert_eq!(f.sent.last().unwrap().severity, Severity::Red);
+        // …and repeated 200ms ticks inside one second are still one pipe.
+        lp.step(T0 + 1, &mut f);
+        assert_eq!(f.sent.len(), 2);
+    }
+
+    #[test]
+    fn send_every_is_the_sample_gap_only_while_ok() {
+        assert_eq!(send_every(Severity::Ok), SAMPLE_EVERY);
+        for s in [Severity::Yellow, Severity::Red, Severity::Ending] {
+            assert_eq!(send_every(s), 1, "{s:?} counts down and must not skip");
+        }
     }
 
     #[test]
@@ -2148,6 +2208,10 @@ mod tests {
         }];
         lp.step(T0 + 13, &mut f);
         assert_eq!(f.metrics.len(), n);
+        // Taken on this tick, but shown on the next pipe the Ok cadence
+        // allows — a sub-second wait on a panel refreshed every
+        // REMOTE_EVERY seconds. See `send_every`.
+        lp.step(T0 + 14, &mut f);
         assert_eq!(f.sent.last().unwrap().hosts[1].cpu_pct, 20);
 
         // The job leaves: host dropped, its file removed, job_done.
