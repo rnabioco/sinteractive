@@ -7,10 +7,7 @@
 //! `sint-ui` pipe from the keybindings. Its own state is the bar mode, the
 //! selected host, and animation frames. `render` is a pure function in
 //! [`render`], unit-tested natively; only the thin `zellij_tile` glue in
-//! [`plugin`] is wasm-only.
+//! `main.rs` is wasm-only.
 
 pub mod render;
 pub mod state;
-
-#[cfg(target_arch = "wasm32")]
-mod plugin;

@@ -3,6 +3,7 @@
 mod bundle;
 mod cli;
 mod commands;
+mod zellij_embed;
 
 use clap::Parser;
 
@@ -10,6 +11,19 @@ use cli::{split_launch_argv, Cli, Command};
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    // zellij's client library starts its server by re-executing this binary
+    // with `--server SOCKET`; hand that straight to the embedded zellij.
+    if argv.first().map(String::as_str) == Some("--server") {
+        let mut zargs = vec!["zellij".to_string()];
+        zargs.extend(argv);
+        zellij_embed::run(zargs);
+    }
+    // `sinteractive zellij ARGS…` is the full zellij CLI, in-process.
+    if argv.first().map(String::as_str) == Some("zellij") {
+        let mut zargs = vec!["zellij".to_string()];
+        zargs.extend(argv.into_iter().skip(1));
+        zellij_embed::run(zargs);
+    }
     let (ours, sbatch_args) = match split_launch_argv(&argv) {
         Ok(v) => v,
         Err(msg) => {

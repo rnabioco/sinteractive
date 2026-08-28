@@ -143,6 +143,9 @@ pub enum Command {
     Man,
     /// Dump the JSON schemas of the machine-readable outputs
     Schema,
+    /// The embedded zellij's own command line (`sinteractive zellij --help`)
+    #[command(external_subcommand)]
+    Zellij(Vec<String>),
 
     // ---- internal verbs (hidden) --------------------------------------
     /// The batch job body: starts zellij on the node and babysits it

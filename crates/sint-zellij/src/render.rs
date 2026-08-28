@@ -432,7 +432,14 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
     out
 }
 
-/// Render the full pane: the bar line, then the panel when open.
+/// Render the monitor-panel pane (the `view=monitor` instance): the panel
+/// rows only, no status line.
+pub fn render_panel(st: &State, rows: usize, cols: usize) -> String {
+    panel_lines(st, rows, cols).join("\n")
+}
+
+/// Render the bar pane: the bar line, then the panel when open and there is
+/// room (single-instance fallback).
 pub fn render(st: &State, rows: usize, cols: usize) -> String {
     let line = match st.mode {
         BarMode::Status => status_line(st, cols),

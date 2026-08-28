@@ -46,6 +46,12 @@ pub fn dispatch(command: Command) -> Result<i32> {
             Ok(0)
         }
         Command::Schema => not_yet("schema"),
+        // Intercepted in main.rs before clap runs; unreachable here.
+        Command::Zellij(args) => {
+            let mut zargs = vec!["zellij".to_string()];
+            zargs.extend(args);
+            crate::zellij_embed::run(zargs)
+        }
         Command::Queue(_) => not_yet("queue"),
         Command::Monitor(_) => not_yet("monitor"),
         Command::Snapshot(_) => not_yet("snapshot"),

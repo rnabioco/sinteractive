@@ -42,6 +42,7 @@ pub struct Notice {
 
 /// One GPU as shown in the monitor panel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct GpuLine {
     pub index: u32,
     pub name: String,
@@ -55,6 +56,7 @@ pub struct GpuLine {
 
 /// One process row in the monitor panel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct ProcLine {
     pub pid: u32,
     pub user: String,
@@ -67,6 +69,7 @@ pub struct ProcLine {
 
 /// A monitorable host: one of the user's RUNNING jobs' nodes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct HostPanel {
     pub host: String,
     pub job_id: u64,
@@ -86,6 +89,7 @@ pub struct HostPanel {
 
 /// The whole message. Every field is a plain value the plugin can print.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct StatusMsg {
     pub job_id: u64,
     pub name: Option<String>,

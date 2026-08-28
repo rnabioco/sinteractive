@@ -1,4 +1,6 @@
 [toolchain]
 channel = "stable"
-targets = ["x86_64-unknown-linux-musl", "wasm32-wasip1"]
+# wasm32-wasip1 builds the status plugin (crates/sint-zellij) from sint's
+# build.rs; the CLI itself targets the host (glibc) — see .github/workflows.
+targets = ["wasm32-wasip1"]
 components = ["rustfmt", "clippy"]

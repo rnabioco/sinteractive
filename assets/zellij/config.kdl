@@ -15,12 +15,12 @@ keybinds clear-defaults=true {
     }
     tmux {
         // sinteractive
-        bind "n" { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "notices"; }; SwitchToMode "Normal"; }
-        bind "h" { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "help"; }; SwitchToMode "Normal"; }
-        bind "m" { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "monitor"; }; SwitchToMode "Normal"; }
-        bind "," { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "host-prev"; }; SwitchToMode "Normal"; }
-        bind "." { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "host-next"; }; SwitchToMode "Normal"; }
-        bind "Esc" { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "escape"; }; SwitchToMode "Normal"; }
+        bind "n" { MessagePlugin { name "sint-ui"; payload "notices"; }; SwitchToMode "Normal"; }
+        bind "h" { MessagePlugin { name "sint-ui"; payload "help"; }; SwitchToMode "Normal"; }
+        bind "m" { MessagePlugin { name "sint-ui"; payload "monitor"; }; SwitchToMode "Normal"; }
+        bind "," { MessagePlugin { name "sint-ui"; payload "host-prev"; }; SwitchToMode "Normal"; }
+        bind "." { MessagePlugin { name "sint-ui"; payload "host-next"; }; SwitchToMode "Normal"; }
+        bind "Esc" { MessagePlugin { name "sint-ui"; payload "escape"; }; SwitchToMode "Normal"; }
         bind "q" { Run "sinteractive" "__popup" "queue" { floating true; close_on_exit true; name "queue"; }; SwitchToMode "Normal"; }
         bind "$" { Run "sinteractive" "__popup" "rename" { floating true; close_on_exit true; name "rename"; }; SwitchToMode "Normal"; }
         // tmux-compatible pane keys
@@ -37,10 +37,9 @@ keybinds clear-defaults=true {
         bind "Down" { MoveFocus "Down"; SwitchToMode "Normal"; }
         bind "Up" { MoveFocus "Up"; SwitchToMode "Normal"; }
         bind "[" { SwitchToMode "Scroll"; }
-        bind "]" { Paste; SwitchToMode "Normal"; }
         bind "r" { SwitchToMode "Resize"; }
         bind ":" { SwitchToMode "Pane"; }
-        bind "?" { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "help"; }; SwitchToMode "Normal"; }
+        bind "?" { MessagePlugin { name "sint-ui"; payload "help"; }; SwitchToMode "Normal"; }
     }
     scroll {
         bind "Esc" "q" { ScrollToBottom; SwitchToMode "Normal"; }
