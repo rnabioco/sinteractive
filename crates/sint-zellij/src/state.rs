@@ -21,15 +21,75 @@ pub enum ThemeMode {
     Light,
 }
 
-/// Rows the pane grows to when the monitor panel is on (status line + panel).
-pub const PANEL_ROWS: usize = 12;
+/// Content rows the monitor panel draws below its accent rule: the job
+/// strip, cpu, mem, and whatever GPU or history rows fit after them. The
+/// pane itself is one row taller (see `layouts/sint-panel.kdl`).
+pub const PANEL_ROWS: usize = 5;
+
+/// The pane title the panel gives itself, so the bar can find it in the
+/// pane manifest without guessing at plugin ids.
+pub const PANEL_TITLE: &str = "sint-monitor";
+
+/// What a bare keypress does while the panel holds the focus. The panel is
+/// a selectable pane, so unbound keys arrive here instead of at the shell;
+/// `Ctrl+b` chords never do — zellij resolves those as a mode switch before
+/// the focused pane sees them, so every chord keeps working unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelKey {
+    Prev,
+    Next,
+    Top,
+    Unfocus,
+    Close,
+}
+
+impl PanelKey {
+    /// Map a canonical key name (`main.rs` flattens zellij's
+    /// `KeyWithModifier` into one) onto a panel action.
+    pub fn from_name(name: &str) -> Option<PanelKey> {
+        Some(match name {
+            "left" | "h" | "," => PanelKey::Prev,
+            "right" | "l" | "." => PanelKey::Next,
+            "t" | "enter" => PanelKey::Top,
+            "esc" | "q" => PanelKey::Unfocus,
+            "x" => PanelKey::Close,
+            _ => return None,
+        })
+    }
+}
+
+/// What the plugin must ask zellij for after an action. Keeping it an enum
+/// leaves `State` free of zellij types, so every transition is testable
+/// natively.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Effect {
+    #[default]
+    None,
+    /// Insert the panel pane (the bar does this: no panel exists yet).
+    OpenPanel,
+    /// Give the panel pane the focus.
+    FocusPanel,
+    /// Hand the focus back to the shell, leaving the panel running.
+    FocusShell,
+    /// Close the panel pane.
+    ClosePanel,
+    /// Open the full `sinteractive monitor` TUI for the selected job in a
+    /// floating pane.
+    OpenTop,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct State {
     pub msg: StatusMsg,
     pub mode: BarMode,
     pub theme: ThemeMode,
+    /// This instance is the panel (`view=monitor`), not the bar.
+    pub is_panel: bool,
+    /// The panel pane exists: the panel knows because it is it, the bar
+    /// learns from the pane manifest.
     pub panel_open: bool,
+    /// The panel pane holds the focus.
+    pub focused: bool,
     /// Index into `msg.hosts` shown by the panel.
     pub host_idx: usize,
     /// Animation frame counter (advanced by the timer).
@@ -67,9 +127,9 @@ impl State {
         self.since_msg_secs = 0;
     }
 
-    /// A keybinding action. Returns true when the pane height should change
-    /// (panel toggled), so the caller can resize.
-    pub fn apply_action(&mut self, action: UiAction) -> bool {
+    /// A keybinding action, from the `sint-ui` pipe. Both instances see
+    /// every action, so each answers only for the panes it owns.
+    pub fn apply_action(&mut self, action: UiAction) -> Effect {
         self.mode_ttl = MODE_IDLE_TICKS;
         match action {
             UiAction::Notices => {
@@ -80,7 +140,7 @@ impl State {
                     _ if n > 0 => BarMode::Notices { idx: 0 },
                     _ => BarMode::Status,
                 };
-                false
+                Effect::None
             }
             UiAction::Help => {
                 let pages = self.msg.help.len();
@@ -90,31 +150,54 @@ impl State {
                     _ if pages > 0 => BarMode::Help { page: 0 },
                     _ => BarMode::Status,
                 };
-                false
+                Effect::None
             }
-            UiAction::Monitor => {
-                self.panel_open = !self.panel_open;
-                true
-            }
+            // `Ctrl+b m` is focus, not a toggle: it opens the panel when
+            // none is running, moves the focus into it when one is, and
+            // hands the focus back to the shell when the panel already has
+            // it. The panel keeps running through all of that; `x` closes.
+            UiAction::Monitor => match (self.is_panel, self.focused, self.panel_open) {
+                (true, true, _) => Effect::FocusShell,
+                (true, false, _) => Effect::FocusPanel,
+                // The bar acts only when there is no panel instance to.
+                (false, _, false) => Effect::OpenPanel,
+                (false, _, true) => Effect::None,
+            },
             UiAction::HostPrev => {
                 let n = self.msg.hosts.len();
                 if n > 0 {
                     self.host_idx = (self.host_idx + n - 1) % n;
                 }
-                false
+                Effect::None
             }
             UiAction::HostNext => {
                 let n = self.msg.hosts.len();
                 if n > 0 {
                     self.host_idx = (self.host_idx + 1) % n;
                 }
-                false
+                Effect::None
             }
             UiAction::Escape => {
                 self.mode = BarMode::Status;
-                false
+                Effect::None
             }
         }
+    }
+
+    /// A bare keypress in the focused panel.
+    pub fn apply_key(&mut self, key: PanelKey) -> Effect {
+        match key {
+            PanelKey::Prev => self.apply_action(UiAction::HostPrev),
+            PanelKey::Next => self.apply_action(UiAction::HostNext),
+            PanelKey::Top => Effect::OpenTop,
+            PanelKey::Unfocus => Effect::FocusShell,
+            PanelKey::Close => Effect::ClosePanel,
+        }
+    }
+
+    /// The job the panel is showing, if any.
+    pub fn selected_job(&self) -> Option<u64> {
+        self.msg.hosts.get(self.host_idx).map(|h| h.job_id)
     }
 
     /// A timer tick (~0.5 s). Returns true when a redraw is needed.
@@ -153,7 +236,7 @@ impl State {
     /// Height the pane should have right now.
     pub fn wanted_rows(&self) -> usize {
         if self.panel_open {
-            PANEL_ROWS
+            PANEL_ROWS + 1
         } else {
             1
         }
@@ -189,7 +272,7 @@ mod tests {
     fn notices_cycle_then_return() {
         let mut s = State::default();
         s.apply_msg(msg_with(2, 0));
-        assert!(!s.apply_action(UiAction::Notices));
+        assert_eq!(s.apply_action(UiAction::Notices), Effect::None);
         assert_eq!(s.mode, BarMode::Notices { idx: 0 });
         s.apply_action(UiAction::Notices);
         assert_eq!(s.mode, BarMode::Notices { idx: 1 });
@@ -214,18 +297,63 @@ mod tests {
     }
 
     #[test]
-    fn panel_toggle_and_host_selector_wrap() {
+    fn ctrl_b_m_opens_then_moves_the_focus_back_and_forth() {
+        // The bar opens the panel, and stands aside once one is running.
+        let mut bar = State::default();
+        assert_eq!(bar.apply_action(UiAction::Monitor), Effect::OpenPanel);
+        bar.panel_open = true;
+        assert_eq!(bar.apply_action(UiAction::Monitor), Effect::None);
+        // The panel takes the focus, then gives it back — and stays open.
+        let mut panel = State {
+            is_panel: true,
+            panel_open: true,
+            ..Default::default()
+        };
+        assert_eq!(panel.apply_action(UiAction::Monitor), Effect::FocusPanel);
+        panel.focused = true;
+        assert_eq!(panel.apply_action(UiAction::Monitor), Effect::FocusShell);
+        assert!(panel.panel_open);
+    }
+
+    #[test]
+    fn panel_keys_select_jobs_and_leave() {
+        let mut s = State {
+            is_panel: true,
+            panel_open: true,
+            focused: true,
+            ..Default::default()
+        };
+        s.apply_msg(msg_with(0, 3));
+        for (name, want) in [
+            ("right", PanelKey::Next),
+            ("l", PanelKey::Next),
+            ("left", PanelKey::Prev),
+            ("h", PanelKey::Prev),
+            ("t", PanelKey::Top),
+            ("enter", PanelKey::Top),
+            ("esc", PanelKey::Unfocus),
+            ("q", PanelKey::Unfocus),
+            ("x", PanelKey::Close),
+        ] {
+            assert_eq!(PanelKey::from_name(name), Some(want), "{name}");
+        }
+        assert_eq!(PanelKey::from_name("z"), None, "unbound keys pass through");
+        assert_eq!(s.apply_key(PanelKey::Next), Effect::None);
+        assert_eq!(s.selected_job(), Some(101));
+        s.apply_key(PanelKey::Next);
+        s.apply_key(PanelKey::Next);
+        assert_eq!(s.selected_job(), Some(100), "wraps");
+        s.apply_key(PanelKey::Prev);
+        assert_eq!(s.selected_job(), Some(102));
+        assert_eq!(s.apply_key(PanelKey::Top), Effect::OpenTop);
+        assert_eq!(s.apply_key(PanelKey::Unfocus), Effect::FocusShell);
+        assert_eq!(s.apply_key(PanelKey::Close), Effect::ClosePanel);
+    }
+
+    #[test]
+    fn the_selector_follows_its_job_across_refreshes() {
         let mut s = State::default();
         s.apply_msg(msg_with(0, 3));
-        assert!(s.apply_action(UiAction::Monitor));
-        assert!(s.panel_open);
-        assert_eq!(s.wanted_rows(), PANEL_ROWS);
-        s.apply_action(UiAction::HostNext);
-        s.apply_action(UiAction::HostNext);
-        s.apply_action(UiAction::HostNext);
-        assert_eq!(s.host_idx, 0);
-        s.apply_action(UiAction::HostPrev);
-        assert_eq!(s.host_idx, 2);
         // A refresh that drops hosts clamps the index; one that keeps the
         // selected job follows it.
         let mut m = msg_with(0, 2);
@@ -234,11 +362,8 @@ mod tests {
         s.apply_msg(m);
         assert_eq!(s.host_idx, 0);
         s.host_idx = 1; // job 100
-        let m2 = msg_with(0, 3); // 100,101,102
-        s.apply_msg(m2);
+        s.apply_msg(msg_with(0, 3)); // 100,101,102
         assert_eq!(s.host_idx, 0);
-        assert!(s.apply_action(UiAction::Monitor));
-        assert_eq!(s.wanted_rows(), 1);
     }
 
     #[test]

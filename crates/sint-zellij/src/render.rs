@@ -345,14 +345,118 @@ fn mb_to_g(mb: u64) -> String {
     }
 }
 
-/// The monitor panel rows (excluding the status line), `rows` high.
+/// `key desc`, the panel's legend unit.
+fn keycap(k: &str, desc: &str, c: &Colors) -> String {
+    format!("{}{k}{RESET} {}{desc}{RESET}", fg(c.hint), fg(c.dim))
+}
+
+/// `left`, then `right` pushed to the far edge. The right side is dropped
+/// whole rather than truncated when the row is too narrow for both.
+fn spread(left: &str, right: &str, cols: usize) -> String {
+    let (lw, rw) = (visible_width(left), visible_width(right));
+    if rw > 0 && lw + rw + 2 <= cols {
+        format!("{left}{}{right}", " ".repeat(cols - lw - rw))
+    } else {
+        left.to_string()
+    }
+}
+
+/// How a job reads in the strip: the id, plus its name when it has one.
+fn job_label(h: &sint_proto::HostPanel) -> String {
+    match h.job_name.as_deref().filter(|n| !n.is_empty()) {
+        Some(n) => format!("{} {n}", h.job_id),
+        None => h.job_id.to_string(),
+    }
+}
+
+/// The job strip: every monitorable job on one row, the selected one lit,
+/// with the keys that drive the panel on the right. When the jobs do not
+/// all fit, the strip scrolls to keep the selected one in view and marks
+/// the ends it has cut with `‹` / `›`.
+pub fn job_strip(st: &State, cols: usize) -> String {
+    let c = colors(st.theme);
+    let hosts = &st.msg.hosts;
+    let n = hosts.len();
+    // Focused, the panel owns the bare keys; unfocused, only chords reach it.
+    let legend: Vec<String> = if st.focused {
+        vec![
+            keycap("←→", "job", &c),
+            keycap("t", "top", &c),
+            keycap("esc", "shell", &c),
+            keycap("x", "close", &c),
+        ]
+    } else {
+        vec![keycap("^b m", "focus", &c), keycap("^b ,/.", "job", &c)]
+    };
+    let legend = legend.join(&format!(" {}·{RESET} ", fg(c.dim)));
+    let count = format!("{}{}/{n}{RESET}", fg(c.dim), st.host_idx + 1);
+    let room = cols.saturating_sub(visible_width(&legend) + visible_width(&count) + 6);
+
+    // Grow a window around the selection: right first, then left. A label
+    // wider than the whole strip is cut, so one long job name cannot push
+    // the row past the pane and wrap it.
+    let labels: Vec<String> = hosts
+        .iter()
+        .map(|h| {
+            let l = job_label(h);
+            if visible_width(&l) > room && room > 1 {
+                let mut t: String = l.chars().take(room - 1).collect();
+                t.push('…');
+                t
+            } else {
+                l
+            }
+        })
+        .collect();
+    let sep_w = 3; // " · "
+    let (mut start, mut end) = (st.host_idx, st.host_idx + 1);
+    let mut used = visible_width(&labels[st.host_idx]);
+    loop {
+        let grew_right = end < n && used + sep_w + visible_width(&labels[end]) <= room;
+        if grew_right {
+            used += sep_w + visible_width(&labels[end]);
+            end += 1;
+        }
+        let grew_left = start > 0 && used + sep_w + visible_width(&labels[start - 1]) <= room;
+        if grew_left {
+            start -= 1;
+            used += sep_w + visible_width(&labels[start]);
+        }
+        if !grew_right && !grew_left {
+            break;
+        }
+    }
+    let shown: Vec<String> = (start..end)
+        .map(|i| {
+            if i == st.host_idx {
+                format!("{}{BOLD}{}{RESET}", fg(c.accent), labels[i])
+            } else {
+                format!("{}{}{RESET}", fg(c.dim), labels[i])
+            }
+        })
+        .collect();
+    let mut left = shown.join(&format!(" {}·{RESET} ", fg(c.dim)));
+    if start > 0 {
+        left = format!("{}‹{RESET} {left}", fg(c.hint));
+    }
+    if end < n {
+        left = format!("{left} {}›{RESET}", fg(c.hint));
+    }
+    spread(&format!("{left}  {count}"), &legend, cols)
+}
+
+/// The monitor panel rows (excluding the accent rule), `rows` high.
+///
+/// Bars only: the job strip, cpu, memory, and as many GPUs as there is room
+/// for, then the cpu trend if any row is still going spare. The process
+/// table is not here — `t` opens the full `sinteractive monitor` TUI in a
+/// floating pane, which scrolls and sorts the way a top does.
 pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
     let c = colors(st.theme);
     let mut out = Vec::new();
     if rows == 0 {
         return out;
     }
-    let n = st.msg.hosts.len();
     let Some(h) = st.msg.hosts.get(st.host_idx) else {
         out.push(format!(
             "{}no monitorable jobs — start one and it appears here{RESET}",
@@ -360,38 +464,24 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         ));
         return out;
     };
-    // Selector row.
-    let name = h.job_name.as_deref().unwrap_or("");
+    out.push(job_strip(st, cols));
+    // Resource rows.
+    let bw = 20usize.min(cols.saturating_sub(30).max(5));
     let stale = if h.age_secs > 30 {
-        format!(" {}({}s old){RESET}", fg(c.warn), h.age_secs)
+        format!("  {}{}s old{RESET}", fg(c.warn), h.age_secs)
     } else {
         String::new()
     };
     out.push(format!(
-        "{}◀{RESET} {}{BOLD}{}{RESET} {}·{RESET} {} {}{stale} {}{}/{n}{RESET} {}▶{RESET}   {}^b ,/. host · ^b m close{RESET}",
-        fg(c.hint),
-        fg(c.accent),
-        h.host,
-        fg(c.dim),
-        h.job_id,
-        name,
-        fg(c.dim),
-        st.host_idx + 1,
-        fg(c.hint),
-        fg(c.dim)
-    ));
-    // Resource rows.
-    let bw = 20usize.min(cols.saturating_sub(30).max(5));
-    out.push(format!(
-        "{}cpu{RESET} {} {:>3}% {}of{RESET} {} {}·{RESET} load {:.1}  {}",
+        "{}cpu{RESET} {} {:>3}% {}of{RESET} {} {}·{RESET} {}load{RESET} {:.1}{stale}",
         fg(c.dim),
         bar(h.cpu_pct, bw, c.ok, c.dim),
         h.cpu_pct,
         fg(c.dim),
         h.cpu_alloc,
         fg(c.dim),
+        fg(c.dim),
         h.load1,
-        sparkline(&h.cpu_history, cols.saturating_sub(bw + 40).min(30))
     ));
     let mem_pct = pct_of(h.mem_used_mb, h.mem_alloc_mb);
     out.push(format!(
@@ -403,7 +493,7 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         fg(c.dim),
         mb_to_g(h.mem_alloc_mb)
     ));
-    for g in &h.gpus {
+    for g in h.gpus.iter().take(rows.saturating_sub(out.len())) {
         let mem_pct = pct_of(g.mem_used_mb, g.mem_total_mb);
         let extra = [
             g.temp_c.map(|t| format!("{t}°C")),
@@ -426,30 +516,14 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
             bar(mem_pct, 8, c.accent, c.dim)
         ));
     }
-    // Process table in the remaining rows.
-    let remaining = rows.saturating_sub(out.len());
-    if remaining >= 2 && !h.procs.is_empty() {
+    // A CPU-only job leaves rows over: spend them on where the load has
+    // been, which is the one thing a bar cannot say.
+    if out.len() < rows && h.cpu_history.len() > 1 {
         out.push(format!(
-            "{}{:>7} {:>5} {:>7} {:>6}  {}{RESET}",
+            "{}trend{RESET} {}",
             fg(c.dim),
-            "PID",
-            "CPU%",
-            "RSS",
-            "GPU",
-            "COMMAND"
+            sparkline(&h.cpu_history, cols.saturating_sub(8))
         ));
-        for p in h.procs.iter().take(remaining - 1) {
-            let gpu = p.gpu_mem_mb.map(mb_to_g).unwrap_or_else(|| "-".into());
-            let cmd_room = cols.saturating_sub(31);
-            let cmd: String = p.command.chars().take(cmd_room).collect();
-            out.push(format!(
-                "{:>7} {:>5.1} {:>7} {:>6}  {cmd}",
-                p.pid,
-                p.cpu_pct,
-                mb_to_g(p.rss_mb),
-                gpu
-            ));
-        }
     }
     out.truncate(rows);
     out
@@ -489,6 +563,7 @@ pub fn render(st: &State, rows: usize, cols: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::PANEL_ROWS;
     use sint_proto::{GpuLine, HostPanel, Notice, ProcLine, StatusMsg};
 
     fn state() -> State {
@@ -596,19 +671,54 @@ mod tests {
     }
 
     #[test]
-    fn panel_renders_selector_bars_and_procs() {
+    fn the_panel_is_bars_and_a_job_strip() {
         let mut st = state();
+        st.is_panel = true;
         st.panel_open = true;
-        let out = render(&st, 12, 100);
+        let out = render_panel(&st, PANEL_ROWS + 1, 100);
         let lines: Vec<&str> = out.lines().collect();
-        assert!(lines.len() > 5 && lines.len() <= 12, "{}", lines.len());
+        assert_eq!(lines.len(), PANEL_ROWS + 1, "{out}");
         assert_eq!(visible_width(lines[0]), 100, "rule spans the pane");
-        assert!(lines[2].contains("c3gpu-a5-u1") && lines[2].contains("1/1"));
-        assert!(lines[3].contains("cpu") && lines[3].contains("34%"));
-        assert!(lines[4].contains("mem") && lines[4].contains("37%"));
-        assert!(lines[5].contains("gpu0") && lines[5].contains("87%"));
-        assert!(out.contains("python train.py"));
-        assert!(!lines[1].contains("monitorable"), "hint hidden while open");
+        assert!(lines[1].contains("147845") && lines[1].contains("mywork"));
+        assert!(lines[1].contains("1/1"));
+        assert!(lines[2].contains("cpu") && lines[2].contains("34%"));
+        assert!(lines[3].contains("mem") && lines[3].contains("37%"));
+        assert!(lines[4].contains("gpu0") && lines[4].contains("87%"));
+        assert!(lines[5].contains("trend"), "spare row shows the history");
+        assert!(!out.contains("python train.py"), "top lives behind `t`");
+        for l in &lines {
+            assert!(visible_width(l) <= 100, "{l:?}");
+        }
+    }
+
+    #[test]
+    fn the_strip_scrolls_to_keep_the_selection_in_view() {
+        let mut st = state();
+        st.is_panel = true;
+        let mut m = st.msg.clone();
+        m.hosts = (0..8)
+            .map(|i| HostPanel {
+                host: format!("c3cpu-a{i}"),
+                job_id: 200 + i,
+                job_name: Some(format!("job-number-{i}")),
+                ..Default::default()
+            })
+            .collect();
+        st.apply_msg(m);
+        st.host_idx = 7;
+        let row = job_strip(&st, 80);
+        assert!(visible_width(&row) <= 80, "{}", visible_width(&row));
+        let plain = strip_ansi(&row);
+        assert!(plain.contains("207 job-number-7"), "{plain}");
+        assert!(plain.contains('‹') && !plain.contains('›'), "{plain}");
+        assert!(plain.contains("8/8"));
+        st.host_idx = 0;
+        let plain = strip_ansi(&job_strip(&st, 80));
+        assert!(plain.contains('›') && !plain.contains('‹'), "{plain}");
+        // Every job fits on a wide bar, and none of it is cut.
+        let plain = strip_ansi(&job_strip(&st, 200));
+        assert!(!plain.contains('‹') && !plain.contains('›'), "{plain}");
+        assert!(plain.contains("200 job-number-0") && plain.contains("207 job-number-7"));
     }
 
     #[test]
@@ -623,11 +733,11 @@ mod tests {
         // A one-row bar has no room for it.
         assert!(!render(&st, 1, 80).contains('\u{2501}'));
         // The panel pane draws it instead, and keeps its own rows.
-        let panel = render_panel(&st, 13, 80);
+        let panel = render_panel(&st, PANEL_ROWS + 1, 80);
         let plines: Vec<&str> = panel.lines().collect();
         assert_eq!(strip_ansi(plines[0]), "\u{2501}".repeat(80));
-        assert!(plines.len() <= 13);
-        assert!(plines[1].contains("c3gpu-a5-u1"));
+        assert!(plines.len() <= PANEL_ROWS + 1);
+        assert!(plines[1].contains("147845"));
     }
 
     #[test]
@@ -638,10 +748,20 @@ mod tests {
         assert!(n.contains("^b n next"), "{n}");
         assert!(n.contains("^b esc back"), "{n}");
         st.mode = BarMode::Status;
+        st.is_panel = true;
         st.panel_open = true;
-        let p = strip_ansi(&render_panel(&st, 13, 100));
-        assert!(p.contains("^b ,/. host"), "{p}");
-        assert!(p.contains("^b m close"), "{p}");
+        // Unfocused, the panel can only be reached by a chord …
+        let p = strip_ansi(&render_panel(&st, PANEL_ROWS + 1, 100));
+        assert!(p.contains("^b m focus"), "{p}");
+        assert!(p.contains("^b ,/. job"), "{p}");
+        // … focused, it owns the bare keys and says so.
+        st.focused = true;
+        let f = strip_ansi(&render_panel(&st, PANEL_ROWS + 1, 100));
+        assert!(f.contains("←→ job"), "{f}");
+        assert!(
+            f.contains("t top") && f.contains("esc shell") && f.contains("x close"),
+            "{f}"
+        );
     }
 
     #[test]

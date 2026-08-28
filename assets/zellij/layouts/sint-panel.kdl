@@ -1,13 +1,19 @@
 // The sinteractive session layout with the monitor panel open: shell, the
-// panel (its own accent rule plus 12 rows), then the two-row status bar. Both
-// sint panes keep the size they have in sint.kdl, so the layout swap only
-// has to insert the panel — it never asks zellij to resize a retained
-// fixed-size pane, which it will not do. See sint.kdl.
+// panel (its own accent rule plus five rows of bars), then the two-row
+// status bar. Both sint panes keep the size they have in sint.kdl, so the
+// layout swap only has to insert the panel — it never asks zellij to resize
+// a retained fixed-size pane, which it will not do. See sint.kdl.
+//
+// Five rows is the job strip, cpu and mem, and whatever GPU or trend rows
+// fit after them (`state::PANEL_ROWS`). The process table is not in here:
+// `t` in the focused panel opens `sinteractive monitor` in a floating pane,
+// which is what `exe` is passed for.
 layout {
     pane borderless=true focus=true
-    pane size=13 borderless=true {
+    pane size=6 borderless=true {
         plugin location="file:__PLUGIN__" {
             view "monitor"
+            exe "__EXE__"
         }
     }
     pane size=2 borderless=true {
