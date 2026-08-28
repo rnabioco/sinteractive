@@ -61,6 +61,9 @@ struct Plugin {
     /// lands last is not ours to decide, so the first manifest that says
     /// the shell won gets one retry.
     focus_pending: bool,
+    /// zellij has answered `request_permission`. Nothing that needs
+    /// `ChangeApplicationState` may be asked for before this.
+    permitted: bool,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -84,9 +87,9 @@ impl ZellijPlugin for Plugin {
             .cloned()
             .unwrap_or_else(|| "sinteractive".to_string());
         self.own_id = get_plugin_ids().plugin_id;
-        // Subscribe before asking: with the permission pre-granted in
-        // zellij's cache the answer arrives immediately, and an event sent
-        // before the subscription is dropped.
+        // Subscribe before asking: the answer comes back as an event, so
+        // one sent before the subscription would be dropped — and with the
+        // permission pre-granted in zellij's cache it comes back fast.
         let mut events = vec![
             EventType::Timer,
             EventType::PermissionRequestResult,
@@ -104,15 +107,13 @@ impl ZellijPlugin for Plugin {
             // `t` runs `sinteractive monitor` in a floating pane.
             PermissionType::RunCommands,
         ]);
-        // Only the panel takes keys. It exists because someone asked for
-        // it, so it takes the focus as it appears, and names itself so the
-        // bar can find it in the manifest.
+        // Only the panel takes keys. `set_selectable` is not one of the
+        // commands `ChangeApplicationState` guards, so it can be asked for
+        // straight away; naming and focusing the pane cannot — see
+        // `claim_pane`.
         set_selectable(self.is_panel);
         if self.is_panel {
             self.st.panel_open = true;
-            self.focus_pending = true;
-            rename_plugin_pane(self.own_id, PANEL_TITLE);
-            focus_plugin_pane(self.own_id, false, false);
         }
         set_timeout(TICK_SECS);
     }
@@ -125,6 +126,14 @@ impl ZellijPlugin for Plugin {
             }
             Event::PermissionRequestResult(status) => {
                 eprintln!("sint-zellij: permission {:?}", status);
+                // The answer arrives as an event, never inline — a
+                // pre-granted permission only makes it quick, not
+                // synchronous — so this is the first moment the panel may
+                // touch its own pane.
+                self.permitted = status == PermissionStatus::Granted;
+                if self.is_panel && self.permitted {
+                    self.claim_pane();
+                }
                 true
             }
             Event::HostTerminalThemeChanged(mode) => {
@@ -214,6 +223,7 @@ impl Plugin {
             return false;
         };
         let (mut open, mut focused, mut shell) = (false, false, None);
+        let mut titled = false;
         for p in panes {
             let is_panel_pane = p.is_plugin
                 && if self.is_panel {
@@ -226,6 +236,7 @@ impl Plugin {
             if is_panel_pane {
                 open = true;
                 focused |= p.is_focused;
+                titled |= p.title.contains(PANEL_TITLE);
             } else if !p.is_plugin && !p.is_floating && !p.is_suppressed && shell.is_none() {
                 shell = Some(p.id);
             }
@@ -234,6 +245,13 @@ impl Plugin {
         self.st.panel_open = open;
         self.st.focused = focused;
         self.shell_pane = shell;
+        // The bar knows the panel only by its title, so an untitled panel
+        // pane is invisible to it and every later `Ctrl+b m` re-applies the
+        // panel layout instead of moving the focus. Nothing else writes
+        // that title, so re-asserting it is a no-op once it has stuck.
+        if self.is_panel && self.permitted && !titled {
+            rename_plugin_pane(self.own_id, PANEL_TITLE);
+        }
         if self.focus_pending {
             self.focus_pending = false;
             if !focused {
@@ -241,6 +259,18 @@ impl Plugin {
             }
         }
         changed
+    }
+
+    /// Take the pane the panel was created for: name it, so the bar can
+    /// find it in the manifest, and focus it, because the panel exists at
+    /// all only because someone asked for it. Both commands need
+    /// `ChangeApplicationState`, so this waits for the permission answer —
+    /// issued from `load` they are denied, and a denied rename is what
+    /// leaves the bar unable to see the panel it just opened.
+    fn claim_pane(&mut self) {
+        self.focus_pending = true;
+        rename_plugin_pane(self.own_id, PANEL_TITLE);
+        focus_plugin_pane(self.own_id, false, false);
     }
 
     /// Carry out what a keypress or a `sint-ui` action asked for.
