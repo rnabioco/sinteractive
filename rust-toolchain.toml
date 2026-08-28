@@ -1,0 +1,4 @@
+[toolchain]
+channel = "stable"
+targets = ["x86_64-unknown-linux-musl", "wasm32-wasip1"]
+components = ["rustfmt", "clippy"]
