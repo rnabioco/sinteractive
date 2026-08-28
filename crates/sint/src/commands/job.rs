@@ -646,11 +646,39 @@ impl Deps for NodeDeps<'_> {
         }
     }
 
+    /// Pipe the status message to the plugin, never waiting on it: a CLI
+    /// pipe blocks until the plugin handles it, and zellij loads a layout's
+    /// plugins only when a client first renders them — before anyone attaches
+    /// the pipe would block the loop forever. Kill it after two seconds.
     fn send_status(&mut self, msg: &StatusMsg) {
         let Ok(json) = serde_json::to_string(msg) else {
             return;
         };
-        let _ = self.zellij_output(&["pipe", "--name", PIPE_NAME, "--", &json]);
+        let mut child = match self
+            .zellij
+            .command(["pipe", "--name", PIPE_NAME, "--", &json])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return;
+                }
+            }
+        }
     }
 }
 

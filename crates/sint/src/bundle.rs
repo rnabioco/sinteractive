@@ -10,6 +10,7 @@
 //! sint-zellij.wasm        the status plugin
 //! config.kdl              assets/zellij/config.kdl with paths substituted
 //! layouts/sint.kdl        assets/zellij/layouts/sint.kdl, likewise
+//! layouts/sint-panel.kdl  assets/zellij/layouts/sint-panel.kdl (monitor panel open)
 //! .complete               marker written last; presence = extraction done
 //! ```
 //!
@@ -25,6 +26,7 @@ use sint_core::config::Config;
 static PLUGIN_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/sint-zellij.wasm"));
 static CONFIG_KDL: &str = include_str!("../../../assets/zellij/config.kdl");
 static LAYOUT_KDL: &str = include_str!("../../../assets/zellij/layouts/sint.kdl");
+static PANEL_LAYOUT_KDL: &str = include_str!("../../../assets/zellij/layouts/sint-panel.kdl");
 
 /// The zellij version compiled in.
 pub const ZELLIJ_VERSION: &str = zellij_utils::consts::VERSION;
@@ -47,6 +49,7 @@ fn bundle_id(mouse: bool) -> String {
     h.update(PLUGIN_WASM);
     h.update(CONFIG_KDL.as_bytes());
     h.update(LAYOUT_KDL.as_bytes());
+    h.update(PANEL_LAYOUT_KDL.as_bytes());
     h.update(if mouse { "mouse" } else { "nomouse" }.as_bytes());
     let hex = format!("{:x}", h.finalize());
     hex[..12].to_string()
@@ -84,6 +87,7 @@ pub fn ensure(cfg: &Config, mouse: bool) -> Result<Bundle> {
     };
     fs::write(t.join("config.kdl"), sub(CONFIG_KDL))?;
     fs::write(t.join("layouts/sint.kdl"), sub(LAYOUT_KDL))?;
+    fs::write(t.join("layouts/sint-panel.kdl"), sub(PANEL_LAYOUT_KDL))?;
     fs::write(t.join(".complete"), ZELLIJ_VERSION)?;
     match fs::rename(t, &dir) {
         Ok(()) => {
@@ -112,6 +116,8 @@ mod tests {
         assert!(conf.contains("mouse_mode true"));
         assert!(conf.contains(&format!("layout_dir \"{}\"", b.layouts.display())));
         let lay = fs::read_to_string(b.layouts.join("sint.kdl")).unwrap();
+        let panel = fs::read_to_string(b.layouts.join("sint-panel.kdl")).unwrap();
+        assert!(panel.contains("view \"monitor\"") && !panel.contains("__PLUGIN__"));
         assert!(lay.contains(&format!("file:{}", b.plugin.display())));
         assert!(b.dir.join(".complete").exists());
         // Second call is a no-op returning the same paths.
