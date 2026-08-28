@@ -1,790 +1,121 @@
-.TH SINTERACTIVE 1 "August 2026" "sinteractive 0.7.0" "User Commands"
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH sinteractive 1  "sinteractive 1.0.0-dev" 
 .SH NAME
-sinteractive \- start an interactive tmux session on a Slurm compute node
+sinteractive \- Persistent interactive sessions on Slurm compute nodes
 .SH SYNOPSIS
-.B sinteractive
-.RI [ OPTIONS ]
-.RB [ \-\-
-.IR SBATCH_ARGS... ]
-.br
-.B sinteractive \-\-attach
-.RI [ JOBID | NAME ]
-.br
-.B sinteractive \-\-cancel
-.IR JOBID | NAME
-.br
-.B sinteractive \-\-list
-.RB [ \-\-json ]
-.br
-.B sinteractive \-\-status
-.RI [ TARGET ]
-.RB [ \-\-json ]
-.br
-.B sinteractive \-\-refresh
-.RI [ TARGET ]
-.RB [ \-\-json ]
-.br
-.B sinteractive \-\-ensure
-.I NAME
-.RI [ OPTIONS ]
-.RB [ \-\-json ]
-.br
-.B sinteractive \-\-agent\-context
-.br
-.B sinteractive \-\-install\-claude
+\fBsinteractive\fR [\fB\-\-node\fR] [\fB\-p\fR|\fB\-\-partition\fR] [\fB\-t\fR|\fB\-\-time\fR] [\fB\-j\fR|\fB\-\-threads\fR] [\fB\-m\fR|\fB\-\-mem\fR] [\fB\-n\fR|\fB\-\-name\fR] [\fB\-\-mouse\fR] [\fB\-\-no\-mouse\fR] [\fB\-\-detach\fR] [\fB\-\-json\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIsubcommands\fR]
 .SH DESCRIPTION
-.B sinteractive
-submits a batch job that launches a detached
-.BR tmux (1)
-session on the allocated compute node, then SSHes in and attaches to
-it. Because the shell lives in tmux, the session survives SSH drops and
-can be reattached later with
-.BR \-\-attach .
-.PP
-Options not listed below are passed directly to
-.BR sbatch (1),
-so any sbatch resource flag (e.g.
-.BR \-\-gres ,
-.BR \-\-exclusive ,
-.BR \-\-qos )
-works as expected.
+Persistent interactive sessions on Slurm compute nodes
 .SH OPTIONS
-.SS Launch options
 .TP
-.BI \-n\fR,\ \fB\-\-name\  NAME
-Tag the session with a name for easy reattach. Allowed characters:
-letters, digits,
-.BR . ,
-.BR _ ,
-.BR \- .
-The name appears in
-.B squeue
-(as job name
-.BI sint\- NAME ),
-in
-.B \-\-list
-output, and can be used anywhere a
-.I JOBID
-is accepted. Launching a second session with a name already in use is
-refused.
-.IP
-Note that
-.B \-n
-is consumed by sinteractive as
-.BR \-\-name ;
-use
-.BI \-\-ntasks= N
-to set sbatch ntasks instead.
+\fB\-\-node\fR \fI<NODE>\fR
+Request a specific compute node (`\-\-nodelist`)
 .TP
-.BI \-\-node\  NODE
-Request a specific compute node (alias for
-.BR \-\-nodelist ),
-e.g.
-.BR compute01 .
+\fB\-p\fR, \fB\-\-partition\fR \fI<PART>\fR
+Slurm partition
 .TP
-.BI \-\-partition\  PART
-Slurm partition (default:
-.BR interactive ).
+\fB\-t\fR, \fB\-\-time\fR \fI<TIME>\fR
+Wall time (`8h`, `30m`, `1d12h`, or Slurm `D\-HH:MM:SS`)
 .TP
-.BI \-\-time\  TIME
-Wall time limit (default: 1 day). Accepts shorthand in addition to
-Slurm formats; see
-.B TIME FORMATS
-below.
+\fB\-j\fR, \fB\-\-threads\fR \fI<N>\fR
+Number of CPUs (`\-\-cpus\-per\-task`)
 .TP
-.BI \-j\fR,\ \fB\-\-threads\  N
-Number of CPUs (alias for
-.BR \-\-cpus\-per\-task ;
-default: 2).
+\fB\-m\fR, \fB\-\-mem\fR \fI<SIZE>\fR
+Memory (`\-\-mem`)
 .TP
-.BI \-m\  SIZE
-Memory (alias for
-.BR \-\-mem ),
-e.g.
-.BR 16G
-(default: 8G).
+\fB\-n\fR, \fB\-\-name\fR \fI<NAME>\fR
+Tag the session with a name for easy reattach
 .TP
-.B \-\-mouse
-Enable tmux mouse support: wheel scrollback, click to select panes,
-drag borders to resize. Off by default because it intercepts terminal
-selection; hold Shift to select text for an OS-level copy. With mouse
-support on, tmux's own mouse selection copies out over SSH via OSC 52.
+\fB\-\-mouse\fR
+Enable mouse support in the session
 .TP
-.B \-\-no\-mouse
-Disable mouse support (overrides
-.BR SINTERACTIVE_MOUSE ).
+\fB\-\-no\-mouse\fR
+Disable mouse support (overrides `SINTERACTIVE_MOUSE`)
 .TP
-.B \-\-detach
-Launch without attaching: wait until the session is ready, print
-connection info (attach/status/cancel commands), and return.
-Attach later with
-.BR \-\-attach .
-Useful for scripts and agents; combine with
-.B \-\-json
-for machine-readable output. Unlike a normal launch,
-.B \-\-detach
-is allowed from inside an existing session (it never nests tmux).
-.SS Session management
+\fB\-\-detach\fR
+Launch without attaching; print connection info and return
 .TP
-.BI \-a\fR,\ \fB\-\-attach\ [ TARGET ]
-Reattach to a running session by
-.I JOBID
-or
-.IR NAME .
-If multiple sessions share a name, specify the job id.
-.IP
-With no
-.IR TARGET ,
-reattach to your only running session. If several are running, they are
-listed with ready-to-run
-.B \-\-attach
-commands so you can pick one; if none are, the error says how to start
-one.
+\fB\-\-json\fR
+Machine\-readable JSON output (with `\-\-detach`)
 .TP
-.BI \-\-cancel\  TARGET
-Cancel a session by
-.I JOBID
-or
-.IR NAME ,
-reporting what was cancelled. Equivalent to
-.BR scancel (1)
-on the job, but accepts session names. Allowed from inside a session
-\(em cancelling the session you are in ends it, like the wall time
-running out.
+\fB\-h\fR, \fB\-\-help\fR
+Print help
 .TP
-.BI \-\-ensure\  NAME
-Idempotent get\-or\-create: if a session named
-.I NAME
-is already running, report it and exit 0 without launching anything;
-otherwise launch one and report that. Implies
-.BR \-\-detach ,
-and takes the same launch options as a normal launch (\c
-.BR \-\-time ,
-.BR \-j ,
-.BR \-m ,
-.BR \-\-partition ,
-and any
-.BR sbatch (1)
-flag). With
-.B \-\-json
-the object carries an extra
-.B created
-field \(em
-.B true
-when this call launched the session,
-.B false
-when it found one already running \(em so a caller need not list, parse,
-and recover from a duplicate\-name error.
-.IP
-A
-.B PENDING
-match counts as existing and is returned with its real state rather than
-waited on. The duplicate\-name check happens before submission, so two
-concurrent
-.B \-\-ensure
-calls for the same name can still both launch.
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
 .TP
-.BR \-l ,\  \-\-list
-List running sinteractive sessions with job id, name, node, partition,
-elapsed time, time limit, and the session's current working directory.
+sinteractive\-launch(1)
+Launch a new session (the default when no subcommand is given)
 .TP
-.BI \-\-status\  [TARGET]
-Show session status: state, node, partition, allocated CPUs and memory,
-elapsed time, time remaining, and the session's active notices (see
-.BR "STATUS BAR" ).
-.I TARGET
-is a
-.I JOBID
-or
-.IR NAME ;
-inside a session it defaults to the current session.
+sinteractive\-attach(1)
+Reattach to a session by JOBID or NAME (your only session when omitted)
 .TP
-.BI \-\-refresh\  [TARGET]
-Same output as
-.BR \-\-status ,
-and additionally asks the session to re-check its end time against Slurm
-and rewrite its state file now instead of at its next poll. Use it after
-changing a job's wall time with
-.BR "scontrol update JobId=... TimeLimit=..." ,
-so cached readers agree immediately.
+sinteractive\-ensure(1)
+Reuse the session named NAME, or launch it if absent (implies \-\-detach)
 .TP
-.B \-\-json
-With
-.BR \-\-list ,
-.BR \-\-status ,
-or
-.BR \-\-detach :
-print JSON for scripts and agents.
-.B \-\-status \-\-json
-and
-.B \-\-list \-\-json
-return the same object shape, except that
-.B \-\-list
-additionally carries
-.BR cwd ,
-which costs an SSH round\-trip per session. Both include
-.BR end_epoch " and " remaining_seconds ,
-so one
-.B \-\-list
-call can rank sessions by remaining wall time, and
-.BR cpus ", " memory ", " memory_mb " and " gpus ,
-which describe the session's own allocation.
-.IP
-.B cpus
-is what Slurm
-.I allocated,
-which can exceed what was requested \(em a cluster that hands out whole
-cores will report 2 for a
-.B \-j 1
-session. That is the number you actually have.
-.IP
-Those resource fields are for sizing a
-.I separate
-allocation to run work in, not for sizing work run inside the session;
-see
-.BR \-\-agent\-context .
-They are deliberately not exported into the session environment.
+sinteractive\-status(1)
+Show one session\*(Aqs status
 .TP
-.B \-\-agent\-context
-Print a briefing, on stdout, for a coding agent running inside a session:
-which job it is in, the allocation's size, the wall time remaining, and
-the rule that a session is an orchestration shell rather than a compute
-target \(em with the
-.BR srun (1)
-and
-.BR salloc (1)
-command shapes to use instead. Exits 1 with a short note when run outside
-a session. Intended for a
-.B SessionStart
-hook (see
-.BR "SCRIPTING AND AGENTS" ),
-but useful by hand to see exactly what an agent was told.
+sinteractive\-refresh(1)
+Re\-check a session\*(Aqs time budget now and update its cache
 .TP
-.B \-\-check\-quota
-Re-check storage usage against the hard quota now, rewrite the shared cache,
-and tell every running session to re-read it. Prints a one-line summary, or
-JSON with
-.BR \-\-json .
-Exits 0 whether or not the user is over: being over quota is a fact to
-report, not a failure of the check. Exits 1 only when the quota cannot be
-read at all.
-.IP
-Sessions poll this on their own every
-.B $SINTERACTIVE_QUOTA_POLL
-seconds (default 600) and, while it holds, carry a red
-.B QUOTA
-notice behind the notices counter on the session line, read in full with
-.B Ctrl\-b n
-(see
-.BR "STATUS BAR" ).
-It reports the overage, not the usage \(em the number to act on.
-Running
-.B \-\-check\-quota
-after freeing space clears that notice within a tick rather than at the end
-of the poll interval, which is what makes it useful to an agent that has just
-deleted something.
-.IP
-Usage comes from the quota daemons named by
-.BR $SINTERACTIVE_QUOTA_HOSTS ,
-on
-.BR $SINTERACTIVE_QUOTA_PORT ,
-and the hard limit from
-.BR $SINTERACTIVE_QUOTA_FILE .
-Where those are absent the notice never appears, so a cluster that does its
-quotas differently is unaffected.
+sinteractive\-list(1)
+List running sessions
 .TP
-.B \-\-install\-claude
-Install the Claude Code skills and hooks into
-.I ~/.claude
-(or
-.BR $CLAUDE_CONFIG_DIR ),
-then register the hooks in
-.IR settings.json .
-That merge is done with
-.BR jq (1)
-and only with it: it is additive (appended to whatever
-.B .hooks
-already holds), idempotent (a hook already registered in
-.I settings.json
-or
-.IR settings.local.json ,
-matched by script name, is skipped, and an unchanged result is not
-written), and it keeps the file it replaces as
-.IR settings.json.bak\- STAMP.
-A symlinked
-.I settings.json
-is resolved first, so a dotfiles repo gets its target edited rather than
-its link replaced, and one that does not parse is reported and left
-alone. Without
-.BR jq (1)
-the block is printed to merge by hand instead. The assets are installed
-beside the script by
-.BR "make install" ,
-under
-.IR <prefix>/share/sinteractive ,
-and are found relative to the running script, so this works from an
-installed copy with no checkout present. Set
-.B SINTERACTIVE_SHARE
-to override the location.
+sinteractive\-cancel(1)
+Cancel a session
 .TP
-.BR \-h ,\  \-\-help
-Show a short help message.
+sinteractive\-queue(1)
+Your job queue: running, pending (with reasons), and recent history
 .TP
-.BR \-V ,\  \-\-version
-Show the version and exit.
-.SH TIME FORMATS
-.B \-\-time
-(and
-.BR \-t )
-accept shorthand that is converted to Slurm's
-.I [D\-]HH:MM:SS
-format:
-.BR 8h ,
-.BR 30m ,
-.BR 2d ,
-.BR 1d12h ,
-.BR 1h30m .
-Values carry over, so
-.B 90m
-becomes 1:30:00 and
-.B 25h
-becomes 1\-01:00:00. Native Slurm formats (anything containing
-.B :
-or
-.IR D \-)
-and pure integers (minutes) pass through unchanged.
-.SH DEFAULTS
-With no flags, a session gets 1 day of wall time, 2 CPUs, and 8G of
-memory on the
-.B interactive
-partition. Personal defaults can be set with
-.B SINTERACTIVE_*
-environment variables (see
-.BR ENVIRONMENT );
-explicit flags always win.
-.SH WAITING FOR A JOB TO START
-While the submitted job is pending, sinteractive polls the scheduler
-every five seconds and reports why it is waiting \(em the Slurm pend
-reason, e.g. waiting for free resources or behind higher-priority jobs
-\(em together with Slurm's estimated start time, when it has one, and
-how long you have been waiting. On a terminal this is a single line
-that updates in place; when output is redirected (logs, scripts) a dot
-is printed per poll instead.
-.PP
-Pressing
-.B Ctrl\-C
-while waiting cancels the pending job and says so.
-.SH SUBMISSION CHECKS
-Before submitting, sinteractive notes any sessions you already have
-running and how to reattach to them, then continues \(em a reminder
-aimed at the forgotten\-detach case, not a refusal.
-.PP
-Submission is refused, with an explanation, when:
-.IP \(bu 3
-the requested
-.B \-\-time
-would overlap an upcoming Slurm maintenance (MAINT) reservation \(em
-Slurm would not start the job until after maintenance anyway. The error
-suggests a shorter
-.B \-\-time
-that fits before the window. Passing
-.B \-\-reservation
-explicitly skips this check.
-.IP \(bu 3
-launching would exceed the interactive partition's per-user job limit.
-The error lists your current sessions with reattach and cancel
-commands.
-.SH IN-SESSION KEYS
+sinteractive\-monitor(1)
+Live CPU/GPU/process view of a session\*(Aqs node, or any host
 .TP
-.B Ctrl\-b h
-Open a help popup with job info (node, time remaining), detach and
-reattach commands, and basic tmux keys. Any key closes it.
+sinteractive\-snapshot(1)
+One\-shot resource sample of this host
 .TP
-.B Ctrl\-b d
-Detach from the session; the job keeps running. Reattach later with
-.BR "sinteractive \-\-attach" .
+sinteractive\-events(1)
+Stream session events (NDJSON)
 .TP
-.B Ctrl\-b n
-Open the notices popup: the full text behind the
-.RB \(lq "N notices" \(rq
-counter on the status line (see
-.BR "STATUS BAR" ).
-Any key closes it.
+sinteractive\-peek(1)
+Read the last lines of a session\*(Aqs screen
 .TP
-.B Ctrl\-b $
-Name (or rename) the session in place. Updates the squeue job name and
-the name used by
-.BR \-\-attach / \-\-status .
+sinteractive\-send(1)
+Type a command into a session\*(Aqs shell
 .TP
-.B Ctrl\-b [
-Enter copy mode for scrollback and keyboard selection. Copy mode uses
-vi keys regardless of
-.BR $EDITOR :
-.B Space
-starts a selection
-.RB ( V
-selects whole lines),
-.B Enter
-copies and exits, and
-.B ?
-searches up
-.RB ( /
-searches down). Copied text is pushed to the local system clipboard
-over SSH via OSC 52;
-.B Ctrl\-b ]
-pastes into a pane. Press
-.B q
-to leave copy mode without copying.
-.PP
-Ending the shell in every pane
-.RB ( exit )
-ends the session and releases the allocation.
-.SH STATUS BAR
-The dot at the left of the tmux status bar tracks time remaining:
-shown in the terminal's foreground color while more than an hour is
-left (configurable via
-.BR SINTERACTIVE_WARN_YELLOW ),
-then pulsing yellow with a countdown, and a spinner blinking yellow/red
-with an M:SS countdown for the final 10 minutes
-.RB ( SINTERACTIVE_WARN_RED ).
-The terminal bell rings once as the final countdown starts, so the
-terminal tab is flagged even when you are looking elsewhere.
-About ten seconds before the limit, a notice is printed in every pane
-and the session shuts down cleanly, so the job completes instead of
-being killed at timeout.
-.PP
-Anything else the session has to say about itself is collapsed into a
-compact counter at the right of that same line \(em
-.RB \(lq "N notices" \(rq
-\(em red and shimmering while the quota warning is among them, yellow
-otherwise, and absent while there is nothing to say. Press
-.B Ctrl\-b n
-to read the notices in full;
-.B sinteractive \-\-status
-prints the same text from the login node. Today's notices are the
-.B QUOTA
-warning (see
-.BR \-\-check\-quota ),
-the end time when the request was trimmed to finish before a maintenance
-reservation, and the Claude Code hint (see
-.BR "CLAUDE CODE INTEGRATION" ).
-The panel is always exactly one status line tall.
-.PP
-The rule between the pane and the status bar carries no text at all.
-.SH SCRIPTING AND AGENTS
-Headless workflows (e.g. Claude Code) can launch and inspect sessions
-without attaching:
-.PP
-.nf
-.RS
-sinteractive \-\-detach \-n build \-\-time=8h \-\-json
-sinteractive \-\-ensure build \-\-time=8h \-\-json  # get\-or\-create
-sinteractive \-\-status build \-\-json     # incl. remaining_seconds
-sinteractive \-\-refresh build \-\-json    # same, after a scontrol change
-.RE
-.fi
-.PP
-Inside a session,
-.B SINTERACTIVE_JOB_ID
-(and
-.BR SINTERACTIVE_NAME ,
-if named) are exported, and
-.B sinteractive \-\-status
-needs no target. A state file (see
-.BR FILES )
-mirrors the countdown so the time budget can be polled without hitting
-the scheduler. Do not trust a budget read earlier in a long-running
-session: wall time can be changed underneath you with
-.BR scontrol (1),
-so re-read it before starting work that has to fit.
-.SS A session is not a compute target
-A session is an orchestration shell. It defaults to the
-.B interactive
-partition \(em the smallest on the cluster \(em and it is shared with the
-shell the user is typing in. Run work in an allocation sized for it
-instead:
-.PP
-.nf
-.RS
-srun \-p PART \-c N \-\-mem SIZE \-t TIME \-J NAME \-\-comment=NAME \-\- CMD...
-salloc \-\-no\-shell \-p PART \-c N \-\-mem SIZE \-t TIME \-J NAME \-\-comment=NAME
-srun \-\-overlap \-\-jobid=ID \-\- CMD...              # ... reused
-scancel ID
-.RE
-.fi
-.PP
-Give every job a short descriptive name in both Slurm fields \(em
-.B \-J NAME
-and
-.BR \-\-comment= NAME ,
-the same value \(em so a shared queue says what is running and why:
-.B squeue
-shows the name in
-.B %j
-and the comment in
-.BR %k .
-Both belong to the allocation, so naming the
-.BR salloc (1)
-covers every
-.B srun \-\-overlap
-step run inside it.
-.PP
-Both stream output and propagate the command's exit code.
-.BR salloc (1)
-prints
-.RB \(dq "Granted job allocation ID" \(dq
-on standard error, not standard output, so capture the id through
-.BR 2>&1 .
-Because every
-.B SLURM_
-variable is stripped from a session (so that tools inside it do not
-believe they are running as a job step),
-.BR srun (1)
-and
-.BR salloc (1)
-run from inside one create their own allocations rather than steps of the
-session's job.
-.SS Claude Code hooks
-.B \-\-agent\-context
-prints this briefing for the current session. Six skills and two hooks wire
-it up \(em
-.I hpc\-compute
-for cluster etiquette,
-.I slurm\-discovery
-for partitions, accounts and QOS,
-.I hpc\-storage
-for where data belongs,
-.I hpc\-software
-for modules and environments,
-.I slurm\-batch
-for array jobs and dependencies, and
-.I git\-workflow
-for the git conventions, plus one hook briefing the agent at session start
-and one warning it when the session is running out of wall time \(em
-installed with
-.B sinteractive \-\-install\-claude
-from any installed copy, or
-.B make claude\-install
-from a checkout. Both also register the hooks in
-.I settings.json
-when
-.BR jq (1)
-is available; see
-.BR \-\-install\-claude .
-.PP
-While Claude Code is running in a session whose integration is not yet
-registered, a
-.B "sinteractive \-\-install\-claude"
-hint joins the session's notices (the counter on the status line, read
-with
-.BR Ctrl\-b n ;
-see
-.BR "STATUS BAR" ).
-It appears only while a
-.B claude
-process is actually running, and clears once the hooks are registered, so
-it never nags anyone who does not use Claude Code.
-.SH ENVIRONMENT
-Set personal defaults, e.g. in
-.IR ~/.bashrc ;
-explicit flags always win.
+sinteractive\-agent\-context(1)
+Brief a coding agent on the session it is running inside
 .TP
-.B SINTERACTIVE_TIME
-Default wall time (e.g. 8h, 2d). Default: 1 day.
+sinteractive\-quota(1)
+Storage quota (Bodhi daemons; wraps curc\-quota on Alpine)
 .TP
-.B SINTERACTIVE_PARTITION
-Default partition. Default: interactive.
+sinteractive\-hook(1)
+Claude Code hook entry points
 .TP
-.B SINTERACTIVE_QOS
-Default Quality of Service, passed as
-.BR --qos .
-Unset by default (no QOS is added); set it on schedulers that require an
-explicit QOS.
+sinteractive\-statusline(1)
+Claude Code statusLine command
 .TP
-.B SINTERACTIVE_CPUS
-Default CPU count. Default: 2.
+sinteractive\-mcp(1)
+MCP server over stdio
 .TP
-.B SINTERACTIVE_MEM
-Default memory (e.g. 16G). Default: 8G.
+sinteractive\-install\-claude(1)
+Install the Claude Code skills, hooks, statusline and MCP server
 .TP
-.B SINTERACTIVE_TMUX
-Path to the
-.B tmux
-binary used on the compute node. Default: /usr/local/bin/tmux.
-Set this when tmux lives elsewhere (e.g. /usr/bin/tmux on clusters that
-ship it as a system package).
+sinteractive\-doctor(1)
+Check this install and, optionally, every compute node
 .TP
-.B SINTERACTIVE_MOUSE
-.BR on | 1 | true | yes
-enables mouse support. Default: off.
+sinteractive\-completions(1)
+Print shell completions
 .TP
-.B SINTERACTIVE_WARN_YELLOW
-Seconds remaining at which the status-bar countdown turns yellow.
-Default: 3600.
+sinteractive\-man(1)
+Print the man page (roff)
 .TP
-.B SINTERACTIVE_WARN_RED
-Seconds remaining at which the blinking final countdown starts.
-Default: 600.
+sinteractive\-schema(1)
+Dump the JSON schemas of the machine\-readable outputs
 .TP
-.B SINTERACTIVE_GRACE
-Seconds remaining at which the session shuts down cleanly.
-Default: 10.
-.TP
-.B SINTERACTIVE_POLL
-Seconds between end-time re-checks against Slurm, which is also how often
-the state file is rewritten. Default: 30. Raise it where scheduler traffic
-is a concern, at the cost of a wall-time change taking that much longer to
-reach the cached file.
-.TP
-.B SINTERACTIVE_QUOTA_POLL
-Seconds between storage-quota checks. Default: 600. The result is cached per
-user rather than per session, so one poll serves every session open.
-.TP
-.B SINTERACTIVE_QUOTA_FILE
-Pipe-delimited file of hard quotas
-.RI ( user | size | email ).
-Default:
-.IR /cluster/scripts/quota_current.txt .
-.TP
-.B SINTERACTIVE_QUOTA_HOSTS
-Space-separated quota daemons to sum usage across. Default: the nine Bodhi
-daemons on 172.20.8.110\-118.
-.TP
-.B SINTERACTIVE_QUOTA_PORT
-Port those daemons listen on. Default: 9878.
-.TP
-.B SINTERACTIVE_QUOTA_TIMEOUT
-Seconds to wait for each daemon's reply. Default: 5.
-.TP
-.B SINTERACTIVE_COLOR
-.BR auto | always | never
-for the launch and teardown narration. Default:
-.BR auto ,
-which colours only when standard error is a terminal and
-.B TERM
-is neither
-.B dumb
-nor empty. The test is on standard error rather than standard output because
-that is where the narration goes: a redirect of stdout still narrates to your
-terminal, and
-.B 2>log
-stays free of escapes.
-.B NO_COLOR
-(any value, per no\-color.org) disables colour;
-.B SINTERACTIVE_COLOR=always
-overrides both, for piping into something that renders escapes itself.
-.PP
-Exported inside a session:
-.B SINTERACTIVE_JOB_ID
-and, when the session is named,
-.BR SINTERACTIVE_NAME .
-.SH COMPLETION
-A bash completion is installed by
-.BR make " " install .
-It completes options and, after
-.BR \-\-attach ,
-.BR \-\-status ,
-and
-.BR \-\-cancel ,
-the job ids and names of running sessions. Targets come from the state
-files in
-.I ~/.cache/sinteractive
-(see
-.BR FILES )
-rather than the scheduler, so completion stays instant when
-.BR squeue (1)
-is slow.
-.SH FILES
-.TP
-.I ~/.cache/sinteractive/JOBID.json
-Time-remaining state file, refreshed about every 30 seconds while the
-session runs (see
-.BR SINTERACTIVE_POLL )
-and removed at teardown. Contains
-.BR job_id ,
-.BR name ,
-.BR node ,
-.BR end_epoch ,
-.BR remaining_seconds ,
-and
-.BR updated_epoch .
-.B $HOME
-is shared, so it is readable from the login node too.
-.IP
-The end time is re-checked against Slurm immediately before every write, so
-.B updated_epoch
-is when the whole snapshot was confirmed: if it is more than about two
-minutes old, treat the file as stale and fall back to
-.BR \-\-status .
-Age it exactly with
-.BR "remaining_seconds \- (now \- updated_epoch)" .
-A wall-time change made with
-.B scontrol update JobId=... TimeLimit=...
-appears within one poll interval, or at once with
-.BR \-\-refresh .
-When
-.BR squeue (1)
-cannot be reached the file is left untouched rather than restamped, so it
-ages honestly instead of vouching for a budget nobody verified; the
-status-bar countdown keeps running from the last known end time.
-.TP
-.I ~/.claude
-Written by
-.BR \-\-install\-claude :
-the skills under
-.IR skills/ ,
-the hooks under
-.IR hooks/ ,
-and their registration merged into
-.IR settings.json ,
-whose previous version is kept as
-.IR settings.json.bak\- STAMP.
-Set
-.B $CLAUDE_CONFIG_DIR
-to use a different directory.
-.SH EXAMPLES
-.TP
-.B sinteractive
-1-day session, 2 CPUs, 8G memory.
-.TP
-.B sinteractive \-n myproj \-\-time=8h
-Named 8-hour session.
-.TP
-.B sinteractive \-\-node compute01
-Run on a specific node.
-.TP
-.B sinteractive \-\-time=2h \-p rna
-2-hour session on the rna partition.
-.TP
-.B sinteractive \-\-mem=32G \-j 8
-32G of memory and 8 CPUs.
-.TP
-.B sinteractive \-\-attach myproj
-Reconnect after a disconnect or detach.
-.TP
-.B sinteractive \-\-attach
-Reconnect to your only running session.
-.TP
-.B sinteractive \-\-cancel myproj
-Cancel a session by name.
-.TP
-.B sinteractive \-\-detach \-n build \-\-time=8h
-Headless launch for scripts and agents.
-.SH EXIT STATUS
-0 on success; nonzero if submission is refused, a target session
-cannot be found or is ambiguous, or the session fails to start.
-.SH SEE ALSO
-.BR sbatch (1),
-.BR srun (1),
-.BR squeue (1),
-.BR scancel (1),
-.BR tmux (1),
-.BR jq (1)
-.PP
-Bodhi cluster documentation:
-.UR https://rnabioco.github.io/bodhi\-docs/sinteractive/
-.UE
-.SH HISTORY
-A clean-room reimplementation, inspired by the original sinteractive by
-P\[:a]r Andersson (NSC, Sweden) and the later CU Boulder adaptation by
-Jonathon Anderson. Maintained by Jay Hesselberth.
+sinteractive\-help(1)
+Print this message or the help of the given subcommand(s)
+.SH VERSION
+v1.0.0\-dev
