@@ -18,11 +18,14 @@ pub mod install_claude;
 pub mod job;
 pub mod launch;
 pub mod list;
+pub mod monitor;
+pub mod monitor_tui;
 pub mod peek;
 pub mod popup;
 pub mod queue;
 pub mod quota;
 pub mod send;
+pub mod snapshot;
 pub mod status;
 pub mod statusline;
 
@@ -71,8 +74,8 @@ pub fn dispatch(command: Command) -> Result<i32> {
             crate::zellij_embed::run(zargs)
         }
         Command::Queue(args) => queue::run(args),
-        Command::Monitor(_) => not_yet("monitor"),
-        Command::Snapshot(_) => not_yet("snapshot"),
+        Command::Monitor(args) => monitor::run(args),
+        Command::Snapshot(args) => snapshot::run(args),
         Command::Events(_) => not_yet("events"),
         Command::Peek(args) => peek::run(args),
         Command::Send(args) => send::run(args),

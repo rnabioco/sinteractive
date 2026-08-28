@@ -56,6 +56,8 @@ pub const END_MIN_GAP: i64 = 5;
 pub const JOBS_EVERY: i64 = 30;
 /// How often `list-sessions` is consulted to see whether the session is up.
 pub const ALIVE_EVERY: i64 = 2;
+/// Consecutive alive-check misses before the session counts as gone.
+const ALIVE_MISSES: u32 = 3;
 /// The line typed into the shell as the session is ended for walltime.
 pub const ENDING_LINE: &str = "[sinteractive] walltime reached — ending session";
 
@@ -191,6 +193,8 @@ pub struct JobLoop {
     jobs_checked: i64,
     jobs: String,
     alive_checked: Option<i64>,
+    /// Consecutive failed alive checks.
+    alive_misses: u32,
     /// Second in which the last status message went out.
     last_sent: Option<i64>,
     /// Whether the red phase has been entered (0.x `belled`): the deadline
@@ -219,6 +223,7 @@ impl JobLoop {
             jobs_checked: 0,
             jobs: String::new(),
             alive_checked: None,
+            alive_misses: 0,
             last_sent: None,
             in_red: false,
         }
@@ -298,10 +303,18 @@ impl JobLoop {
         let (warn_yellow, warn_red, grace) = (c.warn_yellow, c.warn_red, c.grace);
 
         // The session is the reason the loop exists (0.x `has-session`).
+        // `list-sessions` can fail transiently (a client mid-attach, the
+        // session-info cache being rewritten), so the session is declared
+        // gone only after ALIVE_MISSES consecutive misses.
         if self.alive_checked.is_none_or(|t| now - t >= ALIVE_EVERY) {
             self.alive_checked = Some(now);
-            if !deps.session_alive() {
-                return Step::Gone;
+            if deps.session_alive() {
+                self.alive_misses = 0;
+            } else {
+                self.alive_misses += 1;
+                if self.alive_misses >= ALIVE_MISSES {
+                    return Step::Gone;
+                }
             }
         }
 
@@ -504,9 +517,15 @@ pub fn server_env(
 // ---- the driver --------------------------------------------------------------
 
 static SIGNALLED: AtomicBool = AtomicBool::new(false);
+static LAST_SIGNAL: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
-extern "C" fn on_signal(_: libc::c_int) {
+extern "C" fn on_signal(sig: libc::c_int) {
+    LAST_SIGNAL.store(sig, Ordering::SeqCst);
     SIGNALLED.store(true, Ordering::SeqCst);
+}
+
+fn last_signal() -> i32 {
+    LAST_SIGNAL.load(Ordering::SeqCst)
 }
 
 /// Slurm delivers SIGTERM on scancel and at timeout (SIGKILL follows after
@@ -818,11 +837,21 @@ pub fn run(args: JobArgs) -> Result<i32> {
                 ended_by_us = true;
                 break;
             }
-            Step::Gone => break,
+            Step::Gone => {
+                eprintln!(
+                    "sinteractive: session {} is no longer listed by zellij; ending the job",
+                    zellij.session()
+                );
+                break;
+            }
         }
     }
     if signalled() && !ended_by_us {
         // scancel / timeout: take the session down with us.
+        eprintln!(
+            "sinteractive: signal {} received; ending the session",
+            last_signal()
+        );
         kill_session(&zellij);
     }
 
@@ -1118,9 +1147,25 @@ mod tests {
         let mut lp = JobLoop::new(cfg());
         assert!(matches!(lp.step(T0, &mut f), Step::Continue(_)));
         f.alive = false;
-        // Checked every ALIVE_EVERY seconds, not every tick.
+        // Checked every ALIVE_EVERY seconds, not every tick, and a single
+        // miss is not enough: list-sessions can fail transiently.
         assert!(matches!(lp.step(T0 + 1, &mut f), Step::Continue(_)));
-        assert_eq!(lp.step(T0 + 2, &mut f), Step::Gone);
+        assert!(matches!(lp.step(T0 + 2, &mut f), Step::Continue(_)));
+        assert!(matches!(lp.step(T0 + 4, &mut f), Step::Continue(_)));
+        assert_eq!(lp.step(T0 + 6, &mut f), Step::Gone);
+        // A hit in between resets the count.
+        let mut f = Fake::alive(Some(T0 + 7200));
+        let mut lp = JobLoop::new(cfg());
+        assert!(matches!(lp.step(T0, &mut f), Step::Continue(_)));
+        f.alive = false;
+        assert!(matches!(lp.step(T0 + 2, &mut f), Step::Continue(_)));
+        assert!(matches!(lp.step(T0 + 4, &mut f), Step::Continue(_)));
+        f.alive = true;
+        assert!(matches!(lp.step(T0 + 6, &mut f), Step::Continue(_)));
+        f.alive = false;
+        assert!(matches!(lp.step(T0 + 8, &mut f), Step::Continue(_)));
+        assert!(matches!(lp.step(T0 + 10, &mut f), Step::Continue(_)));
+        assert_eq!(lp.step(T0 + 12, &mut f), Step::Gone);
     }
 
     #[test]

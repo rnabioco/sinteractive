@@ -12,6 +12,7 @@
 //! - [`notices`]  — `<jobid>.notices` (TSV `kind\ttext`) and its producers
 //! - [`quota`]    — Bodhi quota daemons and `quota.json`
 //! - [`maint`]    — maintenance reservations and fitting a request before one
+//! - [`metrics`]  — host snapshots: CPU, memory, GPUs, processes, cgroup-scoped
 //! - [`joblimit`] — per-QOS concurrent job cap check
 //! - [`theme`]    — Claude Code palette, dark/light aware
 //!
@@ -24,6 +25,7 @@ pub mod color;
 pub mod config;
 pub mod joblimit;
 pub mod maint;
+pub mod metrics;
 pub mod notices;
 pub mod quota;
 pub mod session;
