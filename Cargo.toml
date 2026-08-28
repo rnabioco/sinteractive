@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = ["crates/sint", "crates/sint-core", "crates/sint-proto", "crates/sint-zellij"]
+
+[workspace.package]
+# Single source of truth for the version. The release step bumps this line;
+# pixi.toml no longer carries a version.
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/rnabioco/sinteractive"
+
+[workspace.dependencies]
+sint-core = { path = "crates/sint-core" }
+sint-proto = { path = "crates/sint-proto" }
+
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+clap = { version = "4", features = ["derive", "env", "wrap_help", "color"] }
+clap_complete = "4"
+clap_mangen = "0.2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "fs", "io-util", "sync", "signal"] }
+time = { version = "0.3", features = ["formatting", "parsing", "local-offset", "macros"] }
+ratatui = "0.30"
+crossterm = "0.29"
+procfs = { version = "0.18", default-features = false }
+sysinfo = "0.33"
+nvml-wrapper = "0.12"
+kdl = "6"
+regex = "1"
+tempfile = "3"
+sha2 = "0.10"
+flate2 = "1"
+tar = "0.4"
+rmcp = { version = "3", default-features = false, features = ["server", "macros", "transport-io"] }
+schemars = "1"
+unicode-width = "0.2"
+libc = "0.2"
+assert_cmd = "2"
+predicates = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

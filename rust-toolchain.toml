@@ -1,0 +1,6 @@
+[toolchain]
+channel = "stable"
+# wasm32-wasip1 builds the status plugin (crates/sint-zellij) from sint's
+# build.rs; the CLI itself targets the host (glibc) — see .github/workflows.
+targets = ["wasm32-wasip1"]
+components = ["rustfmt", "clippy"]

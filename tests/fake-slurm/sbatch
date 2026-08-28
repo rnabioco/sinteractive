@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Fake sbatch: appends a RUNNING job to jobs.tsv and prints
+# "Submitted batch job N". See README.md.
+#
+# The id comes from $FAKE_SLURM_DIR/next_id (default 1000) and is bumped.
+# Resource options are folded into the row so a later squeue reflects the
+# request: --partition/-p, --time/-t, --cpus-per-task/-c, --mem, --gres,
+# --nodelist/-w, --comment. Everything else is accepted and ignored. The
+# script and its arguments are recorded in $FAKE_SLURM_DIR/sbatch.last (one
+# argument per line) for assertions about what was submitted.
+#
+# When $FAKE_SLURM_DIR/sbatch.fail exists its contents go to stderr and the
+# submit fails with exit 1, so the "submission failed" path can be tested.
+
+# shellcheck source=tests/fake-slurm/lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+log_call sbatch "$@"
+
+if [[ -f "${FAKE_SLURM_DIR}/sbatch.fail" ]]; then
+  cat 1>&2 "${FAKE_SLURM_DIR}/sbatch.fail"
+  exit 1
+fi
+
+partition=interactive timelimit=8:00:00 cpus=2 mem=8G tres=N/A node=fakenode01 \
+  comment='' parsable=0
+script=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  -p | --partition) partition=$2; shift 2 ;;
+  --partition=*) partition=${1#*=}; shift ;;
+  -t | --time) timelimit=$2; shift 2 ;;
+  --time=*) timelimit=${1#*=}; shift ;;
+  -c | --cpus-per-task) cpus=$2; shift 2 ;;
+  --cpus-per-task=*) cpus=${1#*=}; shift ;;
+  --mem) mem=$2; shift 2 ;;
+  --mem=*) mem=${1#*=}; shift ;;
+  --gres) tres="gres:$2"; shift 2 ;;
+  --gres=*) tres="gres:${1#*=}"; shift ;;
+  -w | --nodelist) node=$2; shift 2 ;;
+  --nodelist=*) node=${1#*=}; shift ;;
+  --comment) comment=$2; shift 2 ;;
+  --comment=*) comment=${1#*=}; shift ;;
+  --parsable) parsable=1; shift ;;
+  # Options with a separate value that we do not model.
+  -J | --job-name | -o | --output | -e | --error | -N | --nodes | -n | --ntasks | \
+    -A | --account | -q | --qos | --export | --chdir | -D | --signal)
+    shift 2
+    ;;
+  # --wrap: the job is a shell command line; record it word by word the way
+  # a script and its arguments are, so tests see `exec EXE __job …`.
+  --wrap) eval "script=($2)"; shift 2; break ;;
+  --wrap=*) eval "script=(${1#*=})"; shift; break ;;
+  --*=* | -*) shift ;;
+  *)
+    # First bare token is the script; everything after it is its arguments.
+    script=("$@")
+    break
+    ;;
+  esac
+done
+
+printf '%s\n' "${script[@]}" >"${FAKE_SLURM_DIR}/sbatch.last"
+
+id=$(cat "${FAKE_SLURM_DIR}/next_id" 2>/dev/null || echo 1000)
+echo $((id + 1)) >"${FAKE_SLURM_DIR}/next_id"
+
+{
+  read_jobs
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$id" "$comment" "$node" "$partition" "0:01" "$timelimit" \
+    "2026-01-01T08:00:00" "$cpus" "$mem" "$tres" "RUNNING" "None" \
+    "2026-01-01T00:00:00"
+} | write_jobs
+
+if ((parsable)); then
+  echo "$id"
+else
+  echo "Submitted batch job $id"
+fi

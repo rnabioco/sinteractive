@@ -8,6 +8,172 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The terminal-background query no longer leaves its answer at the prompt.
+  OSC 11 went out once per palette — two or three times in a `launch` — each
+  with a 100 ms window, so on anything but a local terminal the reply landed
+  after the window had closed and the shell echoed it as
+  `^[]11;rgb:2828/2c2c/3434^[\`. It is now asked once per process, and a
+  Device Attributes query rides along behind it: terminals answer in order,
+  so its reply is the signal that the colour answer either arrived or never
+  will, and the read ends on that rather than on a stopwatch. Inside a zellij
+  pane the query is skipped altogether — zellij forwards it to the host
+  terminal and gives that a full second, far longer than a CLI may stall.
+- Leaving a session no longer ends with `Bye from Zellij!` under a screenful
+  of blank lines: zellij's parting message came with a jump to the last row,
+  which threw away the cursor position that leaving the alternate screen had
+  just restored. sinteractive's own teardown summary is what remains.
+- The status bar reads on the dark backgrounds people actually use: the
+  secondary grey and the hint blue are brighter (`#CCCCCC`, `#C8CEFF`) and
+  `▣ N jobs monitorable` is bold.
+- The quota notice sizzles red → orange → yellow instead of red → blue, which
+  was easy to miss at a glance.
+
+### Changed
+
+- The monitor panel is bars, and a pane you can step into. It opens six rows
+  tall — a strip of every monitorable job, then CPU, memory and a row per
+  GPU — and `Ctrl+b m` now *focuses* it instead of toggling it: it opens the
+  panel if it is closed, moves the focus into it if it is open, and hands the
+  focus back to the shell if the panel already has it. The panel keeps
+  running through all of that. Focused, it takes bare keys: `←`/`→` (or
+  `h`/`l`) step through jobs, `t` opens the full `sinteractive monitor` TUI
+  for the selected job in a floating pane — that is where the process table
+  now lives, scrollable and sorted, rather than squeezed into the panel —
+  `Esc`/`q` hand the focus back, and `x` closes the panel. Every `Ctrl+b`
+  chord keeps working while it is focused, because zellij resolves the prefix
+  before the focused pane sees a key. The bar no longer keeps its own tally
+  of whether the panel is open; it reads the pane manifest, so closing the
+  panel with `Ctrl+b x` leaves nothing stale behind.
+- The status bar separates itself from the shell with a heavy accent rule,
+  the way 0.x did with tmux's `pane-border-lines heavy`. zellij's panes are
+  borderless, so the bar draws the rule as its own first row and stands two
+  rows tall; with the monitor panel open the region reads as a framed block —
+  rule, panel, rule, line.
+- Values in the bar and the panel are no longer dimmed, only their labels
+  are. The job id, the host, the load, the GPU figures and the time left
+  print at the terminal's own foreground weight, so the numbers carry and the
+  words around them recede.
+- Key hints name the prefix — `^b n next`, `^b esc back`, `^b ,/. job`,
+  `^b m focus`. Ctrl+b is one-shot, and a bare `n` read as though the key
+  worked on its own.
+- `--help`, usage and argument errors are coloured — headings and usage in
+  the accent, flags green, placeholders cyan — and honour
+  `SINTERACTIVE_COLOR` like everything else sinteractive prints.
+- The notices line drops its key legend before it truncates the notice: on a
+  narrow bar the notice itself is the point.
+
+## [1.0.0] - 2026-08-28
+
+sinteractive 1.0 is a rewrite in Rust with [zellij](https://zellij.dev)
+compiled in. The bash script and its tmux dependency are gone; what is left
+is one binary that is the launcher, the batch job, the zellij server and
+client, the status bar, and the agent-facing tooling. The session contract
+— the `sinteractive[:NAME]` Comment marker, the `<cache>/JOBID.json` state
+file, the `status`/`list` JSON shapes — is unchanged, so anything that
+scripted 0.x keeps working.
+
+### Added
+
+- **zellij, compiled in.** The binary carries zellij 0.45.1 as a library and
+  is its own server and client, so the compute nodes need no multiplexer and
+  nothing has to be fanned out to them: the batch job execs the installed
+  binary from wherever it is (a shared filesystem), and the status plugin and
+  config are extracted once into the cache directory. `sinteractive zellij …`
+  is the full zellij CLI for anyone who wants it.
+- **A status plugin** in place of tmux's status strings: one row at the
+  bottom of every session with the job id, name, node, walltime remaining
+  (yellow, then red, as it runs down), a count of your other jobs, and a
+  `⚠ N notices` counter. `Ctrl+b n` reads the notices inline, one at a time;
+  `Ctrl+b h` shows the key legend inline. Segments drop from the right as the
+  terminal narrows, so the bar is always exactly one row.
+- **A monitor panel**, `Ctrl+b m`: a 12-row nvitop-style view between the
+  shell and the bar — CPU and memory against the job's cgroup limits, load,
+  GPUs, the busiest processes. `Ctrl+b ,` / `.` step through hosts when there
+  is more than one.
+- **`sinteractive queue [--all] [--watch]`**: your running and pending jobs
+  with pend reasons, and the last day's history with a memory right-sizing
+  hint. `Ctrl+b q` opens it in a floating pane inside a session.
+- **`sinteractive monitor [TARGET|HOST] [--live] [--json]`** and
+  **`sinteractive snapshot [--json]`**: the same numbers as the panel from
+  the login node, read from the snapshot the session writes to
+  `<cache>/JOBID.metrics.json` every few seconds — no ssh — or sampled live
+  over ssh from any host.
+- **`sinteractive peek TARGET [-n N]`** and **`sinteractive send TARGET
+  COMMAND`**: read the last lines of a session's screen, or type into its
+  shell, from the login node or an agent. Replaces the `ssh NODE tmux
+  capture-pane` recipe the skills used to document.
+- **`sinteractive events [TARGET] [--follow] [--since EPOCH]`**: the
+  session's event log (`<cache>/JOBID.events.ndjson`) as NDJSON.
+- **`sinteractive doctor [--nodes] [--json]`**: is this install able to run
+  a session from here — binary, embedded plugin, bundle, cache dir, Slurm
+  tools, ssh, NVML, whether `$HOME` is somewhere the cache can live — and,
+  with `--nodes`, the same from every compute node over ssh. Replaces
+  `make nodes-check`.
+- **Native Claude Code integration.** `sinteractive hook session-start` and
+  `sinteractive hook prompt` replace the two hook scripts; `sinteractive
+  statusline` is a `statusLine` command showing model, context usage and,
+  inside a session, the remaining walltime and notice count, from the cache
+  files only; `sinteractive mcp` is a Model Context Protocol server over
+  stdio with typed tools for every `--json` command plus `wait_for_event`.
+  `install-claude` registers all three — hooks, statusline, MCP server — and
+  removes the 0.x hook scripts it finds, without needing jq.
+- **`sinteractive schema`** dumps the JSON schemas of the machine-readable
+  outputs; **`man`** and **`completions bash|zsh|fish`** generate the man
+  page and shell completions from the clap definitions, so they cannot drift.
+- **`SINTERACTIVE_THEME`** (`dark`/`light`/`auto`) and a Claude Code palette
+  shared by the CLI, the status bar, the monitor and the statusline; the
+  terminal's background is detected when unset.
+- **`SINTERACTIVE_CACHE`** to put the state files and the extracted bundle
+  somewhere other than `~/.cache/sinteractive` (Alpine's 2 GB `/home`).
+- **A fake-slurm test harness** (`tests/fake-slurm/`): shims for `squeue`,
+  `sbatch`, `scontrol`, `scancel`, `sacct`, `sacctmgr`, `sinfo`, `srun` and
+  `ssh` so the integration tests exercise launch, attach, ensure, status,
+  peek/send, install-claude and the MCP server without a cluster; and a CI
+  workflow that lints, tests, and builds the release binary in a
+  `rockylinux:8` container so it runs on glibc 2.28.
+
+### Changed
+
+- **Subcommands.** `sinteractive status|list|attach|ensure|cancel|refresh|
+  quota|agent-context|install-claude` replace the 0.x top-level flags. A bare
+  `sinteractive [OPTIONS] [SBATCH ARGS…]` still launches, and unknown flags
+  still go to `sbatch` in any order. The old flags (`--status`, `--list`,
+  `-a/--attach`, `--ensure`, `--cancel`, `--refresh`, `--check-quota`,
+  `--agent-context`, `--install-claude`) are accepted for this one release
+  and warn on stderr.
+- **Mouse mode is on by default** (`--no-mouse` / `SINTERACTIVE_MOUSE=off`
+  to turn it off), and selecting text copies it to the local clipboard.
+- **Attach goes through `srun --overlap --pty`** by default, which needs no
+  ssh access to the node; `attach --ssh` keeps the `ssh -X` path for X11.
+- **The job is submitted with `sbatch --wrap`** rather than by handing
+  `sbatch` the program as its script: a multi-megabyte binary would not fit
+  through the controller's `MaxScriptSize`, and this way a session runs the
+  installed binary rather than a spooled copy.
+- **Deployment model.** One binary on a shared filesystem, glibc-linked and
+  built on the oldest glibc it must run on; `make install`/`install-system`
+  require the built binary and install the generated man page and
+  completions (bash, zsh, fish); `make nodes` only copies the binary and the
+  share tree, for a node-local `/usr/local`.
+- The hooks, statusline and MCP server are subcommands of the binary, so
+  `install-claude` copies only the skills and edits settings.
+- The skills are installed from the share tree beside the binary
+  (`<prefix>/share/sinteractive`) or the checkout named by
+  `SINTERACTIVE_SHARE`; the `claude/hooks` directory in that tree is empty.
+
+### Removed
+
+- The bash implementation (`sinteractive` at the repo root) and everything
+  that existed to serve it: the tmux dependency, `SINTERACTIVE_TMUX`, the
+  `make tmux`, `tmux-deps`, `tmux-push`, `tmux-all` and `nodes-check` targets,
+  the hand-written man page and bash completion, the
+  `claude/hooks/sinteractive-session-context.sh` and
+  `sinteractive-walltime-guard.sh` scripts, and the Makefile's fallback to
+  installing the script when the binary was not built.
+- `Ctrl+b $` in-session rename and the terminal bell at the final countdown
+  have no zellij equivalent yet; the red bar is the cue.
+
 ## [0.7.0] - 2026-08-27
 
 ### Changed
@@ -596,7 +762,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/rnabioco/sinteractive/compare/v0.7.0...v1.0.0
 [0.7.0]: https://github.com/rnabioco/sinteractive/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/rnabioco/sinteractive/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/rnabioco/sinteractive/compare/v0.5.0...v0.5.1

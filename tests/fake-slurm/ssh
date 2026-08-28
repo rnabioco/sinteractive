@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Fake ssh: runs the remote command locally. See README.md.
+#
+# `ssh [options] HOST CMD...` becomes `bash -c "CMD..."` (joined with spaces,
+# as a real remote shell would see it). Options taking a value (-o -l -p -i
+# -F -J -b -E -S -W) are skipped with it; single flags (-X -q -T -n -t ...)
+# are dropped. With no CMD it fails: nothing here to log into. The host is
+# exported as FAKE_SSH_HOST so a probe can assert where it "went".
+
+# shellcheck source=tests/fake-slurm/lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+log_call ssh "$@"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  -o | -l | -p | -i | -F | -J | -b | -E | -S | -W) shift 2 ;;
+  -*) shift ;;
+  *) break ;;
+  esac
+done
+
+[[ $# -gt 0 ]] || die "ssh: no host given (fake-slurm)"
+host=$1
+shift
+[[ $# -gt 0 ]] || die "ssh: interactive login to $host is not supported (fake-slurm)"
+export FAKE_SSH_HOST="${host#*@}"
+exec bash -c "$*"

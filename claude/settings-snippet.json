@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/sinteractive-session-context.sh",
+            "command": "sinteractive hook session-start",
             "timeout": 10
           }
         ]
@@ -16,11 +16,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/sinteractive-walltime-guard.sh",
+            "command": "sinteractive hook prompt",
             "timeout": 10
           }
         ]
       }
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "sinteractive statusline",
+    "refreshInterval": 5
   }
 }

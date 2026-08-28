@@ -1,0 +1,15 @@
+// The sinteractive session layout: a shell above the status bar, which is two
+// rows — the accent rule that separates it from the shell, then the line.
+// `__PLUGIN__` is substituted with the absolute path of sint-zellij.wasm.
+// `sint-panel.kdl` is the same with the monitor panel; the bar swaps to it
+// with override_layout the first time Ctrl+b m is pressed. There is no swap
+// back — from then on the panel is a pane the user focuses, leaves, and
+// eventually closes, which it does itself.
+layout {
+    pane borderless=true focus=true
+    pane size=2 borderless=true {
+        plugin location="file:__PLUGIN__" {
+            view "bar"
+        }
+    }
+}

@@ -51,7 +51,7 @@ curc-quota
 # /pl/active allocation your groups hold, in one call
 ```
 
-`sinteractive --check-quota` is a Bodhi feature — on Alpine it prints no
+`sinteractive quota` is a Bodhi feature — on Alpine it reports "unavailable" and prints no
 quota notice at all (the Bodhi quota daemons don't exist here). `curc-quota`
 is the tool, and it is on `PATH` via the default `StdEnv` module.
 

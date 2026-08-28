@@ -1,0 +1,52 @@
+name: rust
+
+on:
+  pull_request:
+  push:
+    branches: [main, rust-rewrite]
+
+jobs:
+  # Lints and tests on a stock runner. The status plugin is built for
+  # wasm32-wasip1 by sint's build.rs, so that target is needed here too.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+
+  # The release binary links against glibc, so it is built on the oldest
+  # glibc it must run on: Rocky Linux 8 (glibc 2.28), which is what the
+  # Alpine login and compute nodes run. Anything newer would refuse to
+  # start there with "GLIBC_2.xx not found".
+  build:
+    runs-on: ubuntu-latest
+    container: rockylinux:8
+    steps:
+      - name: system deps
+        run: dnf install -y gcc gcc-c++ make cmake perl git tar gzip pkgconfig libcurl-devel openssl-devel
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - name: build (release, with the web server)
+        run: cargo build --release -p sint --features web_server_capability
+      - name: smoke
+        run: |
+          target/release/sinteractive --version
+          target/release/sinteractive zellij --version
+          ldd target/release/sinteractive
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sinteractive-x86_64-linux-gnu-glibc2.28
+          path: target/release/sinteractive

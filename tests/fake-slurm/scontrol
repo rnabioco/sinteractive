@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Fake scontrol. See README.md.
+#
+#   scontrol update JobId=N Comment=X [Name=Y] [TimeLimit=Z]
+#       rewrites the comment column of job N (Name/TimeLimit are accepted
+#       and ignored); an unknown job fails like the real one
+#   scontrol show reservation [-o]
+#       prints $FAKE_SLURM_DIR/reservations (nothing when absent)
+#   scontrol show config
+#       prints "ClusterName = fake"
+#   scontrol show job N
+#       prints a one-line JobId=... Comment=... summary of the row
+
+# shellcheck source=tests/fake-slurm/lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+log_call scontrol "$@"
+
+# Drop the flags scontrol takes anywhere (-o one-liner, -d detail).
+args=()
+for a in "$@"; do
+  case "$a" in
+  -o | --oneliner | -d | --details) ;;
+  *) args+=("$a") ;;
+  esac
+done
+set -- "${args[@]}"
+
+case "${1:-}" in
+update)
+  shift
+  jobid='' comment='' have_comment=0
+  for kv in "$@"; do
+    case "$kv" in
+    JobId=* | jobid=* | JobID=*) jobid=${kv#*=} ;;
+    Comment=* | comment=*)
+      comment=${kv#*=}
+      have_comment=1
+      ;;
+    Name=* | name=* | JobName=* | TimeLimit=* | timelimit=*) ;;
+    *) die "scontrol: unsupported update field '$kv' (fake-slurm)" ;;
+    esac
+  done
+  [[ -n "$jobid" ]] || die "scontrol: error: JobId is required"
+  job_exists "$jobid" || die "slurm_update error: Invalid job id specified"
+  if ((have_comment)); then
+    read_jobs | awk -F'\t' -v OFS='\t' -v id="$jobid" -v c="$comment" \
+      '$1 == id { $2 = c } { print }' | write_jobs
+  fi
+  ;;
+show)
+  case "${2:-}" in
+  reservation | reservations | res)
+    cat_fixture reservations
+    ;;
+  config)
+    echo "ClusterName = fake"
+    ;;
+  job)
+    id=${3:-}
+    job_exists "$id" || die "slurm_load_jobs error: Invalid job id specified"
+    read_jobs | awk -F'\t' -v id="$id" '$1 == id {
+      printf "JobId=%s JobName=%s Comment=%s Partition=%s JobState=%s Reason=%s NodeList=%s NumCPUs=%s TimeLimit=%s EndTime=%s\n",
+        $1, ($2 ~ /^sinteractive:/) ? "sint-" substr($2, 14) : "sinteractive", $2, $4, $11, $12, $3, $8, $6, $7 }'
+    ;;
+  *) die "scontrol: unsupported 'show ${2:-}' (fake-slurm)" ;;
+  esac
+  ;;
+*) die "scontrol: unsupported command '${1:-}' (fake-slurm)" ;;
+esac

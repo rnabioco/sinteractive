@@ -1,0 +1,57 @@
+[package]
+name = "sint"
+description = "Persistent interactive sessions on Slurm compute nodes, built on zellij"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+default-run = "sinteractive"
+
+[[bin]]
+name = "sinteractive"
+path = "src/main.rs"
+
+[features]
+default = []
+# zellij's built-in web server (browser sessions, remote attach). Off by
+# default: pulls axum + rusqlite into the build. Enabled for release builds.
+web_server_capability = [
+    "zellij-client/web_server_capability",
+    "zellij-server/web_server_capability",
+    "zellij-utils/web_server_capability",
+    "dep:isahc",
+]
+
+[dependencies]
+sint-core.workspace = true
+sint-proto.workspace = true
+anyhow.workspace = true
+sha2.workspace = true
+# zellij, compiled in (see src/zellij_embed/). Versions must match each other.
+zellij-client = "=0.45.1"
+zellij-server = "=0.45.1"
+zellij-utils = "=0.45.1"
+dialoguer = { version = "0.11", default-features = false, features = ["password", "completion"] }
+miette = { version = "7", default-features = false, features = ["derive", "fancy"] }
+log = "0.4"
+isahc = { version = "1.7", default-features = false, features = ["http2", "text-decoding"], optional = true }
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+clap_mangen.workspace = true
+tokio.workspace = true
+time.workspace = true
+regex.workspace = true
+schemars.workspace = true
+rmcp.workspace = true
+tempfile.workspace = true
+libc.workspace = true
+ratatui.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true
+libc.workspace = true

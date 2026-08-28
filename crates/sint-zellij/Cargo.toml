@@ -1,0 +1,26 @@
+[package]
+name = "sint-zellij"
+description = "zellij status-bar plugin for sinteractive (WASM)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# The plugin is the *binary* (a WASI command: zellij calls `_start`); the
+# library holds the testable rendering/state code.
+[[bin]]
+name = "sint-zellij"
+path = "src/main.rs"
+
+[dependencies]
+sint-proto = { path = "../sint-proto" }
+serde.workspace = true
+# Not the workspace dependency: that one carries `preserve_order`, which
+# pulls indexmap + hashbrown into a plugin that only ever deserialises a
+# fixed struct. This is a wasm blob the zellij server loads; keep it small.
+serde_json = { version = "1", default-features = false, features = ["std"] }
+unicode-width.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+zellij-tile = "0.45"

@@ -1,3 +1,4 @@
 site/
 .pixi/
 .claude/worktrees/
+target/
