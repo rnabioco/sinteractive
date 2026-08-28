@@ -594,12 +594,6 @@ struct NodeDeps<'a> {
     claude_dir: std::path::PathBuf,
 }
 
-impl NodeDeps<'_> {
-    fn zellij_output(&self, args: &[&str]) -> Option<std::process::Output> {
-        self.zellij.command(args).stdin(Stdio::null()).output().ok()
-    }
-}
-
 impl Deps for NodeDeps<'_> {
     fn query_end_epoch(&mut self) -> Option<i64> {
         let row = self.ctx.slurm.job(self.job_id).ok()??;
@@ -735,14 +729,23 @@ fn start_server(
     cmd.stdin(Stdio::null());
     let mut child = cmd.spawn().context("start the zellij server")?;
     let deadline = Instant::now() + Duration::from_secs(30);
+    // Do not touch the socket until the create-background client has
+    // finished: it spawns the server and then configures the session, and a
+    // probe client (list-sessions connects and disconnects) that arrives in
+    // between panics zellij-server (RemoveClient with no session data yet,
+    // zellij-server/src/lib.rs:1462 in 0.45.1). Seen on a real job.
+    let mut client_done = false;
     loop {
-        if session_alive(zellij) {
-            return Ok(child);
-        }
-        if let Ok(Some(status)) = child.try_wait() {
-            if !status.success() {
-                bail!("zellij server exited ({status}) before session {session} came up");
+        if !client_done {
+            match child.try_wait() {
+                Ok(Some(status)) if status.success() => client_done = true,
+                Ok(Some(status)) => {
+                    bail!("zellij server exited ({status}) before session {session} came up")
+                }
+                _ => {}
             }
+        } else if session_alive(zellij) {
+            return Ok(child);
         }
         if signalled() {
             bail!("interrupted while starting the session");
