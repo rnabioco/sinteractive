@@ -23,31 +23,51 @@
 //! - the tmux `status-left`/`status-right` strings — replaced by one
 //!   [`StatusMsg`] piped to the status plugin, which renders it.
 //!
+//! Host monitoring rides on the same loop: a [`Sampler`] scoped to this
+//! job is read every [`SAMPLE_EVERY`] seconds and written to
+//! `<jobid>.metrics.json` every [`METRICS_EVERY`] (what `monitor` reads on
+//! a login node); it also feeds the bar's `cpu 34% 12/32G` / `gpu0 87%`
+//! fields and the monitor panel's own-host entry. The user's other RUNNING
+//! jobs are sampled every [`REMOTE_EVERY`] seconds on a background thread
+//! (`ssh NODE sinteractive snapshot --json --job ID`, or that job's own
+//! fresh `<id>.metrics.json` when it is an sinteractive session) and appear
+//! as further panel entries.
+//!
+//! Session events (`started`, `walltime_warn`, `walltime_red`,
+//! `quota_over`, `job_done`, `gpu_idle`, `ended`) are appended to
+//! `<jobid>.events.ndjson` through [`Deps::emit_event`]; see
+//! [`sint_core::events`] for the shapes.
+//!
 //! Undocumented knob for the tests: `SINTERACTIVE_POLL_FAST=<secs>` caps
 //! every wait in this file (server readiness poll, loop tick, pre-kill
 //! pause).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
-use std::path::Path;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use sint_core::config::Config;
+use sint_core::events::{self, Event};
+use sint_core::metrics::{self, Sampler, Snapshot};
 use sint_core::notices::{self, Notice};
 use sint_core::now_epoch;
 use sint_core::quota::{self, QuotaSnapshot};
 use sint_core::slurm::squeue::JobRow;
-use sint_core::state::StateFile;
+use sint_core::slurm::Slurm;
+use sint_core::state::{StateDir, StateFile};
 use sint_core::time::{format_short_duration, slurm_timestamp_to_epoch};
-use sint_proto::{Severity, StatusMsg, PIPE_NAME};
+use sint_proto::{HostPanel, Severity, StatusMsg, PIPE_NAME};
 
-use super::common::Ctx;
+use super::common::{ssh_batch, Ctx};
 use crate::bundle;
 use crate::cli::JobArgs;
-use crate::zellij_cmd::{self, ZellijEnv};
+use crate::zellij_cmd::{self, shell_quote, ZellijEnv};
 
 /// Floor on scheduler queries however often the loop wakes, and the window
 /// in which a confirmed end time still counts as fresh enough to write.
@@ -58,6 +78,26 @@ pub const JOBS_EVERY: i64 = 30;
 pub const ALIVE_EVERY: i64 = 2;
 /// Consecutive alive-check misses before the session counts as gone.
 const ALIVE_MISSES: u32 = 3;
+/// How often the local host sampler is read.
+pub const SAMPLE_EVERY: i64 = 2;
+/// How often the local snapshot is written to `<jobid>.metrics.json`.
+pub const METRICS_EVERY: i64 = 5;
+/// How often the user's other running jobs are sampled on their nodes.
+pub const REMOTE_EVERY: i64 = 10;
+/// How long one round of remote `snapshot` calls may take before the
+/// stragglers are killed.
+pub const REMOTE_TIMEOUT: Duration = Duration::from_secs(15);
+/// A remote job's own `<id>.metrics.json` no older than this stands in
+/// for an ssh round trip.
+pub const REMOTE_CACHE_FRESH: i64 = REMOTE_EVERY;
+/// `walltime_warn` fires when this much (or less) is left.
+pub const WALLTIME_WARN_SECS: i64 = 1800;
+/// `walltime_red` fires when this much (or less) is left.
+pub const WALLTIME_RED_SECS: i64 = 600;
+/// A held GPU under this utilisation …
+pub const GPU_IDLE_UTIL: u8 = 5;
+/// … for this long is `gpu_idle`.
+pub const GPU_IDLE_AFTER: i64 = 600;
 /// The line typed into the shell as the session is ended for walltime.
 pub const ENDING_LINE: &str = "[sinteractive] walltime reached — ending session";
 
@@ -109,8 +149,9 @@ pub trait Deps {
     /// Whether the Claude Code install hint is due (a `claude` process is
     /// running for this user and the integration is not installed).
     fn claude_hint_wanted(&mut self) -> bool;
-    /// The user's other RUNNING/PENDING jobs as `2R 1PD` (empty when none).
-    fn other_jobs(&mut self) -> String;
+    /// The user's RUNNING/PENDING jobs (this one included); `None` when
+    /// squeue failed, so a hiccup is never read as "every job finished".
+    fn other_jobs(&mut self) -> Option<Vec<QueueJob>>;
     /// Whether zellij still lists the session.
     fn session_alive(&mut self) -> bool;
     /// Write `<jobid>.json`.
@@ -119,6 +160,49 @@ pub trait Deps {
     fn write_notices(&mut self, notices: &[Notice]);
     /// Pipe a message to the status plugin.
     fn send_status(&mut self, msg: &StatusMsg);
+    /// One sample of this host, scoped to the job; `None` when sampling
+    /// is unavailable.
+    fn sample_local(&mut self) -> Option<Snapshot>;
+    /// Write `<job_id>.metrics.json`.
+    fn write_metrics(&mut self, job_id: u64, snap: &Snapshot);
+    /// Remove `<job_id>.metrics.json` (a remote job that left the queue).
+    fn remove_metrics(&mut self, job_id: u64);
+    /// Start sampling these jobs on their nodes in the background; results
+    /// come back through [`Deps::take_remote`]. Never blocks.
+    fn poll_remote(&mut self, targets: &[RemoteTarget]);
+    /// Remote samples that have finished since the last call.
+    fn take_remote(&mut self) -> Vec<RemoteSnapshot>;
+    /// Append to `<jobid>.events.ndjson`.
+    fn emit_event(&mut self, event: &Event);
+}
+
+/// One of the user's queued jobs, as the loop sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct QueueJob {
+    pub job_id: u64,
+    /// `RUNNING` / `PENDING`.
+    pub state: String,
+    /// Raw `%N` nodelist (`c3cpu-a2-u[3-4]`), empty while pending.
+    pub node: String,
+    /// squeue's `%j` job name.
+    pub name: Option<String>,
+}
+
+/// A job to sample on its node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteTarget {
+    pub job_id: u64,
+    pub node: String,
+}
+
+/// A finished remote sample.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteSnapshot {
+    pub job_id: u64,
+    pub snapshot: Snapshot,
+    /// Taken over ssh (so worth writing to `<id>.metrics.json`), as opposed
+    /// to read back from that job's own fresh file.
+    pub fetched: bool,
 }
 
 /// What the driver does after a tick.
@@ -192,6 +276,10 @@ pub struct JobLoop {
     last_notices: Option<Vec<Notice>>,
     jobs_checked: i64,
     jobs: String,
+    /// The user's queue as of the last successful refresh.
+    queue: Vec<QueueJob>,
+    /// Other jobs seen RUNNING/PENDING, by id, for `job_done`.
+    seen_jobs: HashMap<u64, Option<String>>,
     alive_checked: Option<i64>,
     /// Consecutive failed alive checks.
     alive_misses: u32,
@@ -200,6 +288,21 @@ pub struct JobLoop {
     /// Whether the red phase has been entered (0.x `belled`): the deadline
     /// is re-confirmed once on entry before the spinner starts.
     in_red: bool,
+    /// Latest local sample and when it was taken / last written out.
+    local: Option<Snapshot>,
+    sampled: i64,
+    metrics_written: i64,
+    remote_polled: i64,
+    /// Latest sample per other running job, in job-id order.
+    remotes: BTreeMap<u64, Snapshot>,
+    /// Event bookkeeping: `started` sent; warn/red armed while above the
+    /// threshold; quota over as of the last check; per-GPU idle episodes.
+    started: bool,
+    warned: bool,
+    red_warned: bool,
+    quota_over: bool,
+    gpu_idle_since: HashMap<u32, i64>,
+    gpu_idle_sent: HashSet<u32>,
 }
 
 impl JobLoop {
@@ -222,10 +325,23 @@ impl JobLoop {
             last_notices: None,
             jobs_checked: 0,
             jobs: String::new(),
+            queue: Vec::new(),
+            seen_jobs: HashMap::new(),
             alive_checked: None,
             alive_misses: 0,
             last_sent: None,
             in_red: false,
+            local: None,
+            sampled: 0,
+            metrics_written: 0,
+            remote_polled: 0,
+            remotes: BTreeMap::new(),
+            started: false,
+            warned: false,
+            red_warned: false,
+            quota_over: false,
+            gpu_idle_since: HashMap::new(),
+            gpu_idle_sent: HashSet::new(),
         }
     }
 
@@ -255,6 +371,24 @@ impl JobLoop {
         v
     }
 
+    /// The monitor panel's hosts: this node first, then every other
+    /// running job that has answered, by job id.
+    fn hosts(&self, now: i64) -> Vec<HostPanel> {
+        let mut v = Vec::new();
+        if let Some(s) = &self.local {
+            v.push(s.to_host_panel(self.cfg.job_id, self.cfg.name.clone(), s.age_secs(now)));
+        }
+        for (id, s) in &self.remotes {
+            let name = self
+                .queue
+                .iter()
+                .find(|j| j.job_id == *id)
+                .and_then(|j| j.name.clone());
+            v.push(s.to_host_panel(*id, name, s.age_secs(now)));
+        }
+        v
+    }
+
     fn status_msg(&self, now: i64, severity: Severity, remaining: Option<i64>) -> StatusMsg {
         let remaining_text = match (severity, remaining) {
             (_, None) => String::new(),
@@ -268,8 +402,8 @@ impl JobLoop {
             severity,
             remaining: remaining_text,
             remaining_secs: remaining,
-            load: String::new(),
-            gpu: String::new(),
+            load: self.local.as_ref().map(load_line).unwrap_or_default(),
+            gpu: self.local.as_ref().map(gpu_line).unwrap_or_default(),
             jobs: self.jobs.clone(),
             notices: self
                 .notices()
@@ -280,8 +414,160 @@ impl JobLoop {
                 })
                 .collect(),
             help: help_pages(),
-            hosts: Vec::new(),
+            hosts: self.hosts(now),
             sent_epoch: now,
+        }
+    }
+
+    // ---- monitoring and events -------------------------------------------
+
+    /// The `started` event, on the first tick only.
+    fn emit_started(&mut self, now: i64, deps: &mut dyn Deps) {
+        if self.started {
+            return;
+        }
+        self.started = true;
+        let ev = Event::at(now, "started")
+            .with("job", self.cfg.job_id)
+            .with("node", self.cfg.host.as_str())
+            .with("name", self.cfg.name.clone());
+        deps.emit_event(&ev);
+    }
+
+    /// Read the local sampler on its own cadence, write the snapshot out
+    /// on a slower one, and watch the GPUs for idleness.
+    fn sample_local(&mut self, now: i64, deps: &mut dyn Deps) {
+        if now - self.sampled >= SAMPLE_EVERY {
+            self.sampled = now;
+            if let Some(snap) = deps.sample_local() {
+                self.check_gpu_idle(now, &snap, deps);
+                self.local = Some(snap);
+            }
+        }
+        if now - self.metrics_written >= METRICS_EVERY {
+            if let Some(snap) = &self.local {
+                self.metrics_written = now;
+                deps.write_metrics(self.cfg.job_id, snap);
+            }
+        }
+    }
+
+    /// `gpu_idle`: a GPU in the scope under [`GPU_IDLE_UTIL`] for
+    /// [`GPU_IDLE_AFTER`] while a process holds it, once per episode.
+    fn check_gpu_idle(&mut self, now: i64, snap: &Snapshot, deps: &mut dyn Deps) {
+        let mut idle_now = HashSet::new();
+        for g in &snap.gpus {
+            if g.util_pct >= GPU_IDLE_UTIL || g.procs.is_empty() {
+                continue;
+            }
+            idle_now.insert(g.index);
+            let since = *self.gpu_idle_since.entry(g.index).or_insert(now);
+            if now - since >= GPU_IDLE_AFTER && self.gpu_idle_sent.insert(g.index) {
+                let ev = Event::at(now, "gpu_idle")
+                    .with("gpu", g.index)
+                    .with("util_pct", g.util_pct)
+                    .with("idle_secs", now - since);
+                deps.emit_event(&ev);
+            }
+        }
+        self.gpu_idle_since.retain(|i, _| idle_now.contains(i));
+        self.gpu_idle_sent.retain(|i| idle_now.contains(i));
+    }
+
+    /// Refresh the queue: the `2R 1PD` summary, `job_done` for any other
+    /// job that left, and the remote sample set (dropping hosts whose job
+    /// is gone).
+    fn refresh_queue(&mut self, now: i64, deps: &mut dyn Deps) {
+        let Some(queue) = deps.other_jobs() else {
+            return;
+        };
+        let self_id = self.cfg.job_id;
+        let present: HashMap<u64, Option<String>> = queue
+            .iter()
+            .filter(|j| j.job_id != self_id)
+            .map(|j| (j.job_id, j.name.clone()))
+            .collect();
+        let mut gone: Vec<(u64, Option<String>)> = self
+            .seen_jobs
+            .iter()
+            .filter(|(id, _)| !present.contains_key(id))
+            .map(|(id, name)| (*id, name.clone()))
+            .collect();
+        gone.sort_unstable_by_key(|(id, _)| *id);
+        for (id, name) in gone {
+            let ev = Event::at(now, "job_done")
+                .with("job", id)
+                .with("name", name);
+            deps.emit_event(&ev);
+        }
+        self.seen_jobs = present;
+
+        let running: HashSet<u64> = queue
+            .iter()
+            .filter(|j| j.state == "RUNNING" && j.job_id != self_id)
+            .map(|j| j.job_id)
+            .collect();
+        let dropped: Vec<u64> = self
+            .remotes
+            .keys()
+            .filter(|id| !running.contains(id))
+            .copied()
+            .collect();
+        for id in dropped {
+            self.remotes.remove(&id);
+            deps.remove_metrics(id);
+        }
+        self.jobs = jobs_summary(&queue, self_id);
+        self.queue = queue;
+    }
+
+    /// The other running jobs not on this node.
+    fn remote_targets(&self) -> Vec<RemoteTarget> {
+        self.queue
+            .iter()
+            .filter(|j| j.state == "RUNNING" && j.job_id != self.cfg.job_id)
+            .filter_map(|j| {
+                let node = first_node(&j.node)?;
+                (node != self.cfg.host).then_some(RemoteTarget {
+                    job_id: j.job_id,
+                    node,
+                })
+            })
+            .collect()
+    }
+
+    /// Kick off a remote round on its cadence and absorb whatever has
+    /// come back.
+    fn poll_remotes(&mut self, now: i64, deps: &mut dyn Deps) {
+        if now - self.remote_polled >= REMOTE_EVERY {
+            self.remote_polled = now;
+            let targets = self.remote_targets();
+            if !targets.is_empty() {
+                deps.poll_remote(&targets);
+            }
+        }
+        for r in deps.take_remote() {
+            if r.fetched {
+                deps.write_metrics(r.job_id, &r.snapshot);
+            }
+            self.remotes.insert(r.job_id, r.snapshot);
+        }
+    }
+
+    /// `walltime_warn` / `walltime_red`, once per crossing: re-armed when an
+    /// extension lifts the remaining time back above the line.
+    fn check_walltime_events(&mut self, now: i64, remaining: i64, deps: &mut dyn Deps) {
+        if remaining > WALLTIME_WARN_SECS {
+            self.warned = false;
+        } else if !self.warned {
+            self.warned = true;
+            deps.emit_event(&Event::at(now, "walltime_warn").with("remaining", remaining));
+        }
+        if remaining > WALLTIME_RED_SECS {
+            self.red_warned = false;
+        } else if !self.red_warned {
+            self.red_warned = true;
+            deps.emit_event(&Event::at(now, "walltime_red").with("remaining", remaining));
         }
     }
 
@@ -301,6 +587,8 @@ impl JobLoop {
         let c = &self.cfg;
         let (poll, quota_poll) = (c.poll, c.quota_poll);
         let (warn_yellow, warn_red, grace) = (c.warn_yellow, c.warn_red, c.grace);
+
+        self.emit_started(now, deps);
 
         // The session is the reason the loop exists (0.x `has-session`).
         // `list-sessions` can fail transiently (a client mid-attach, the
@@ -332,10 +620,17 @@ impl JobLoop {
         // shared cache is stale) lives behind `read_quota`.
         if now - self.quota_checked >= quota_poll {
             self.quota_checked = now;
-            self.quota_notice = deps
-                .read_quota()
-                .filter(|q| q.over)
-                .map(|q| notices::quota_notice(q.over_kb, q.hard_kb));
+            let over = deps.read_quota().filter(|q| q.over);
+            if let Some(q) = &over {
+                if !self.quota_over {
+                    let ev = Event::at(now, "quota_over")
+                        .with("over_kb", q.over_kb)
+                        .with("hard_kb", q.hard_kb);
+                    deps.emit_event(&ev);
+                }
+            }
+            self.quota_over = over.is_some();
+            self.quota_notice = over.map(|q| notices::quota_notice(q.over_kb, q.hard_kb));
         }
 
         // Claude Code hint, at the scheduler-poll cadence (one pgrep per
@@ -347,8 +642,13 @@ impl JobLoop {
 
         if now - self.jobs_checked >= JOBS_EVERY {
             self.jobs_checked = now;
-            self.jobs = deps.other_jobs();
+            self.refresh_queue(now, deps);
         }
+
+        // Host monitoring: this node on its own tick, the other jobs'
+        // nodes in the background.
+        self.sample_local(now, deps);
+        self.poll_remotes(now, deps);
 
         // The notices file, only when the set changes: a steady state must
         // not keep rewriting it.
@@ -372,6 +672,7 @@ impl JobLoop {
             return Step::Continue(Duration::from_secs(1));
         };
         let remaining = (end_epoch - now).max(0);
+        self.check_walltime_events(now, remaining, deps);
 
         // Write only on a deadline Slurm just confirmed, so every field in
         // the file was true as of updated_epoch. When squeue is unreachable
@@ -440,7 +741,7 @@ impl JobLoop {
 
 /// `2R 1PD` from the user's RUNNING/PENDING jobs other than `self_id`;
 /// empty when there are none.
-pub fn jobs_summary(rows: &[JobRow], self_id: u64) -> String {
+pub fn jobs_summary(rows: &[QueueJob], self_id: u64) -> String {
     let (mut running, mut pending) = (0usize, 0usize);
     for r in rows.iter().filter(|r| r.job_id != self_id) {
         match r.state.as_str() {
@@ -457,6 +758,112 @@ pub fn jobs_summary(rows: &[JobRow], self_id: u64) -> String {
         parts.push(format!("{pending}PD"));
     }
     parts.join(" ")
+}
+
+/// [`QueueJob`]s from squeue rows plus the `%i|%j` name lookup.
+pub fn queue_jobs(rows: &[JobRow], names: &HashMap<u64, String>) -> Vec<QueueJob> {
+    rows.iter()
+        .map(|r| QueueJob {
+            job_id: r.job_id,
+            state: r.state.clone(),
+            node: r.node.clone(),
+            name: names.get(&r.job_id).cloned(),
+        })
+        .collect()
+}
+
+/// Parse `squeue --me -h -o '%i|%j'` output into id → name.
+pub fn parse_job_names(output: &str) -> HashMap<u64, String> {
+    output
+        .lines()
+        .filter_map(|l| {
+            let (id, name) = l.trim().split_once('|')?;
+            let name = name.trim();
+            if name.is_empty() {
+                return None;
+            }
+            Some((id.trim().parse().ok()?, name.to_string()))
+        })
+        .collect()
+}
+
+/// The first node of a squeue `%N` nodelist: `c3cpu-a2-u[3-4]` →
+/// `c3cpu-a2-u3`, `n[001-004],m7` → `n001`, `node01` → `node01`. `None`
+/// when empty (a pending job).
+pub fn first_node(nodelist: &str) -> Option<String> {
+    let s = nodelist.trim();
+    if s.is_empty() {
+        return None;
+    }
+    // The first top-level element: a comma outside brackets ends it.
+    let mut depth = 0usize;
+    let mut first = s;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '[' => depth += 1,
+            ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                first = &s[..i];
+                break;
+            }
+            _ => {}
+        }
+    }
+    let Some((prefix, rest)) = first.split_once('[') else {
+        return Some(first.to_string());
+    };
+    let (range, suffix) = rest.split_once(']').unwrap_or((rest, ""));
+    let head = range
+        .split(',')
+        .next()
+        .unwrap_or("")
+        .split('-')
+        .next()
+        .unwrap_or("");
+    Some(format!("{prefix}{head}{suffix}"))
+}
+
+/// `12` / `1.5`: MB as G without the unit.
+fn gig(mb: u64) -> String {
+    let g = mb as f64 / 1024.0;
+    if g >= 10.0 {
+        format!("{g:.0}")
+    } else {
+        format!("{g:.1}")
+    }
+}
+
+/// The bar's load field: `cpu 34% 12/32G` (CPU% of the scope, memory used
+/// over the allocation).
+pub fn load_line(snap: &Snapshot) -> String {
+    let alloc = snap.scope.mem_alloc_mb.unwrap_or(snap.mem.total_mb);
+    format!(
+        "cpu {}% {}/{}G",
+        snap.cpu.pct.round().clamp(0.0, 100.0) as u8,
+        gig(snap.mem.used_mb),
+        gig(alloc)
+    )
+}
+
+/// The bar's GPU field: `gpu0 87% 31/40G` for one GPU, `gpu0 87% · gpu1
+/// 12%` for several (at most two shown), empty without any.
+pub fn gpu_line(snap: &Snapshot) -> String {
+    match snap.gpus.as_slice() {
+        [] => String::new(),
+        [g] => format!(
+            "gpu{} {}% {}/{}G",
+            g.index,
+            g.util_pct,
+            gig(g.mem_used_mb),
+            gig(g.mem_total_mb)
+        ),
+        gpus => gpus
+            .iter()
+            .take(2)
+            .map(|g| format!("gpu{} {}%", g.index, g.util_pct))
+            .collect::<Vec<_>>()
+            .join(" · "),
+    }
 }
 
 /// Whether the Claude Code integration is installed under `dir`
@@ -584,6 +991,135 @@ fn short_hostname() -> String {
     std::env::var("SLURM_JOB_NODELIST").unwrap_or_default()
 }
 
+/// The background thread that samples other jobs' nodes: one request
+/// (a target list) at a time, results streamed back as they finish. The
+/// request channel holds one entry, so a round that is still running makes
+/// the next request a no-op instead of a backlog.
+struct RemotePoller {
+    req: mpsc::SyncSender<Vec<RemoteTarget>>,
+    res: mpsc::Receiver<RemoteSnapshot>,
+}
+
+impl RemotePoller {
+    fn start(state: StateDir, exe: PathBuf) -> Self {
+        let (req, req_rx) = mpsc::sync_channel::<Vec<RemoteTarget>>(1);
+        let (res_tx, res) = mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("remote-poll".into())
+            .spawn(move || {
+                for targets in req_rx {
+                    for r in fetch_remote(&state, &exe, &targets) {
+                        if res_tx.send(r).is_err() {
+                            return;
+                        }
+                    }
+                }
+            });
+        RemotePoller { req, res }
+    }
+
+    fn request(&self, targets: Vec<RemoteTarget>) {
+        let _ = self.req.try_send(targets);
+    }
+
+    fn take(&self) -> Vec<RemoteSnapshot> {
+        self.res.try_iter().collect()
+    }
+}
+
+/// One round: a target's own fresh `<id>.metrics.json` is used as is;
+/// the rest get `ssh NODE <exe> snapshot --json --job ID`, all spawned at
+/// once, with [`REMOTE_TIMEOUT`] for the lot. A target that fails (no ssh
+/// access, no binary there, timeout) is simply absent from the result.
+fn fetch_remote(state: &StateDir, exe: &Path, targets: &[RemoteTarget]) -> Vec<RemoteSnapshot> {
+    let now = now_epoch();
+    let mut out = Vec::new();
+    let mut pending: Vec<(u64, Child, std::fs::File)> = Vec::new();
+    for t in targets {
+        if let Some(snap) = metrics::read_snapshot(state, t.job_id) {
+            if (snap.age_secs(now) as i64) <= REMOTE_CACHE_FRESH {
+                out.push(RemoteSnapshot {
+                    job_id: t.job_id,
+                    snapshot: snap,
+                    fetched: false,
+                });
+                continue;
+            }
+        }
+        let remote = format!(
+            "{} snapshot --json --job {}",
+            shell_quote(&exe.to_string_lossy()),
+            t.job_id
+        );
+        // stdout goes to a file, not a pipe: nothing to drain while the
+        // children run, however long a process list they print.
+        let Ok(file) = tempfile::tempfile() else {
+            continue;
+        };
+        let Ok(clone) = file.try_clone() else {
+            continue;
+        };
+        let child = ssh_batch(&t.node, 5, &remote)
+            .stdout(Stdio::from(clone))
+            .stderr(Stdio::null())
+            .spawn();
+        if let Ok(child) = child {
+            pending.push((t.job_id, child, file));
+        }
+    }
+
+    let deadline = Instant::now() + REMOTE_TIMEOUT;
+    let mut done: Vec<(u64, bool, std::fs::File)> = Vec::new();
+    while !pending.is_empty() {
+        let mut i = 0;
+        while i < pending.len() {
+            match pending[i].1.try_wait() {
+                Ok(Some(status)) => {
+                    let (id, _, file) = pending.remove(i);
+                    done.push((id, status.success(), file));
+                }
+                Ok(None) => i += 1,
+                Err(_) => {
+                    pending.remove(i);
+                }
+            }
+        }
+        if pending.is_empty() || Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    for (_, mut child, _) in pending {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    for (job_id, ok, mut file) in done {
+        if !ok {
+            continue;
+        }
+        let mut text = String::new();
+        if file.seek(SeekFrom::Start(0)).is_err() || file.read_to_string(&mut text).is_err() {
+            continue;
+        }
+        if let Ok(snapshot) = serde_json::from_str::<Snapshot>(&text) {
+            out.push(RemoteSnapshot {
+                job_id,
+                snapshot,
+                fetched: true,
+            });
+        }
+    }
+    out
+}
+
+/// `squeue --me -h -o '%i|%j'` → id → job name; empty when squeue fails.
+fn job_names(slurm: &Slurm) -> HashMap<u64, String> {
+    slurm
+        .run("squeue", &["--me", "-h", "-o", "%i|%j"])
+        .map(|out| parse_job_names(&out))
+        .unwrap_or_default()
+}
+
 /// The real side effects.
 struct NodeDeps<'a> {
     ctx: &'a Ctx,
@@ -592,6 +1128,8 @@ struct NodeDeps<'a> {
     user: String,
     uid: u32,
     claude_dir: std::path::PathBuf,
+    sampler: Sampler,
+    remote: RemotePoller,
 }
 
 impl Deps for NodeDeps<'_> {
@@ -636,11 +1174,10 @@ impl Deps for NodeDeps<'_> {
         running && !claude_integration_active(&self.claude_dir)
     }
 
-    fn other_jobs(&mut self) -> String {
-        match self.ctx.slurm.my_jobs(&["RUNNING", "PENDING"]) {
-            Ok(rows) => jobs_summary(&rows, self.job_id),
-            Err(_) => String::new(),
-        }
+    fn other_jobs(&mut self) -> Option<Vec<QueueJob>> {
+        let rows = self.ctx.slurm.my_jobs(&["RUNNING", "PENDING"]).ok()?;
+        let names = job_names(&self.ctx.slurm);
+        Some(queue_jobs(&rows, &names))
     }
 
     fn session_alive(&mut self) -> bool {
@@ -656,6 +1193,34 @@ impl Deps for NodeDeps<'_> {
     fn write_notices(&mut self, list: &[Notice]) {
         if let Err(e) = notices::write(&self.ctx.state, self.job_id, list) {
             eprintln!("sinteractive: notices file: {e}");
+        }
+    }
+
+    fn sample_local(&mut self) -> Option<Snapshot> {
+        Some(self.sampler.sample())
+    }
+
+    fn write_metrics(&mut self, job_id: u64, snap: &Snapshot) {
+        if let Err(e) = metrics::write_snapshot(&self.ctx.state, job_id, snap) {
+            eprintln!("sinteractive: metrics file: {e}");
+        }
+    }
+
+    fn remove_metrics(&mut self, job_id: u64) {
+        let _ = std::fs::remove_file(self.ctx.state.metrics_file(job_id));
+    }
+
+    fn poll_remote(&mut self, targets: &[RemoteTarget]) {
+        self.remote.request(targets.to_vec());
+    }
+
+    fn take_remote(&mut self) -> Vec<RemoteSnapshot> {
+        self.remote.take()
+    }
+
+    fn emit_event(&mut self, event: &Event) {
+        if let Err(e) = events::append(&self.ctx.state, self.job_id, event) {
+            eprintln!("sinteractive: events file: {e}");
         }
     }
 
@@ -822,6 +1387,7 @@ pub fn run(args: JobArgs) -> Result<i32> {
         Some(d) if !d.is_empty() => std::path::PathBuf::from(d),
         _ => std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".claude"),
     };
+    let exe = std::env::current_exe().unwrap_or_else(|_| zellij.exe.clone());
     let mut deps = NodeDeps {
         ctx: &ctx,
         zellij: &zellij,
@@ -829,15 +1395,19 @@ pub fn run(args: JobArgs) -> Result<i32> {
         user,
         uid,
         claude_dir,
+        sampler: Sampler::for_current_job(),
+        remote: RemotePoller::start(ctx.state.clone(), exe),
     };
     let mut lp = JobLoop::new(lcfg);
     let mut ended_by_us = false;
+    let mut reason = "gone";
     while !signalled() {
         match lp.step(now_epoch(), &mut deps) {
             Step::Continue(d) => sleep_interruptible(wait(d)),
             Step::Ending => {
                 end_session(&zellij);
                 ended_by_us = true;
+                reason = "walltime";
                 break;
             }
             Step::Gone => {
@@ -855,8 +1425,14 @@ pub fn run(args: JobArgs) -> Result<i32> {
             "sinteractive: signal {} received; ending the session",
             last_signal()
         );
+        reason = "signal";
         kill_session(&zellij);
     }
+    deps.emit_event(
+        &Event::new("ended")
+            .with("job", job_id)
+            .with("reason", reason),
+    );
 
     // Teardown: the state files (they must not outlive the job), the
     // node-local socket dir, and the server's client process if it is
@@ -873,6 +1449,7 @@ pub fn run(args: JobArgs) -> Result<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sint_core::metrics::{Cpu, Gpu, GpuProc, Mem, Scope};
 
     #[derive(Default)]
     struct Fake {
@@ -881,11 +1458,21 @@ mod tests {
         poke: bool,
         quota: Option<QuotaSnapshot>,
         hint: bool,
-        jobs: String,
+        /// `None` = squeue failed.
+        queue: Option<Vec<QueueJob>>,
         alive: bool,
         states: Vec<StateFile>,
         notices: Vec<Vec<Notice>>,
         sent: Vec<StatusMsg>,
+        /// What `sample_local` returns.
+        local: Option<Snapshot>,
+        samples: usize,
+        metrics: Vec<(u64, Snapshot)>,
+        removed: Vec<u64>,
+        remote_requests: Vec<Vec<RemoteTarget>>,
+        /// Handed back on the next `take_remote`.
+        remote_ready: Vec<RemoteSnapshot>,
+        events: Vec<Event>,
     }
 
     impl Fake {
@@ -893,8 +1480,13 @@ mod tests {
             Fake {
                 end,
                 alive: true,
+                queue: Some(Vec::new()),
                 ..Default::default()
             }
+        }
+
+        fn kinds(&self) -> Vec<&str> {
+            self.events.iter().map(|e| e.kind.as_str()).collect()
         }
     }
 
@@ -912,8 +1504,8 @@ mod tests {
         fn claude_hint_wanted(&mut self) -> bool {
             self.hint
         }
-        fn other_jobs(&mut self) -> String {
-            self.jobs.clone()
+        fn other_jobs(&mut self) -> Option<Vec<QueueJob>> {
+            self.queue.clone()
         }
         fn session_alive(&mut self) -> bool {
             self.alive
@@ -927,9 +1519,81 @@ mod tests {
         fn send_status(&mut self, m: &StatusMsg) {
             self.sent.push(m.clone());
         }
+        fn sample_local(&mut self) -> Option<Snapshot> {
+            self.samples += 1;
+            self.local.clone()
+        }
+        fn write_metrics(&mut self, job_id: u64, snap: &Snapshot) {
+            self.metrics.push((job_id, snap.clone()));
+        }
+        fn remove_metrics(&mut self, job_id: u64) {
+            self.removed.push(job_id);
+        }
+        fn poll_remote(&mut self, targets: &[RemoteTarget]) {
+            self.remote_requests.push(targets.to_vec());
+        }
+        fn take_remote(&mut self) -> Vec<RemoteSnapshot> {
+            std::mem::take(&mut self.remote_ready)
+        }
+        fn emit_event(&mut self, e: &Event) {
+            self.events.push(e.clone());
+        }
     }
 
     const T0: i64 = 1_800_000_000;
+
+    fn qjob(id: u64, state: &str, node: &str, name: Option<&str>) -> QueueJob {
+        QueueJob {
+            job_id: id,
+            state: state.into(),
+            node: node.into(),
+            name: name.map(str::to_string),
+        }
+    }
+
+    fn snap(ts: i64, cpu: f32, used_mb: u64) -> Snapshot {
+        Snapshot {
+            host: "node01".into(),
+            ts,
+            scope: Scope {
+                job_id: Some(4242),
+                cpus_alloc: Some(8),
+                mem_alloc_mb: Some(32 * 1024),
+                ..Default::default()
+            },
+            cpu: Cpu {
+                pct: cpu,
+                ncpu: 64,
+                load1: 2.0,
+                ..Default::default()
+            },
+            mem: Mem {
+                total_mb: 32 * 1024,
+                used_mb,
+            },
+            ..Default::default()
+        }
+    }
+
+    fn gpu(index: u32, util: u8, held: bool) -> Gpu {
+        Gpu {
+            index,
+            name: "A100".into(),
+            util_pct: util,
+            mem_used_mb: 31 * 1024,
+            mem_total_mb: 40 * 1024,
+            procs: if held {
+                vec![GpuProc {
+                    pid: 1,
+                    mem_mb: 100,
+                    sm_pct: None,
+                }]
+            } else {
+                Vec::new()
+            },
+            ..Default::default()
+        }
+    }
 
     fn cfg() -> LoopConfig {
         LoopConfig {
@@ -1178,7 +1842,12 @@ mod tests {
         let mut f = Fake::alive(Some(T0 + 7200));
         f.quota = Some(quota::snapshot("tester", 2048, 1024, T0));
         f.hint = true;
-        f.jobs = "2R 1PD".into();
+        f.queue = Some(vec![
+            qjob(4242, "RUNNING", "node01", None),
+            qjob(1, "RUNNING", "n2", None),
+            qjob(2, "RUNNING", "n3", None),
+            qjob(3, "PENDING", "", None),
+        ]);
         let mut lp = JobLoop::new(c);
         lp.step(T0, &mut f);
         assert_eq!(f.notices.len(), 1);
@@ -1240,10 +1909,10 @@ mod tests {
 
     #[test]
     fn jobs_summary_forms() {
-        let row = |id: u64, state: &str| JobRow {
+        let row = |id: u64, state: &str| QueueJob {
             job_id: id,
             state: state.into(),
-            ..JobRow::default()
+            ..QueueJob::default()
         };
         let rows = vec![
             row(1, "RUNNING"),
@@ -1256,6 +1925,325 @@ mod tests {
         assert_eq!(jobs_summary(&rows[2..], 99), "1PD");
         assert_eq!(jobs_summary(&rows[..2], 99), "2R");
         assert_eq!(jobs_summary(&[], 99), "");
+    }
+
+    #[test]
+    fn started_once_and_walltime_events_once_per_crossing() {
+        let end = T0 + 10_000;
+        let mut f = Fake::alive(Some(end));
+        let mut lp = JobLoop::new(cfg());
+        lp.step(T0, &mut f);
+        lp.step(T0 + 1, &mut f);
+        assert_eq!(f.kinds(), ["started"]);
+        let st = &f.events[0];
+        assert_eq!(st.ts, T0);
+        assert_eq!(st.field_i64("job"), Some(4242));
+        assert_eq!(st.field_str("node"), Some("node01"));
+        assert_eq!(st.field_str("name"), Some("t"));
+
+        // 30 min left: warn, once.
+        lp.step(end - 1800, &mut f);
+        lp.step(end - 1799, &mut f);
+        assert_eq!(f.kinds(), ["started", "walltime_warn"]);
+        assert_eq!(f.events[1].field_i64("remaining"), Some(1800));
+        // 10 min left: red, once (the red-phase re-check happens too).
+        lp.step(end - 600, &mut f);
+        lp.step(end - 599, &mut f);
+        assert_eq!(f.kinds(), ["started", "walltime_warn", "walltime_red"]);
+        assert_eq!(f.events[2].field_i64("remaining"), Some(600));
+
+        // An extension lifts it back above both lines and re-arms them.
+        f.end = Some(end + 7200);
+        lp.step(end - 570, &mut f); // the poll-cadence re-query sees it
+        assert_eq!(f.events.len(), 3);
+        lp.step(end + 7200 - 1700, &mut f);
+        assert_eq!(f.kinds().last(), Some(&"walltime_warn"));
+    }
+
+    #[test]
+    fn job_done_when_another_job_leaves_the_queue() {
+        let mut f = Fake::alive(Some(T0 + 7200));
+        f.queue = Some(vec![
+            qjob(4242, "RUNNING", "node01", Some("sint-t")),
+            qjob(9001, "RUNNING", "n2", Some("train")),
+            qjob(9002, "PENDING", "", None),
+        ]);
+        let mut lp = JobLoop::new(cfg());
+        lp.step(T0, &mut f);
+        assert_eq!(f.kinds(), ["started"]);
+        assert_eq!(f.sent.last().unwrap().jobs, "1R 1PD");
+
+        // A squeue failure in between changes nothing.
+        f.queue = None;
+        lp.step(T0 + JOBS_EVERY, &mut f);
+        assert_eq!(f.kinds(), ["started"]);
+        assert_eq!(f.sent.last().unwrap().jobs, "1R 1PD");
+
+        // 9001 finished; 9002 is still pending.
+        f.queue = Some(vec![
+            qjob(4242, "RUNNING", "node01", Some("sint-t")),
+            qjob(9002, "PENDING", "", None),
+        ]);
+        lp.step(T0 + 2 * JOBS_EVERY, &mut f);
+        assert_eq!(f.kinds(), ["started", "job_done"]);
+        let done = f.events.last().unwrap();
+        assert_eq!(done.ts, T0 + 2 * JOBS_EVERY);
+        assert_eq!(done.field_i64("job"), Some(9001));
+        assert_eq!(done.field_str("name"), Some("train"));
+        assert_eq!(f.sent.last().unwrap().jobs, "1PD");
+
+        // Then 9002 as well (unnamed → null).
+        f.queue = Some(vec![qjob(4242, "RUNNING", "node01", Some("sint-t"))]);
+        lp.step(T0 + 3 * JOBS_EVERY, &mut f);
+        assert_eq!(f.kinds(), ["started", "job_done", "job_done"]);
+        let done = f.events.last().unwrap();
+        assert_eq!(done.field_i64("job"), Some(9002));
+        assert_eq!(done.fields.get("name"), Some(&serde_json::Value::Null));
+        assert_eq!(f.sent.last().unwrap().jobs, "");
+    }
+
+    #[test]
+    fn quota_over_once_per_episode() {
+        let mut f = Fake::alive(Some(T0 + 7200));
+        f.quota = Some(quota::snapshot("tester", 2048, 1024, T0));
+        let mut lp = JobLoop::new(cfg());
+        lp.step(T0, &mut f);
+        assert_eq!(f.kinds(), ["started", "quota_over"]);
+        assert_eq!(f.events[1].field_i64("over_kb"), Some(1024));
+        assert_eq!(f.events[1].field_i64("hard_kb"), Some(1024));
+        // Still over at the next check: nothing new.
+        f.poke = true;
+        lp.step(T0 + 6, &mut f);
+        assert_eq!(f.events.len(), 2);
+        // Cleared, then over again: a second episode.
+        f.quota = Some(quota::snapshot("tester", 512, 1024, T0));
+        f.poke = true;
+        lp.step(T0 + 12, &mut f);
+        f.quota = Some(quota::snapshot("tester", 4096, 1024, T0));
+        f.poke = true;
+        lp.step(T0 + 18, &mut f);
+        assert_eq!(f.kinds(), ["started", "quota_over", "quota_over"]);
+    }
+
+    #[test]
+    fn local_sampling_feeds_the_bar_and_the_metrics_file() {
+        let mut f = Fake::alive(Some(T0 + 7200));
+        f.local = Some(snap(T0, 34.4, 12 * 1024));
+        let mut lp = JobLoop::new(cfg());
+        lp.step(T0, &mut f);
+        assert_eq!(f.samples, 1);
+        let m = f.sent.last().unwrap();
+        assert_eq!(m.load, "cpu 34% 12/32G");
+        assert_eq!(m.gpu, "");
+        assert_eq!(m.hosts.len(), 1);
+        assert_eq!(m.hosts[0].host, "node01");
+        assert_eq!(m.hosts[0].job_id, 4242);
+        assert_eq!(m.hosts[0].job_name.as_deref(), Some("t"));
+        assert_eq!(m.hosts[0].cpu_pct, 34);
+        assert_eq!(m.hosts[0].cpu_alloc, 8);
+        assert_eq!(m.hosts[0].mem_alloc_mb, 32 * 1024);
+        assert_eq!(m.hosts[0].age_secs, 0);
+        // Written on the first tick, then every METRICS_EVERY.
+        assert_eq!(f.metrics.len(), 1);
+        assert_eq!(f.metrics[0].0, 4242);
+
+        // Sampled every SAMPLE_EVERY, not every tick.
+        lp.step(T0 + 1, &mut f);
+        assert_eq!(f.samples, 1);
+        lp.step(T0 + 2, &mut f);
+        assert_eq!(f.samples, 2);
+        assert_eq!(f.metrics.len(), 1);
+        lp.step(T0 + 5, &mut f);
+        assert_eq!(f.metrics.len(), 2);
+        assert_eq!(
+            f.sent.last().unwrap().hosts[0].age_secs,
+            5,
+            "sample ts is T0"
+        );
+
+        // GPUs: one shows memory, two show utilisation only.
+        let mut one = snap(T0 + 7, 50.0, 1536);
+        one.gpus = vec![gpu(0, 87, true)];
+        f.local = Some(one);
+        lp.step(T0 + 7, &mut f);
+        let m = f.sent.last().unwrap();
+        assert_eq!(m.load, "cpu 50% 1.5/32G");
+        assert_eq!(m.gpu, "gpu0 87% 31/40G");
+        assert_eq!(m.hosts[0].gpus.len(), 1);
+        let mut three = snap(T0 + 9, 50.0, 1536);
+        three.gpus = vec![gpu(0, 87, true), gpu(1, 12, false), gpu(2, 3, false)];
+        f.local = Some(three);
+        lp.step(T0 + 9, &mut f);
+        assert_eq!(f.sent.last().unwrap().gpu, "gpu0 87% · gpu1 12%");
+    }
+
+    #[test]
+    fn gpu_idle_after_ten_minutes_held_and_quiet() {
+        let mut f = Fake::alive(Some(T0 + 20_000));
+        let mut lp = JobLoop::new(cfg());
+        let at = |lp: &mut JobLoop, f: &mut Fake, t: i64, util: u8, held: bool| {
+            let mut s = snap(t, 10.0, 1024);
+            s.gpus = vec![gpu(0, util, held), gpu(1, 90, true)];
+            f.local = Some(s);
+            lp.step(t, f);
+        };
+        at(&mut lp, &mut f, T0, 2, true);
+        at(&mut lp, &mut f, T0 + 300, 1, true);
+        at(&mut lp, &mut f, T0 + 598, 0, true);
+        assert_eq!(f.kinds(), ["started"], "not yet ten minutes");
+        at(&mut lp, &mut f, T0 + 600, 0, true);
+        assert_eq!(f.kinds(), ["started", "gpu_idle"]);
+        let ev = f.events.last().unwrap();
+        assert_eq!(ev.field_i64("gpu"), Some(0));
+        assert_eq!(ev.field_i64("util_pct"), Some(0));
+        assert_eq!(ev.field_i64("idle_secs"), Some(600));
+        // Still idle: no repeat inside the episode.
+        at(&mut lp, &mut f, T0 + 1200, 0, true);
+        assert_eq!(f.events.len(), 2);
+        // Busy again resets; released (no process) never counts.
+        at(&mut lp, &mut f, T0 + 1202, 50, true);
+        at(&mut lp, &mut f, T0 + 1204, 0, false);
+        at(&mut lp, &mut f, T0 + 1900, 0, false);
+        assert_eq!(f.events.len(), 2);
+        at(&mut lp, &mut f, T0 + 1902, 0, true);
+        at(&mut lp, &mut f, T0 + 2502, 0, true);
+        assert_eq!(f.kinds(), ["started", "gpu_idle", "gpu_idle"]);
+    }
+
+    #[test]
+    fn other_running_jobs_are_polled_and_listed_as_hosts() {
+        let mut f = Fake::alive(Some(T0 + 7200));
+        f.local = Some(snap(T0, 10.0, 1024));
+        f.queue = Some(vec![
+            qjob(4242, "RUNNING", "node01", Some("sint-t")),
+            qjob(9001, "RUNNING", "c3cpu-a2-u[3-4]", Some("train")),
+            qjob(9003, "RUNNING", "node01", Some("same-node")),
+            qjob(9002, "PENDING", "", None),
+        ]);
+        let mut lp = JobLoop::new(cfg());
+        lp.step(T0, &mut f);
+        // One request on the first tick: the running job on another node
+        // only (the one sharing this node is sampled by our own scope).
+        assert_eq!(
+            f.remote_requests,
+            vec![vec![RemoteTarget {
+                job_id: 9001,
+                node: "c3cpu-a2-u3".into()
+            }]]
+        );
+        lp.step(T0 + 5, &mut f);
+        assert_eq!(f.remote_requests.len(), 1, "not before REMOTE_EVERY");
+        lp.step(T0 + 10, &mut f);
+        assert_eq!(f.remote_requests.len(), 2);
+
+        // A fetched sample is written out and shown after our own host.
+        let mut rs = snap(T0 + 11, 75.0, 2048);
+        rs.host = "c3cpu-a2-u3".into();
+        f.remote_ready = vec![RemoteSnapshot {
+            job_id: 9001,
+            snapshot: rs,
+            fetched: true,
+        }];
+        lp.step(T0 + 12, &mut f);
+        assert!(f
+            .metrics
+            .iter()
+            .any(|(id, s)| *id == 9001 && s.host == "c3cpu-a2-u3"));
+        let m = f.sent.last().unwrap();
+        assert_eq!(m.hosts.len(), 2);
+        assert_eq!(m.hosts[1].host, "c3cpu-a2-u3");
+        assert_eq!(m.hosts[1].job_id, 9001);
+        assert_eq!(m.hosts[1].job_name.as_deref(), Some("train"));
+        assert_eq!(m.hosts[1].cpu_pct, 75);
+
+        // One read from that job's own file is shown but not re-written.
+        let n = f.metrics.len();
+        f.remote_ready = vec![RemoteSnapshot {
+            job_id: 9001,
+            snapshot: snap(T0 + 13, 20.0, 2048),
+            fetched: false,
+        }];
+        lp.step(T0 + 13, &mut f);
+        assert_eq!(f.metrics.len(), n);
+        assert_eq!(f.sent.last().unwrap().hosts[1].cpu_pct, 20);
+
+        // The job leaves: host dropped, its file removed, job_done.
+        f.queue = Some(vec![
+            qjob(4242, "RUNNING", "node01", Some("sint-t")),
+            qjob(9003, "RUNNING", "node01", Some("same-node")),
+            qjob(9002, "PENDING", "", None),
+        ]);
+        lp.step(T0 + JOBS_EVERY, &mut f);
+        assert_eq!(f.removed, vec![9001]);
+        assert_eq!(f.sent.last().unwrap().hosts.len(), 1);
+        assert_eq!(f.kinds(), ["started", "job_done"]);
+        // Nothing left to poll on other nodes: no further requests.
+        lp.step(T0 + 40, &mut f);
+        assert_eq!(f.remote_requests.len(), 2, "{:?}", f.remote_requests);
+        assert!(f
+            .remote_requests
+            .iter()
+            .all(|r| r.len() == 1 && r[0].job_id == 9001));
+    }
+
+    #[test]
+    fn nodelist_first_node() {
+        assert_eq!(first_node("node01").as_deref(), Some("node01"));
+        assert_eq!(
+            first_node("c3cpu-a2-u[3-4]").as_deref(),
+            Some("c3cpu-a2-u3")
+        );
+        assert_eq!(first_node("n[001-004],m7").as_deref(), Some("n001"));
+        assert_eq!(first_node("n[7,9-11]").as_deref(), Some("n7"));
+        assert_eq!(first_node("a3,b[1-2]").as_deref(), Some("a3"));
+        assert_eq!(first_node("gpu[2]x").as_deref(), Some("gpu2x"));
+        assert_eq!(first_node(""), None);
+        assert_eq!(first_node("  "), None);
+    }
+
+    #[test]
+    fn job_name_lookup_parses_squeue_pairs() {
+        let names = parse_job_names(
+            "1|train
+2|sint-web
+
+3|
+bad|x
+4 | spaced 
+",
+        );
+        assert_eq!(names.get(&1).map(String::as_str), Some("train"));
+        assert_eq!(names.get(&2).map(String::as_str), Some("sint-web"));
+        assert_eq!(names.get(&3), None);
+        assert_eq!(names.get(&4).map(String::as_str), Some("spaced"));
+        assert_eq!(names.len(), 3);
+        let rows = vec![JobRow {
+            job_id: 1,
+            state: "RUNNING".into(),
+            node: "n1".into(),
+            ..JobRow::default()
+        }];
+        let q = queue_jobs(&rows, &names);
+        assert_eq!(q, vec![qjob(1, "RUNNING", "n1", Some("train"))]);
+    }
+
+    #[test]
+    fn bar_lines() {
+        let mut s = snap(T0, 99.6, 512);
+        assert_eq!(load_line(&s), "cpu 100% 0.5/32G");
+        s.scope.mem_alloc_mb = None;
+        s.mem.total_mb = 250 * 1024;
+        assert_eq!(load_line(&s), "cpu 100% 0.5/250G");
+        assert_eq!(gpu_line(&s), "");
+        s.gpus = vec![gpu(3, 5, false)];
+        assert_eq!(gpu_line(&s), "gpu3 5% 31/40G");
+        s.gpus = vec![
+            gpu(0, 1, false),
+            gpu(1, 2, false),
+            gpu(2, 3, false),
+            gpu(3, 4, false),
+        ];
+        assert_eq!(gpu_line(&s), "gpu0 1% · gpu1 2%");
     }
 
     #[test]
