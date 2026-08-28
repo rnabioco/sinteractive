@@ -31,11 +31,6 @@ pub mod snapshot;
 pub mod status;
 pub mod statusline;
 
-/// Everything not yet implemented in this phase.
-fn not_yet(what: &str) -> Result<i32> {
-    anyhow::bail!("`{what}` is not implemented yet")
-}
-
 pub fn dispatch(command: Command) -> Result<i32> {
     match command {
         Command::Launch(args) => launch::run(args),
