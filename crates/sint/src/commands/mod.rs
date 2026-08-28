@@ -13,6 +13,7 @@ pub mod cancel;
 pub mod common;
 pub mod doctor;
 pub mod ensure;
+pub mod events;
 pub mod hook;
 pub mod install_claude;
 pub mod job;
@@ -77,7 +78,7 @@ pub fn dispatch(command: Command) -> Result<i32> {
         Command::Queue(args) => queue::run(args),
         Command::Monitor(args) => monitor::run(args),
         Command::Snapshot(args) => snapshot::run(args),
-        Command::Events(_) => not_yet("events"),
+        Command::Events(args) => events::run(args),
         Command::Peek(args) => peek::run(args),
         Command::Send(args) => send::run(args),
         Command::Hook(args) => hook::run(args),

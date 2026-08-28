@@ -10,6 +10,7 @@
 //! - [`session`]  — the session JSON contract and discovery by the `sinteractive[:NAME]` Comment marker
 //! - [`state`]    — `~/.cache/sinteractive/<jobid>.json`, `.poke`, atomic writes
 //! - [`notices`]  — `<jobid>.notices` (TSV `kind\ttext`) and its producers
+//! - [`events`]   — `<jobid>.events.ndjson`, the per-session event log
 //! - [`quota`]    — Bodhi quota daemons and `quota.json`
 //! - [`maint`]    — maintenance reservations and fitting a request before one
 //! - [`metrics`]  — host snapshots: CPU, memory, GPUs, processes, cgroup-scoped
@@ -23,6 +24,7 @@
 
 pub mod color;
 pub mod config;
+pub mod events;
 pub mod joblimit;
 pub mod maint;
 pub mod metrics;

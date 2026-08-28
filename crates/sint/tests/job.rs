@@ -1,7 +1,8 @@
 //! The batch job body end to end: `__job` brings up a real headless zellij
 //! session (the embedded server, the bundled plugin), writes the readiness
-//! marker and the state file, and tears everything down when the session
-//! is killed.
+//! marker, the state file, the metrics snapshot and the event log, samples
+//! the user's other running job through the fake `ssh`, and tears
+//! everything down when the session is killed.
 //!
 //! Skips (prints and returns) when the plugin is not embedded
 //! (`SINT_SKIP_BUNDLE`) or no scratch dir can be made.
@@ -20,6 +21,7 @@ use common::{FakeSlurm, Job};
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 const JOB_ID: u64 = 4242;
+const OTHER_ID: u64 = 4244;
 const SESSION: &str = "sinteractive-4242";
 
 /// The child `__job`, killed on drop so a failed assertion cannot leave a
@@ -129,6 +131,8 @@ fn job_brings_up_a_session_and_tears_it_down() {
             .node("fakenode01")
             .end_time(&slurm_stamp(now_epoch() + 3600)),
         Job::new(4243, "sinteractive").state("PENDING"),
+        // Another running job on another node: sampled over the fake ssh.
+        Job::new(OTHER_ID, "").node("fakenode[02-03]"),
     ]);
 
     let log = scratch.path().join("job.log");
@@ -202,6 +206,88 @@ fn job_brings_up_a_session_and_tears_it_down() {
         "no notices without quota/maint/claude"
     );
 
+    // The local sampler's snapshot, scoped to this job.
+    let metrics = fx.cache_dir().join(format!("{JOB_ID}.metrics.json"));
+    assert!(
+        wait_for("the metrics file", Duration::from_secs(10), || metrics
+            .exists()),
+        "__job said:\n{}",
+        job.log()
+    );
+    let snap: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&metrics).expect("read metrics"))
+            .expect("metrics json");
+    assert_eq!(snap["scope"]["job_id"], JOB_ID, "{snap}");
+    assert!(
+        snap["host"].as_str().is_some_and(|h| !h.is_empty()),
+        "{snap}"
+    );
+    assert!(snap["ts"].as_i64().unwrap_or(0) > 0, "{snap}");
+    assert!(snap["cpu"]["ncpu"].as_u64().unwrap_or(0) > 0, "{snap}");
+
+    // The event log opens with `started`.
+    let events = fx.cache_dir().join(format!("{JOB_ID}.events.ndjson"));
+    assert!(events.exists(), "events file; __job said:\n{}", job.log());
+    let first: serde_json::Value = serde_json::from_str(
+        fs::read_to_string(&events)
+            .expect("read events")
+            .lines()
+            .next()
+            .expect("one event line"),
+    )
+    .expect("event json");
+    assert_eq!(first["kind"], "started", "{first}");
+    assert_eq!(first["job"], JOB_ID, "{first}");
+    assert_eq!(first["name"], "t", "{first}");
+    assert!(
+        first["node"].as_str().is_some_and(|n| !n.is_empty()),
+        "{first}"
+    );
+    assert!(first["ts"].as_i64().unwrap_or(0) > 0, "{first}");
+
+    // The other running job was sampled on its node: the fake ssh ran
+    // `snapshot --json --job` here and the loop wrote its snapshot.
+    let other = fx.cache_dir().join(format!("{OTHER_ID}.metrics.json"));
+    assert!(
+        wait_for("the other job's snapshot", Duration::from_secs(30), || {
+            other.exists()
+        }),
+        "__job said:\n{}\nssh calls: {:?}",
+        job.log(),
+        fx.calls_to("ssh")
+    );
+    let osnap: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&other).expect("read other metrics"))
+            .expect("other metrics json");
+    assert_eq!(osnap["scope"]["job_id"], OTHER_ID, "{osnap}");
+    let ssh = fx.calls_to("ssh");
+    assert!(!ssh.is_empty());
+    assert_eq!(&ssh[0][..2], ["-o", "BatchMode=yes"]);
+    assert!(ssh[0].contains(&"fakenode02".to_string()), "{ssh:?}");
+    assert!(
+        ssh[0]
+            .last()
+            .unwrap()
+            .ends_with(&format!(" snapshot --json --job {OTHER_ID}")),
+        "{ssh:?}"
+    );
+    assert!(
+        !ssh.iter().any(|c| c.contains(&"fakenode01".to_string())),
+        "the pending job and our own node are never sampled over ssh: {ssh:?}"
+    );
+
+    // `events` on the login node reads the same log.
+    let mut ev = fx.sinteractive();
+    ev.args(["events", &JOB_ID.to_string()]);
+    let out = ev.assert().success();
+    let text = String::from_utf8_lossy(&out.get_output().stdout).into_owned();
+    assert!(
+        text.lines()
+            .next()
+            .is_some_and(|l| l.contains("\"kind\":\"started\"")),
+        "{text}"
+    );
+
     // The status pipe reached the plugin (the loop asked squeue for the
     // other-jobs summary too).
     let squeue = fx.calls_to("squeue");
@@ -232,6 +318,8 @@ fn job_brings_up_a_session_and_tears_it_down() {
         job.log()
     );
     assert!(!state.exists(), "state file removed at teardown");
+    assert!(!metrics.exists(), "metrics file removed at teardown");
+    assert!(!events.exists(), "events file removed at teardown");
     assert!(!socket_dir.exists(), "socket dir removed at teardown");
 }
 

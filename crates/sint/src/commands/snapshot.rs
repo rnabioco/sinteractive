@@ -1,24 +1,27 @@
-//! `sinteractive snapshot [--json]` — one host snapshot, scoped to the
-//! Slurm job this process runs in (host-wide otherwise).
+//! `sinteractive snapshot [--json] [--job JOBID]` — one host snapshot,
+//! scoped to the Slurm job this process runs in (host-wide otherwise), or
+//! to `--job`'s cgroup on this host.
 //!
 //! Two samples one second apart so CPU% is a real delta; the second is
-//! printed. This is also what `monitor --live` runs over ssh on the node.
+//! printed. This is also what `monitor --live` runs over ssh on the node,
+//! and what `__job` runs (with `--job`) on the nodes of the user's other
+//! running jobs.
 
 use std::time::Duration;
 
 use anyhow::Result;
 use sint_core::color::Palette;
-use sint_core::metrics::{Sampler, Snapshot};
+use sint_core::metrics::{Sampler, Scope, Snapshot};
 
 use super::common::{print_json, Ctx};
-use crate::cli::JsonFlag;
+use crate::cli::SnapshotArgs;
 
 /// How far apart the two samples are.
 pub const SAMPLE_GAP: Duration = Duration::from_secs(1);
 
-/// Take the two-sample snapshot.
-pub fn take() -> (Snapshot, Option<String>) {
-    let mut sampler = Sampler::for_current_job();
+/// Take the two-sample snapshot of `scope`.
+pub fn take(scope: Scope) -> (Snapshot, Option<String>) {
+    let mut sampler = Sampler::new(scope);
     sampler.sample();
     std::thread::sleep(SAMPLE_GAP);
     let snap = sampler.sample();
@@ -26,8 +29,12 @@ pub fn take() -> (Snapshot, Option<String>) {
     (snap, gpu_error)
 }
 
-pub fn run(args: JsonFlag) -> Result<i32> {
-    let (snap, gpu_error) = take();
+pub fn run(args: SnapshotArgs) -> Result<i32> {
+    let scope = match args.job {
+        Some(id) => Scope::for_job(id),
+        None => Scope::for_current_job(),
+    };
+    let (snap, gpu_error) = take(scope);
     if args.json {
         print_json(&snap)?;
         return Ok(0);

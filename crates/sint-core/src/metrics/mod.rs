@@ -155,18 +155,8 @@ impl Scope {
                     .ok()
                     .and_then(|t| cgroup::job_id_from_proc_cgroup(&t))
             });
-        let mut scope = Scope {
-            job_id,
-            gpu_indices: gpu::indices_from_env(),
-            ..Default::default()
-        };
-        if let Some(cg) =
-            job_id.and_then(|id| JobCgroup::find(Path::new(cgroup::CGROUP_ROOT), id, uid()))
-        {
-            scope.cgroup = Some(cg.name.clone());
-            scope.cpus_alloc = cg.cpus_alloc();
-            scope.mem_alloc_mb = cg.mem_limit_mb();
-        }
+        let mut scope = Scope::from_cgroup(job_id);
+        scope.gpu_indices = gpu::indices_from_env();
         if scope.cpus_alloc.is_none() {
             scope.cpus_alloc = ["SLURM_CPUS_ON_NODE", "SLURM_CPUS_PER_TASK"]
                 .iter()
@@ -176,6 +166,31 @@ impl Scope {
             scope.mem_alloc_mb = std::env::var("SLURM_MEM_PER_NODE")
                 .ok()
                 .and_then(|v| v.trim().parse().ok());
+        }
+        scope
+    }
+
+    /// The scope of job `job_id` on this host, from its cgroup alone: what
+    /// `snapshot --job ID` uses when asked (over ssh) about a job this
+    /// process is not part of. No `SLURM_*` variables describe someone
+    /// else's job, so without a cgroup only the id is known, and the GPU
+    /// list is every GPU on the host.
+    pub fn for_job(job_id: u64) -> Scope {
+        Scope::from_cgroup(Some(job_id))
+    }
+
+    /// `job_id` plus its cgroup's limits when the cgroup is present here.
+    fn from_cgroup(job_id: Option<u64>) -> Scope {
+        let mut scope = Scope {
+            job_id,
+            ..Default::default()
+        };
+        if let Some(cg) =
+            job_id.and_then(|id| JobCgroup::find(Path::new(cgroup::CGROUP_ROOT), id, uid()))
+        {
+            scope.cgroup = Some(cg.name.clone());
+            scope.cpus_alloc = cg.cpus_alloc();
+            scope.mem_alloc_mb = cg.mem_limit_mb();
         }
         scope
     }
@@ -460,6 +475,14 @@ mod tests {
         let b = s.sample();
         assert_eq!(b.cpu_history.len(), 2);
         assert!(b.cpu.pct >= 0.0 && b.cpu.pct <= 100.0);
+    }
+
+    #[test]
+    fn for_job_names_the_job_even_without_a_cgroup() {
+        let s = Scope::for_job(987_654_321);
+        assert_eq!(s.job_id, Some(987_654_321));
+        assert_eq!(s.cgroup, None);
+        assert_eq!(s.gpu_indices, None);
     }
 
     #[test]

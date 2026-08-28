@@ -116,7 +116,7 @@ pub enum Command {
     /// Live CPU/GPU/process view of a session's node, or any host
     Monitor(MonitorArgs),
     /// One-shot resource sample of this host
-    Snapshot(JsonFlag),
+    Snapshot(SnapshotArgs),
     /// Stream session events (NDJSON)
     Events(EventsArgs),
     /// Read the last lines of a session's screen
@@ -221,6 +221,17 @@ pub struct MonitorArgs {
     pub live: bool,
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct SnapshotArgs {
+    /// Machine-readable JSON output
+    #[arg(long)]
+    pub json: bool,
+    /// Scope to this job's cgroup on this host instead of the job this
+    /// process runs in (what `__job` asks other nodes over ssh)
+    #[arg(long, value_name = "JOBID")]
+    pub job: Option<u64>,
 }
 
 #[derive(Args, Debug, Clone, Default)]
