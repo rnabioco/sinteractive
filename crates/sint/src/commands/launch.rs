@@ -15,7 +15,6 @@
 //! probe, post-detach grace), and `SINTERACTIVE_RUNTIME_DIR` (default
 //! `/tmp`) is where the node-side readiness marker lives.
 
-use std::collections::HashMap;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -302,35 +301,6 @@ fn fit_maintenance(
     }
 }
 
-/// `squeue … -o '%i|%j'` for the job-limit table's NAME column; empty when
-/// squeue has nothing to say.
-fn job_names(slurm: &Slurm, partition: &str) -> HashMap<u64, String> {
-    let mut names = HashMap::new();
-    let Ok(out) = slurm.run(
-        "squeue",
-        &[
-            "--me",
-            "--partition",
-            partition,
-            "--states",
-            "RUNNING,PENDING",
-            "--noheader",
-            "-o",
-            "%i|%j",
-        ],
-    ) else {
-        return names;
-    };
-    for line in out.lines() {
-        if let Some((id, name)) = line.split_once('|') {
-            if let Ok(id) = id.trim().parse() {
-                names.insert(id, name.trim().to_string());
-            }
-        }
-    }
-    names
-}
-
 /// The QOS the request resolves to: `--qos`, `SINTERACTIVE_QOS`, else the
 /// partition name (0.x hardcoded `interactive` for both).
 fn qos_of(args: &[String], cfg: &Config, partition: &str) -> String {
@@ -359,7 +329,9 @@ fn print_limit_hit(ctx: &Ctx, hit: &LimitHit, partition: &str, p: &Palette) {
         hit.limit
     );
     eprintln!();
-    let names = job_names(&ctx.slurm, partition);
+    let names = ctx
+        .slurm
+        .my_job_names(&["--partition", partition, "--states", "RUNNING,PENDING"]);
     eprintln!("{dim}Your current {partition} jobs:{reset}");
     eprintln!();
     eprintln!(

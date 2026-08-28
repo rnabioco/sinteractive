@@ -14,7 +14,6 @@ use sint_core::now_epoch;
 use sint_core::session::SessionInfo;
 use sint_core::slurm::sacct::AccountedJob;
 use sint_core::slurm::squeue::{gpus_from_tres, mem_to_mb, JobRow};
-use sint_core::slurm::Slurm;
 use sint_core::time::{format_short_duration, slurm_timestamp_to_epoch};
 
 use super::common::{pend_reason, print_json, Ctx};
@@ -87,7 +86,7 @@ impl Snapshot {
             .my_jobs(&["RUNNING", "PENDING", "COMPLETING", "CONFIGURING"])?;
         let (pending, running): (Vec<JobRow>, Vec<JobRow>) =
             rows.into_iter().partition(|r| r.state == "PENDING");
-        let names = job_names(&ctx.slurm);
+        let names = ctx.slurm.my_job_names(&[]);
         let recent = ctx
             .slurm
             .recent_jobs("now-1day")
@@ -155,23 +154,6 @@ pub fn run(args: QueueArgs) -> Result<i32> {
 
 fn is_finished(state: &str) -> bool {
     FINISHED.iter().any(|f| state.starts_with(f))
-}
-
-/// `squeue --me -h -o '%i|%j'`: job names, which the row contract does not
-/// carry. Empty when squeue has nothing to say.
-fn job_names(slurm: &Slurm) -> HashMap<u64, String> {
-    let mut names = HashMap::new();
-    let Ok(out) = slurm.run("squeue", &["--me", "-h", "-o", "%i|%j"]) else {
-        return names;
-    };
-    for line in out.lines() {
-        if let Some((id, name)) = line.split_once('|') {
-            if let Ok(id) = id.trim().parse() {
-                names.insert(id, name.trim().to_string());
-            }
-        }
-    }
-    names
 }
 
 /// `squeue -h -o '%P|%T'` over everyone → per-partition running/pending.

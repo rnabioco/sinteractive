@@ -4,6 +4,7 @@
 //! 921-1000 (`--list`), 1012-1140 (`--status`), 1140-1236 (agent context),
 //! 2152 (`resolve_session_jobid`), 2431 (`refresh_end_epoch`).
 
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use regex::Regex;
@@ -109,6 +110,78 @@ fn parse_job_id_field(s: &str) -> Option<u64> {
     s[..digits].parse().ok()
 }
 
+/// The four fields the status loop needs about one of the user's jobs.
+///
+/// Deliberately *not* a [`JobRow`]: the loop asks every 30 s from inside a
+/// session, so it uses the narrowest format that answers the question, and
+/// gets the job name in the same call rather than a second `squeue`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct JobBrief {
+    pub job_id: u64,
+    /// `%T` — `RUNNING` / `PENDING`.
+    pub state: String,
+    /// Raw `%N` nodelist (`c3cpu-a2-u[3-4]`), empty while pending.
+    pub node: String,
+    /// `%j`; `None` when squeue printed an empty name.
+    pub name: Option<String>,
+}
+
+/// The `-o` format string that produces [`JobBrief`]. The job name is free
+/// text and may contain `|`, so it comes last and takes the rest of the
+/// line — the same "no column may be shifted" rule [`JOB_ROW_FORMAT`]
+/// follows for the Comment.
+pub const JOB_BRIEF_FORMAT: &str = "%i|%T|%N|%j";
+
+/// Parse [`JOB_BRIEF_FORMAT`] output. Blank lines are skipped; a short or
+/// unparseable row is an error, so a squeue hiccup is never read as "these
+/// jobs finished".
+pub fn parse_job_briefs(output: &str) -> Result<Vec<JobBrief>, SlurmError> {
+    let bad = |line: &str| SlurmError::Parse {
+        cmd: "squeue".into(),
+        reason: format!("expected 4 fields, got {line:?}"),
+    };
+    let mut rows = Vec::new();
+    for line in output.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut fields = line.splitn(4, '|');
+        let (Some(id), Some(state), Some(node), Some(name)) = (
+            fields.next(),
+            fields.next(),
+            fields.next(),
+            fields.next(),
+        ) else {
+            return Err(bad(line));
+        };
+        let name = name.trim();
+        rows.push(JobBrief {
+            job_id: parse_job_id_field(id).ok_or_else(|| bad(line))?,
+            state: state.trim().to_string(),
+            node: node.trim().to_string(),
+            name: (!name.is_empty()).then(|| name.to_string()),
+        });
+    }
+    Ok(rows)
+}
+
+/// Parse `squeue --me -h -o '%i|%j'` output into id → name. Nameless jobs
+/// are left out.
+pub fn parse_job_names(output: &str) -> HashMap<u64, String> {
+    output
+        .lines()
+        .filter_map(|l| {
+            let (id, name) = l.trim().split_once('|')?;
+            let name = name.trim();
+            if name.is_empty() {
+                return None;
+            }
+            Some((id.trim().parse().ok()?, name.to_string()))
+        })
+        .collect()
+}
+
 /// `gres:gpu:2` / `gres:gpu:a100:2` / `gpu:2` → 2; `N/A`/empty → 0. Always an
 /// integer: "no GPUs is a fact, not a gap".
 ///
@@ -165,6 +238,31 @@ impl Slurm {
         args.extend(["--noheader", "-o", JOB_ROW_FORMAT]);
         let out = self.run("squeue", &args)?;
         parse_job_rows(&out)
+    }
+
+    /// The user's jobs in `states` as [`JobBrief`]s — id, state, node and
+    /// name in one call.
+    pub fn my_job_briefs(&self, states: &[&str]) -> Result<Vec<JobBrief>, SlurmError> {
+        let states = states.join(",");
+        let mut args = vec!["--me"];
+        if !states.is_empty() {
+            args.extend(["--states", states.as_str()]);
+        }
+        args.extend(["--noheader", "-o", JOB_BRIEF_FORMAT]);
+        parse_job_briefs(&self.run("squeue", &args)?)
+    }
+
+    /// id → job name for the user's jobs, which [`JobRow`] does not carry
+    /// (a name and a Comment cannot share one pipe-delimited row without
+    /// one of them being able to shift the other). `extra` narrows the
+    /// query (`["--partition", "rna"]`). Empty when squeue fails.
+    pub fn my_job_names(&self, extra: &[&str]) -> HashMap<u64, String> {
+        let mut args = vec!["--me"];
+        args.extend_from_slice(extra);
+        args.extend(["--noheader", "-o", "%i|%j"]);
+        self.run("squeue", &args)
+            .map(|out| parse_job_names(&out))
+            .unwrap_or_default()
     }
 
     /// One job by id (any state). `Ok(None)` when squeue no longer lists it.
@@ -303,6 +401,45 @@ mod tests {
     fn non_numeric_cpus_is_none() {
         let rows = parse_job_rows("1|c|n|p|e|l|end|N/A|m|t|S|r|s").unwrap();
         assert_eq!(rows[0].cpus, None);
+    }
+
+    #[test]
+    fn job_briefs_keep_a_piped_name_whole() {
+        let rows = parse_job_briefs(
+            "1|RUNNING|n1|train\n\
+             2|PENDING||\n\
+             \n\
+             3|RUNNING|n[001-004],m7|a name | with a pipe \n",
+        )
+        .unwrap();
+        assert_eq!(
+            rows[0],
+            JobBrief {
+                job_id: 1,
+                state: "RUNNING".into(),
+                node: "n1".into(),
+                name: Some("train".into()),
+            }
+        );
+        assert_eq!(rows[1].name, None, "an empty name is no name");
+        assert_eq!(rows[1].node, "");
+        assert_eq!(rows[2].node, "n[001-004],m7");
+        assert_eq!(rows[2].name.as_deref(), Some("a name | with a pipe"));
+        assert_eq!(rows.len(), 3);
+        assert!(parse_job_briefs("").unwrap().is_empty());
+        // Fail closed: a short or unparseable row is never "no such job".
+        assert!(parse_job_briefs("1|RUNNING|n1\n").is_err());
+        assert!(parse_job_briefs("JOBID|RUNNING|n1|x\n").is_err());
+    }
+
+    #[test]
+    fn job_names_parsing() {
+        let names = parse_job_names("1|train\n2|sint-web\n\n3|\nbad|x\n4 | spaced \n");
+        assert_eq!(names.get(&1).map(String::as_str), Some("train"));
+        assert_eq!(names.get(&2).map(String::as_str), Some("sint-web"));
+        assert_eq!(names.get(&3), None, "an empty name is no name");
+        assert_eq!(names.get(&4).map(String::as_str), Some("spaced"));
+        assert_eq!(names.len(), 3);
     }
 
     #[test]
