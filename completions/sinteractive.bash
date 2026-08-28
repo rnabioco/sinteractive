@@ -327,7 +327,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd____popup)
-            opts="-h --help monitor queue help notices"
+            opts="-h --help monitor queue help notices rename"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1225,12 +1225,16 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__snapshot)
-            opts="-h --json --help"
+            opts="-h --json --job --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --job)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;

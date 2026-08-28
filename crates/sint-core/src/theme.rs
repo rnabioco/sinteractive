@@ -11,12 +11,19 @@
 //! - the CLI queries the terminal background (OSC 11 with a short timeout),
 //!   then falls back to `COLORFGBG`, then to dark
 //!
+//! The query runs at most once per process ([`Theme::detect`] is called once
+//! per palette, and a command builds several), and it is skipped inside a
+//! zellij pane: zellij forwards OSC 11 to the host terminal and waits a full
+//! second for the answer, far longer than a CLI may stall, and the late reply
+//! would then land in the shell as typed input.
+//!
 //! Colours are 24-bit; renderers that can only do 256 colours downsample with
 //! [`Rgb::to_ansi256`].
 
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::io::AsRawFd;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,8 +141,13 @@ pub struct Theme {
     pub hint: Rgb,
 }
 
-/// How long the OSC 11 query may wait for the terminal's answer.
-pub const QUERY_TIMEOUT: Duration = Duration::from_millis(100);
+/// How long the OSC 11 query may wait for the terminal's answer. It normally
+/// returns as soon as the Device Attributes sentinel comes back — one round
+/// trip — so this bounds only terminals that answer neither query, which is
+/// rare enough (every terminal answers DA) to afford a margin wide enough for
+/// a laggy ssh link: an answer that arrives after we stop reading is echoed
+/// at the prompt as line noise.
+pub const QUERY_TIMEOUT: Duration = Duration::from_millis(500);
 
 impl Theme {
     /// Claude Code dark theme.
@@ -145,8 +157,8 @@ impl Theme {
         ok: Rgb(0x4E, 0xBA, 0x65),
         warn: Rgb(0xFF, 0xC1, 0x07),
         err: Rgb(0xFF, 0x6B, 0x80),
-        dim: Rgb(0x99, 0x99, 0x99),
-        hint: Rgb(0xB1, 0xB9, 0xF9),
+        dim: Rgb(0xCC, 0xCC, 0xCC),
+        hint: Rgb(0xC8, 0xCE, 0xFF),
     };
     /// Claude Code light theme.
     pub const LIGHT: Theme = Theme {
@@ -155,7 +167,7 @@ impl Theme {
         ok: Rgb(0x2C, 0x7A, 0x39),
         warn: Rgb(0x96, 0x6C, 0x1E),
         err: Rgb(0xAB, 0x2B, 0x3F),
-        dim: Rgb(0x66, 0x66, 0x66),
+        dim: Rgb(0x55, 0x55, 0x55),
         hint: Rgb(0x57, 0x69, 0xF7),
     };
 
@@ -185,7 +197,7 @@ fn detect_mode(fd: i32) -> Mode {
         return mode;
     }
     if is_tty(fd) {
-        if let Some(bg) = query_background(QUERY_TIMEOUT) {
+        if let Some(bg) = background() {
             return Mode::from_background(bg);
         }
     }
@@ -196,6 +208,16 @@ fn detect_mode(fd: i32) -> Mode {
         return mode;
     }
     Mode::Dark
+}
+
+/// The terminal's background colour, queried once per process.
+///
+/// Every command builds two or three palettes; one query each would stall
+/// that many times over and, worse, leave that many windows in which a reply
+/// arriving after the timeout is echoed at the prompt as line noise.
+fn background() -> Option<Rgb> {
+    static BACKGROUND: OnceLock<Option<Rgb>> = OnceLock::new();
+    *BACKGROUND.get_or_init(|| query_background(QUERY_TIMEOUT))
 }
 
 /// `isatty(3)`; false for closed or invalid descriptors.
@@ -247,8 +269,24 @@ impl Drop for RawGuard {
 /// when there is no controlling terminal, this process is not in the
 /// foreground (reading would stop it with SIGTTIN), the terminal does not
 /// answer within `timeout`, or the answer does not parse.
+///
+/// A Device Attributes query rides along behind the colour query. Terminals
+/// answer queries in the order they arrive, so the DA reply is the sentinel
+/// that says the colour answer either came already or is never coming: we
+/// stop reading on it rather than on the clock, which both returns after one
+/// round trip and leaves nothing behind to surface at the shell prompt as
+/// line noise once the terminal is out of raw mode.
 fn query_background(timeout: Duration) -> Option<Rgb> {
     if matches!(std::env::var("TERM").as_deref(), Ok("dumb") | Ok("")) {
+        return None;
+    }
+    // Inside a zellij pane the query is not answered by the thing we are
+    // talking to: zellij forwards it to the host terminal and gives that a
+    // whole second, so the reply usually arrives long after any timeout a
+    // CLI can afford — as bytes at the next prompt. The plugin gets the
+    // mode from `HostTerminalThemeChanged` anyway; here `COLORFGBG` and the
+    // env override are the whole story.
+    if std::env::var_os("ZELLIJ").is_some() {
         return None;
     }
     let tty = OpenOptions::new()
@@ -263,7 +301,7 @@ fn query_background(timeout: Duration) -> Option<Rgb> {
         return None;
     }
     let _guard = RawGuard::enable(fd)?;
-    (&tty).write_all(b"\x1b]11;?\x1b\\").ok()?;
+    (&tty).write_all(b"\x1b]11;?\x1b\\\x1b[c").ok()?;
     (&tty).flush().ok()?;
 
     let deadline = Instant::now() + timeout;
@@ -271,7 +309,7 @@ fn query_background(timeout: Duration) -> Option<Rgb> {
     loop {
         let now = Instant::now();
         if now >= deadline {
-            return None;
+            break;
         }
         let wait_ms = (deadline - now).as_millis().min(i32::MAX as u128) as i32;
         let mut pfd = libc::pollfd {
@@ -285,25 +323,56 @@ fn query_background(timeout: Duration) -> Option<Rgb> {
             if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
                 continue;
             }
-            return None;
+            break;
         }
         if ready == 0 {
-            return None;
+            break;
         }
         let mut chunk = [0u8; 64];
         // SAFETY: reading into a stack buffer of the stated length.
         let n = unsafe { libc::read(fd, chunk.as_mut_ptr().cast(), chunk.len()) };
         if n <= 0 {
-            return None;
+            break;
         }
         buf.extend_from_slice(&chunk[..n as usize]);
-        match parse_osc11(&buf) {
-            Osc11::Complete(rgb) => return Some(rgb),
-            Osc11::Invalid => return None,
-            Osc11::Incomplete if buf.len() > 256 => return None,
-            Osc11::Incomplete => {}
+        // The sentinel has landed, so the colour reply is either in `buf` or
+        // was never sent; either way there is nothing left to read.
+        if has_da_reply(&buf) || buf.len() > 256 {
+            break;
         }
     }
+    // A terminal that answers the colour query but not the sentinel still
+    // gets its answer used.
+    match parse_osc11(&buf) {
+        Osc11::Complete(rgb) => Some(rgb),
+        _ => None,
+    }
+}
+
+/// True once `buf` holds a Device Attributes reply — a CSI sequence whose
+/// final byte is `c` (`ESC [ ? 6 c` and friends).
+pub fn has_da_reply(buf: &[u8]) -> bool {
+    let mut i = 0;
+    while i + 1 < buf.len() {
+        if buf[i] != 0x1b || buf[i + 1] != b'[' {
+            i += 1;
+            continue;
+        }
+        // Parameter and intermediate bytes (0x20..=0x3F) up to the final
+        // byte, which is the first in 0x40..=0x7E.
+        let mut j = i + 2;
+        while j < buf.len() && (0x20..=0x3f).contains(&buf[j]) {
+            j += 1;
+        }
+        if j >= buf.len() {
+            return false;
+        }
+        if buf[j] == b'c' {
+            return true;
+        }
+        i = j + 1;
+    }
+    false
 }
 
 /// Outcome of parsing a partial OSC 11 reply.
@@ -396,6 +465,18 @@ mod tests {
         assert_eq!(Mode::from_colorfgbg("7;9"), None);
         assert_eq!(Mode::from_colorfgbg(""), None);
         assert_eq!(Mode::from_colorfgbg("default"), None);
+    }
+
+    #[test]
+    fn device_attributes_sentinel() {
+        assert!(has_da_reply(b"\x1b[?6c"));
+        assert!(has_da_reply(b"\x1b[?62;1;4c"));
+        assert!(has_da_reply(b"\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\\x1b[?6c"));
+        assert!(has_da_reply(b"\x1b[0m\x1b[?1;2c"), "after another CSI");
+        assert!(!has_da_reply(b"\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\"));
+        assert!(!has_da_reply(b"\x1b[?6"), "still arriving");
+        assert!(!has_da_reply(b"\x1b[0m"), "some other CSI");
+        assert!(!has_da_reply(b""));
     }
 
     #[test]

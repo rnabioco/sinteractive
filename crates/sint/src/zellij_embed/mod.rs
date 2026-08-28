@@ -11,10 +11,12 @@
 //! honoured exactly as by upstream, since they live in `zellij_utils`.
 //!
 //! Upgrading zellij = bumping the three crate versions and re-vendoring
-//! these two files; keep local edits to the marked lines only.
+//! these two files; keep local edits to the marked lines only. The one edit
+//! to `commands.rs` wraps the client's os-input in [`quiet::Quiet`].
 #![allow(clippy::all)]
 
 pub mod commands;
+pub mod quiet;
 
 use clap::Parser;
 use zellij_utils::{

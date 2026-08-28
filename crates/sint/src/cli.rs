@@ -10,7 +10,33 @@
 //! "unknown flags go elsewhere", so [`split_launch_argv`] pre-scans argv
 //! using the launch flag table and hands clap only our own arguments.
 
+use clap::builder::styling::{AnsiColor, Color, Effects, RgbColor, Style, Styles};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+
+/// Claude's orange, the accent [`sint_core::theme`] uses in both the dark and
+/// the light theme — so it is safe to bake into a `const` that clap applies
+/// before any background detection has run.
+const ACCENT: Color = Color::Rgb(RgbColor(0xD9, 0x77, 0x57));
+
+/// Help/usage colours. Headings and usage carry the accent; flags, commands
+/// and values use the terminal's own palette so they stay legible whatever
+/// the background is.
+const STYLES: Styles = Styles::styled()
+    .header(Style::new().fg_color(Some(ACCENT)).effects(Effects::BOLD))
+    .usage(Style::new().fg_color(Some(ACCENT)).effects(Effects::BOLD))
+    .literal(
+        Style::new()
+            .fg_color(Some(Color::Ansi(AnsiColor::Green)))
+            .effects(Effects::BOLD),
+    )
+    .placeholder(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Cyan))))
+    .error(
+        Style::new()
+            .fg_color(Some(Color::Ansi(AnsiColor::Red)))
+            .effects(Effects::BOLD),
+    )
+    .valid(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))))
+    .invalid(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Yellow))));
 
 #[derive(Parser, Debug)]
 #[command(
@@ -18,6 +44,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
     version,
     about = "Persistent interactive sessions on Slurm compute nodes",
     long_about = None,
+    styles = STYLES,
     args_conflicts_with_subcommands = true,
     subcommand_negates_reqs = true
 )]

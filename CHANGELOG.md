@@ -8,6 +8,48 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The terminal-background query no longer leaves its answer at the prompt.
+  OSC 11 went out once per palette — two or three times in a `launch` — each
+  with a 100 ms window, so on anything but a local terminal the reply landed
+  after the window had closed and the shell echoed it as
+  `^[]11;rgb:2828/2c2c/3434^[\`. It is now asked once per process, and a
+  Device Attributes query rides along behind it: terminals answer in order,
+  so its reply is the signal that the colour answer either arrived or never
+  will, and the read ends on that rather than on a stopwatch. Inside a zellij
+  pane the query is skipped altogether — zellij forwards it to the host
+  terminal and gives that a full second, far longer than a CLI may stall.
+- Leaving a session no longer ends with `Bye from Zellij!` under a screenful
+  of blank lines: zellij's parting message came with a jump to the last row,
+  which threw away the cursor position that leaving the alternate screen had
+  just restored. sinteractive's own teardown summary is what remains.
+- The status bar reads on the dark backgrounds people actually use: the
+  secondary grey and the hint blue are brighter (`#CCCCCC`, `#C8CEFF`) and
+  `▣ N jobs monitorable` is bold.
+- The quota notice sizzles red → orange → yellow instead of red → blue, which
+  was easy to miss at a glance.
+
+### Changed
+
+- The status bar separates itself from the shell with a heavy accent rule,
+  the way 0.x did with tmux's `pane-border-lines heavy`. zellij's panes are
+  borderless, so the bar draws the rule as its own first row and stands two
+  rows tall; with the monitor panel open the region reads as a framed block —
+  rule, panel, rule, line.
+- Values in the bar and the panel are no longer dimmed, only their labels
+  are. The job id, the host, the load, the GPU figures and the time left
+  print at the terminal's own foreground weight, so the numbers carry and the
+  words around them recede.
+- Key hints name the prefix — `^b n next`, `^b esc back`, `^b ,/. host`,
+  `^b m close`. Ctrl+b is one-shot, and a bare `n` read as though the key
+  worked on its own.
+- `--help`, usage and argument errors are coloured — headings and usage in
+  the accent, flags green, placeholders cyan — and honour
+  `SINTERACTIVE_COLOR` like everything else sinteractive prints.
+- The notices line drops its key legend before it truncates the notice: on a
+  narrow bar the notice itself is the point.
+
 ## [1.0.0] - 2026-08-28
 
 sinteractive 1.0 is a rewrite in Rust with [zellij](https://zellij.dev)

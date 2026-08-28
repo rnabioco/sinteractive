@@ -1,13 +1,16 @@
 // The sinteractive session layout with the monitor panel open: shell, the
-// 12-row panel, then the one-row status bar. See sint.kdl.
+// panel (its own accent rule plus 12 rows), then the two-row status bar. Both
+// sint panes keep the size they have in sint.kdl, so the layout swap only
+// has to insert the panel — it never asks zellij to resize a retained
+// fixed-size pane, which it will not do. See sint.kdl.
 layout {
     pane borderless=true focus=true
-    pane size=12 borderless=true {
+    pane size=13 borderless=true {
         plugin location="file:__PLUGIN__" {
             view "monitor"
         }
     }
-    pane size=1 borderless=true {
+    pane size=2 borderless=true {
         plugin location="file:__PLUGIN__" {
             view "bar"
         }

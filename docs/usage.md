@@ -272,7 +272,7 @@ Set personal defaults in your `~/.bashrc`; explicit flags always win.
 | `SINTERACTIVE_MEM` | Default memory (`16G`) | `8G` |
 | `SINTERACTIVE_MOUSE` | `on`/`1`/`true`/`yes` or `off`/`0`/`false`/`no` | `on` |
 | `SINTERACTIVE_CACHE` | State files and the extracted zellij bundle; must be visible from the compute nodes | `$XDG_CACHE_HOME/sinteractive` or `~/.cache/sinteractive` |
-| `SINTERACTIVE_THEME` | `dark`, `light`, or `auto` (ask the terminal) | `auto` |
+| `SINTERACTIVE_THEME` | `dark`, `light`, or `auto` (ask the terminal — but not from inside a session, where the answer would come back too late to use; set it there if your terminal is light) | `auto` |
 | `SINTERACTIVE_COLOR` | `auto`/`always`/`never` for CLI output; `NO_COLOR` also honoured | `auto` |
 | `SINTERACTIVE_WARN_YELLOW` | Seconds left at which the bar turns yellow | `3600` |
 | `SINTERACTIVE_WARN_RED` | Seconds left at which the bar turns red | `600` |

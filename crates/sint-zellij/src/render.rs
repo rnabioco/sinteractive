@@ -24,8 +24,8 @@ pub const DARK: Colors = Colors {
     ok: (0x4E, 0xBA, 0x65),
     warn: (0xFF, 0xC1, 0x07),
     err: (0xFF, 0x6B, 0x80),
-    dim: (0x99, 0x99, 0x99),
-    hint: (0xB1, 0xB9, 0xF9),
+    dim: (0xCC, 0xCC, 0xCC),
+    hint: (0xC8, 0xCE, 0xFF),
 };
 
 pub const LIGHT: Colors = Colors {
@@ -33,7 +33,7 @@ pub const LIGHT: Colors = Colors {
     ok: (0x2C, 0x7A, 0x39),
     warn: (0x96, 0x6C, 0x1E),
     err: (0xAB, 0x2B, 0x3F),
-    dim: (0x66, 0x66, 0x66),
+    dim: (0x55, 0x55, 0x55),
     hint: (0x57, 0x69, 0xF7),
 };
 
@@ -46,9 +46,21 @@ pub fn colors(theme: ThemeMode) -> Colors {
 
 const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
+/// Back to normal intensity without dropping the colour (`RESET` would).
+const NOBOLD: &str = "\x1b[22m";
 
 fn fg(c: (u8, u8, u8)) -> String {
     format!("\x1b[38;2;{};{};{}m", c.0, c.1, c.2)
+}
+
+/// The heavy accent rule that fences the sint panes off from the shell.
+///
+/// 0.x drew this with tmux's bottom pane border (`pane-border-lines heavy`,
+/// `fg=yellow`); zellij's panes are borderless, so each sint pane draws it as
+/// its own first row — the bar always, the panel too when it is open, which
+/// leaves the open panel framed between two rules.
+pub fn rule(cols: usize, c: &Colors) -> String {
+    format!("{}{}{RESET}", fg(c.accent), "\u{2501}".repeat(cols))
 }
 
 /// Braille spinner frames used in the red phase (single-width, no jitter).
@@ -114,9 +126,8 @@ pub fn status_line(st: &State, cols: usize) -> String {
     let sep = format!(" {}·{RESET} ", fg(c.dim));
     let mut segs: Vec<Seg> = Vec::new();
     let id = format!(
-        "{}{}sint{RESET} {}{}{RESET}",
+        "{}sint{RESET} {}{BOLD}{}{RESET}",
         fg(c.dim),
-        "",
         fg(c.accent),
         m.job_id
     );
@@ -132,36 +143,38 @@ pub fn status_line(st: &State, cols: usize) -> String {
     }
     if !m.host.is_empty() {
         segs.push(Seg {
-            text: format!("{}{}{RESET}", fg(c.dim), m.host),
+            text: m.host.clone(),
             drop_prio: 4,
         });
     }
     if !m.remaining.is_empty() {
-        let col = match m.severity {
-            Severity::Ok => c.dim,
-            Severity::Yellow => c.warn,
-            Severity::Red | Severity::Ending => c.err,
+        let value = match m.severity {
+            Severity::Ok => m.remaining.clone(),
+            Severity::Yellow => format!("{}{}{RESET}", fg(c.warn), m.remaining),
+            Severity::Red | Severity::Ending => {
+                format!("{}{BOLD}{}{RESET}", fg(c.err), m.remaining)
+            }
         };
         segs.push(Seg {
-            text: format!("{}{} left{RESET}", fg(col), m.remaining),
+            text: format!("{value} {}left{RESET}", fg(c.dim)),
             drop_prio: 1,
         });
     }
     if !m.load.is_empty() {
         segs.push(Seg {
-            text: format!("{}{}{RESET}", fg(c.dim), m.load),
+            text: m.load.clone(),
             drop_prio: 3,
         });
     }
     if !m.gpu.is_empty() {
         segs.push(Seg {
-            text: format!("{}{}{RESET}", fg(c.dim), m.gpu),
+            text: m.gpu.clone(),
             drop_prio: 3,
         });
     }
     if !m.jobs.is_empty() {
         segs.push(Seg {
-            text: format!("{}jobs {}{RESET}", fg(c.dim), m.jobs),
+            text: format!("{}jobs{RESET} {}", fg(c.dim), m.jobs),
             drop_prio: 4,
         });
     }
@@ -169,7 +182,7 @@ pub fn status_line(st: &State, cols: usize) -> String {
         let n = m.hosts.len();
         segs.push(Seg {
             text: format!(
-                "{}▣ {n} job{} monitorable{RESET} {}^b m{RESET}",
+                "{}{BOLD}▣ {n} job{} monitorable{RESET} {}^b m{RESET}",
                 fg(c.hint),
                 if n == 1 { "" } else { "s" },
                 fg(c.dim)
@@ -183,7 +196,7 @@ pub fn status_line(st: &State, cols: usize) -> String {
         let col = if severe { c.err } else { c.warn };
         let label = format!("{n} notice{}", if n == 1 { "" } else { "s" });
         let label = if severe {
-            shimmer(&label, st.frame, col, c.hint)
+            shimmer(&label, st.frame, col, [c.accent, c.warn, c.accent])
         } else {
             format!("{}{label}{RESET}", fg(col))
         };
@@ -220,22 +233,24 @@ pub fn status_line(st: &State, cols: usize) -> String {
     }
 }
 
-/// A 3-character lighter band sweeping across `text`, one column per frame,
-/// sliding in from the left.
-pub fn shimmer(text: &str, frame: u64, base: (u8, u8, u8), band: (u8, u8, u8)) -> String {
+/// A band of `band.len()` characters sweeping across `text`, one column per
+/// frame, sliding in from the left.
+///
+/// The band is bold and carries its own colours cell by cell, so an ember
+/// runs along the word — red underneath, orange into yellow and back at the
+/// crest — rather than the two-tone blink a single band colour gives, which
+/// on a status line a metre away is easy to miss.
+pub fn shimmer(text: &str, frame: u64, base: (u8, u8, u8), band: [(u8, u8, u8); 3]) -> String {
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len() as i64;
-    let band_w = 3i64;
+    let band_w = band.len() as i64;
     let pos = (frame as i64 % (len + band_w)) - band_w;
     let mut out = String::new();
     for (i, ch) in chars.iter().enumerate() {
         let i = i as i64;
-        let col = if i >= pos && i < pos + band_w {
-            band
-        } else {
-            base
-        };
-        out.push_str(&fg(col));
+        let lit = i >= pos && i < pos + band_w;
+        out.push_str(if lit { BOLD } else { NOBOLD });
+        out.push_str(&fg(if lit { band[(i - pos) as usize] } else { base }));
         out.push(*ch);
     }
     out.push_str(RESET);
@@ -253,16 +268,24 @@ pub fn notices_line(st: &State, idx: usize, cols: usize) -> String {
     } else {
         c.warn
     };
-    let hint = format!("{}n next · esc back{RESET}", fg(c.dim));
+    let hint = format!("{}^b n next · ^b esc back{RESET}", fg(c.dim));
     let head = format!("{}⚠ {}/{n}{RESET}  ", fg(col), idx + 1);
-    let mut body = format!("{}{}{RESET}", fg(col), notice.text);
-    let fixed = visible_width(&head) + visible_width(&hint) + 3;
-    if visible_width(&body) + fixed > cols {
-        let room = cols.saturating_sub(fixed + 1);
-        let truncated: String = notice.text.chars().take(room).collect();
-        body = format!("{}{truncated}…{RESET}", fg(col));
+    // The hint goes first on a narrow bar: the notice itself is the point,
+    // and a truncated one-word notice is worse than no key legend.
+    let head_w = visible_width(&head);
+    let with_hint = head_w + 3 + visible_width(&hint);
+    let (tail, fixed) = if with_hint + 8 <= cols {
+        (format!("   {hint}"), with_hint)
+    } else {
+        (String::new(), head_w)
+    };
+    let room = cols.saturating_sub(fixed);
+    let mut text = notice.text.clone();
+    if visible_width(&text) > room {
+        text = notice.text.chars().take(room.saturating_sub(1)).collect();
+        text.push('…');
     }
-    format!("{head}{body}   {hint}")
+    format!("{head}{}{text}{RESET}{tail}", fg(col))
 }
 
 pub fn help_line(st: &State, page: usize, cols: usize) -> String {
@@ -345,7 +368,7 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         String::new()
     };
     out.push(format!(
-        "{}◀{RESET} {}{BOLD}{}{RESET} {}· {} {}{RESET}{stale} {}{}/{n}{RESET} {}▶{RESET}   {}←/→ host · m close{RESET}",
+        "{}◀{RESET} {}{BOLD}{}{RESET} {}·{RESET} {} {}{stale} {}{}/{n}{RESET} {}▶{RESET}   {}^b ,/. host · ^b m close{RESET}",
         fg(c.hint),
         fg(c.accent),
         h.host,
@@ -360,23 +383,24 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
     // Resource rows.
     let bw = 20usize.min(cols.saturating_sub(30).max(5));
     out.push(format!(
-        "{}cpu{RESET} {} {:>3}% {}of {} · load {:.1}{RESET}  {}",
+        "{}cpu{RESET} {} {:>3}% {}of{RESET} {} {}·{RESET} load {:.1}  {}",
         fg(c.dim),
         bar(h.cpu_pct, bw, c.ok, c.dim),
         h.cpu_pct,
         fg(c.dim),
         h.cpu_alloc,
+        fg(c.dim),
         h.load1,
         sparkline(&h.cpu_history, cols.saturating_sub(bw + 40).min(30))
     ));
     let mem_pct = pct_of(h.mem_used_mb, h.mem_alloc_mb);
     out.push(format!(
-        "{}mem{RESET} {} {:>3}% {}{} / {}{RESET}",
+        "{}mem{RESET} {} {:>3}% {} {}/{RESET} {}",
         fg(c.dim),
         bar(mem_pct, bw, c.accent, c.dim),
         mem_pct,
-        fg(c.dim),
         mb_to_g(h.mem_used_mb),
+        fg(c.dim),
         mb_to_g(h.mem_alloc_mb)
     ));
     for g in &h.gpus {
@@ -390,7 +414,7 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         .collect::<Vec<_>>()
         .join(" ");
         out.push(format!(
-            "{}gpu{}{RESET} {} {:>3}% {}{}/{} {}{RESET} {}{}{RESET}",
+            "{}gpu{}{RESET} {} {:>3}% {}{}/{}{RESET} {} {}",
             fg(c.dim),
             g.index,
             bar(g.util_pct, bw, c.warn, c.dim),
@@ -399,7 +423,6 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
             mb_to_g(g.mem_used_mb),
             mb_to_g(g.mem_total_mb),
             extra,
-            fg(c.dim),
             bar(mem_pct, 8, c.accent, c.dim)
         ));
     }
@@ -432,10 +455,12 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
     out
 }
 
-/// Render the monitor-panel pane (the `view=monitor` instance): the panel
-/// rows only, no status line.
+/// Render the monitor-panel pane (the `view=monitor` instance): the rule and
+/// the panel rows, no status line.
 pub fn render_panel(st: &State, rows: usize, cols: usize) -> String {
-    panel_lines(st, rows, cols).join("\n")
+    let mut out = vec![rule(cols, &colors(st.theme))];
+    out.extend(panel_lines(st, rows.saturating_sub(1), cols));
+    out.join("\n")
 }
 
 /// Render the bar pane: the bar line, then the panel when open and there is
@@ -446,14 +471,19 @@ pub fn render(st: &State, rows: usize, cols: usize) -> String {
         BarMode::Notices { idx } => notices_line(st, idx, cols),
         BarMode::Help { page } => help_line(st, page, cols),
     };
-    let mut out = line;
-    if st.panel_open && rows > 1 {
-        for l in panel_lines(st, rows - 1, cols) {
-            out.push('\n');
-            out.push_str(&l);
-        }
+    // Row 0 is the rule whenever the bar has room for it. The bar is two rows
+    // in both layouts, so with the panel open the region reads as a framed
+    // block: rule, panel, rule, status line. (In the single-pane fallback the
+    // bar draws the panel itself, below the line.)
+    let mut out: Vec<String> = Vec::new();
+    if rows > 1 {
+        out.push(rule(cols, &colors(st.theme)));
     }
-    out
+    out.push(line);
+    if st.panel_open && rows > out.len() {
+        out.extend(panel_lines(st, rows - out.len(), cols));
+    }
+    out.join("\n")
 }
 
 #[cfg(test)]
@@ -551,8 +581,14 @@ mod tests {
         assert!(l.contains("1/1"));
         assert!(l.contains("QUOTA over by"));
         assert!(l.contains("n next"));
-        let short = notices_line(&st, 0, 30);
-        assert!(visible_width(&short) <= 32, "{}", visible_width(&short));
+        for cols in [20, 30, 60, 100] {
+            let short = notices_line(&st, 0, cols);
+            assert!(
+                visible_width(&short) <= cols,
+                "cols={cols} width={}",
+                visible_width(&short)
+            );
+        }
         st.mode = BarMode::Help { page: 0 };
         let h = render(&st, 1, 100);
         assert!(h.contains("notices"));
@@ -566,12 +602,46 @@ mod tests {
         let out = render(&st, 12, 100);
         let lines: Vec<&str> = out.lines().collect();
         assert!(lines.len() > 5 && lines.len() <= 12, "{}", lines.len());
-        assert!(lines[1].contains("c3gpu-a5-u1") && lines[1].contains("1/1"));
-        assert!(lines[2].contains("cpu") && lines[2].contains("34%"));
-        assert!(lines[3].contains("mem") && lines[3].contains("37%"));
-        assert!(lines[4].contains("gpu0") && lines[4].contains("87%"));
+        assert_eq!(visible_width(lines[0]), 100, "rule spans the pane");
+        assert!(lines[2].contains("c3gpu-a5-u1") && lines[2].contains("1/1"));
+        assert!(lines[3].contains("cpu") && lines[3].contains("34%"));
+        assert!(lines[4].contains("mem") && lines[4].contains("37%"));
+        assert!(lines[5].contains("gpu0") && lines[5].contains("87%"));
         assert!(out.contains("python train.py"));
-        assert!(!lines[0].contains("monitorable"), "hint hidden while open");
+        assert!(!lines[1].contains("monitorable"), "hint hidden while open");
+    }
+
+    #[test]
+    fn the_rule_tops_the_sint_region() {
+        let st = state();
+        // Two-row bar: rule, then the line.
+        let bar = render(&st, 2, 80);
+        let lines: Vec<&str> = bar.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(strip_ansi(lines[0]), "\u{2501}".repeat(80));
+        assert!(lines[1].contains("147845"));
+        // A one-row bar has no room for it.
+        assert!(!render(&st, 1, 80).contains('\u{2501}'));
+        // The panel pane draws it instead, and keeps its own rows.
+        let panel = render_panel(&st, 13, 80);
+        let plines: Vec<&str> = panel.lines().collect();
+        assert_eq!(strip_ansi(plines[0]), "\u{2501}".repeat(80));
+        assert!(plines.len() <= 13);
+        assert!(plines[1].contains("c3gpu-a5-u1"));
+    }
+
+    #[test]
+    fn hints_name_the_prefix_because_ctrl_b_is_one_shot() {
+        let mut st = state();
+        st.mode = BarMode::Notices { idx: 0 };
+        let n = strip_ansi(&render(&st, 1, 100));
+        assert!(n.contains("^b n next"), "{n}");
+        assert!(n.contains("^b esc back"), "{n}");
+        st.mode = BarMode::Status;
+        st.panel_open = true;
+        let p = strip_ansi(&render_panel(&st, 13, 100));
+        assert!(p.contains("^b ,/. host"), "{p}");
+        assert!(p.contains("^b m close"), "{p}");
     }
 
     #[test]
@@ -579,7 +649,10 @@ mod tests {
         let c = DARK;
         for f in 0..20 {
             assert_eq!(visible_width(&glyph(Severity::Red, f, &c)), 1);
-            assert_eq!(visible_width(&shimmer("1 notice", f, c.err, c.hint)), 8);
+            assert_eq!(
+                visible_width(&shimmer("1 notice", f, c.err, [c.accent, c.warn, c.accent])),
+                8
+            );
         }
         assert_eq!(sparkline(&[0, 50, 100], 10).chars().count(), 3);
         assert_eq!(visible_width(&bar(50, 10, c.ok, c.dim)), 10);

@@ -636,7 +636,9 @@ pub(crate) fn start_client(opts: CliArgs) {
     };
 
     let mut reconnect_to_session: Option<ConnectToSession> = None;
-    let os_input = get_os_input(get_client_os_input);
+    // sinteractive: the client's stdout goes through `quiet::Quiet`, which
+    // drops zellij's parting message on a clean exit (see quiet.rs).
+    let os_input = super::quiet::Quiet(get_os_input(get_client_os_input));
     loop {
         let os_input = os_input.clone();
         let mut config = config.clone();

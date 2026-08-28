@@ -156,6 +156,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (snapshot)
 _arguments "${_arguments_options[@]}" : \
+'--job=[Scope to this job'\''s cgroup on this host instead of the job this process runs in (what \`__job\` asks other nodes over ssh)]:JOBID:_default' \
 '--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -324,8 +325,8 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '-h[Print help]' \
 '--help[Print help]' \
-':view:(monitor queue help notices)' \
-':job_id:_default' \
+':view:(monitor queue help notices rename)' \
+'::job_id -- Defaults to `SINTERACTIVE_JOB_ID` (set in every session pane):_default' \
 && ret=0
 ;;
 (help)
@@ -494,7 +495,7 @@ _sinteractive_commands() {
 'peek:Read the last lines of a session'\''s screen' \
 'send:Type a command into a session'\''s shell' \
 'agent-context:Brief a coding agent on the session it is running inside' \
-'quota:Storage quota (Bodhi daemons; wraps curc-quota on Alpine)' \
+'quota:Storage quota (Bodhi quota daemons; unavailable on other clusters)' \
 'hook:Claude Code hook entry points' \
 'statusline:Claude Code statusLine command' \
 'mcp:MCP server over stdio' \
@@ -577,7 +578,7 @@ _sinteractive__subcmd__help_commands() {
 'peek:Read the last lines of a session'\''s screen' \
 'send:Type a command into a session'\''s shell' \
 'agent-context:Brief a coding agent on the session it is running inside' \
-'quota:Storage quota (Bodhi daemons; wraps curc-quota on Alpine)' \
+'quota:Storage quota (Bodhi quota daemons; unavailable on other clusters)' \
 'hook:Claude Code hook entry points' \
 'statusline:Claude Code statusLine command' \
 'mcp:MCP server over stdio' \
