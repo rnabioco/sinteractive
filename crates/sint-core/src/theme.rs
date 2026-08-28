@@ -135,8 +135,18 @@ pub struct Theme {
     pub warn: Rgb,
     /// Error / red phase / quota.
     pub err: Rgb,
-    /// Secondary text, separators, labels.
+    /// Values — the job id, host, load, GPU figures, process rows. The
+    /// strongest text in the palette, and set explicitly rather than left to
+    /// the terminal: inside zellij an unstyled cell takes the theme's `fg`,
+    /// which is a mid grey, so "the terminal's own foreground" arrived dimmer
+    /// than everything around it.
+    pub text: Rgb,
+    /// Secondary text, separators, labels. Recedes from [`Theme::text`] but
+    /// still reads as text, not as furniture.
     pub dim: Rgb,
+    /// Furniture: the unfilled half of a gauge. Below [`Theme::dim`], because
+    /// an empty trough should not outshine the words beside it.
+    pub track: Rgb,
     /// Keys and hints (Claude's "permission"/suggestion tint).
     pub hint: Rgb,
 }
@@ -157,8 +167,10 @@ impl Theme {
         ok: Rgb(0x4E, 0xBA, 0x65),
         warn: Rgb(0xFF, 0xC1, 0x07),
         err: Rgb(0xFF, 0x6B, 0x80),
-        dim: Rgb(0xCC, 0xCC, 0xCC),
-        hint: Rgb(0xC8, 0xCE, 0xFF),
+        text: Rgb(0xFF, 0xFF, 0xFF),
+        dim: Rgb(0xD9, 0xD9, 0xD9),
+        track: Rgb(0x59, 0x59, 0x59),
+        hint: Rgb(0xD7, 0xE0, 0xFF),
     };
     /// Claude Code light theme.
     pub const LIGHT: Theme = Theme {
@@ -167,7 +179,9 @@ impl Theme {
         ok: Rgb(0x2C, 0x7A, 0x39),
         warn: Rgb(0x96, 0x6C, 0x1E),
         err: Rgb(0xAB, 0x2B, 0x3F),
-        dim: Rgb(0x55, 0x55, 0x55),
+        text: Rgb(0x1A, 0x1A, 0x1A),
+        dim: Rgb(0x3F, 0x3F, 0x3F),
+        track: Rgb(0xA6, 0xA6, 0xA6),
         hint: Rgb(0x57, 0x69, 0xF7),
     };
 

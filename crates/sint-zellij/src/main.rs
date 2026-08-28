@@ -128,6 +128,13 @@ impl ZellijPlugin for Plugin {
                 true
             }
             Event::HostTerminalThemeChanged(mode) => {
+                // Only until the session says otherwise: this is the host
+                // terminal's answer to an OSC 11 it may never have sent, and a
+                // wrong `Light` paints the light palette's dark grey and
+                // indigo onto a dark background.
+                if self.st.theme_from_session {
+                    return false;
+                }
                 self.st.theme = match mode {
                     HostTerminalThemeMode::Light => ThemeMode::Light,
                     _ => ThemeMode::Dark,

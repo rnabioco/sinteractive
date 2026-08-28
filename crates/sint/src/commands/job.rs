@@ -49,6 +49,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -59,8 +60,9 @@ use sint_core::notices::{self, Notice};
 use sint_core::now_epoch;
 use sint_core::quota::{self, QuotaSnapshot};
 use sint_core::state::{StateDir, StateFile};
+use sint_core::theme::{Mode, Theme};
 use sint_core::time::{format_short_duration, slurm_timestamp_to_epoch};
-use sint_proto::{HostPanel, Severity, StatusMsg, PIPE_NAME};
+use sint_proto::{HostPanel, Severity, StatusMsg, ThemePref, PIPE_NAME};
 
 use super::common::{ssh_batch, Ctx};
 use crate::bundle;
@@ -141,6 +143,22 @@ pub const HELP_PAGES: &[&[(&str, &str)]] = &[
         ("r", "resize"),
     ],
 ];
+
+/// The palette the bar should use, resolved once for the life of the sampler.
+///
+/// Only the session can answer this inside zellij: the plugin's own source is
+/// zellij's `HostTerminalThemeChanged`, which reports whatever the host
+/// terminal said to an OSC 11 it may never have answered, and a wrong `Light`
+/// puts the light palette's dark grey and indigo on a dark background.
+/// `SINTERACTIVE_THEME` wins, then `COLORFGBG`, then dark — the same order
+/// every other sinteractive renderer follows.
+fn theme_pref() -> ThemePref {
+    static PREF: OnceLock<ThemePref> = OnceLock::new();
+    *PREF.get_or_init(|| match Theme::detect(libc::STDOUT_FILENO).mode {
+        Mode::Light => ThemePref::Light,
+        Mode::Dark => ThemePref::Dark,
+    })
+}
 
 fn help_pages() -> Vec<Vec<(String, String)>> {
     HELP_PAGES
@@ -456,6 +474,7 @@ impl JobLoop {
             help: help_pages(),
             hosts: self.hosts(now),
             sent_epoch: now,
+            theme: Some(theme_pref()),
         }
     }
 
