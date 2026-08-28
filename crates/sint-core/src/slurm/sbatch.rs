@@ -53,21 +53,11 @@ impl Slurm {
     /// Like [`Slurm::sbatch`] but also hands back sbatch's warnings, which a
     /// CLI should print even on success.
     pub fn submit(&self, args: &[String]) -> Result<Submission, SlurmError> {
-        let out = self
-            .command("sbatch")
-            .arg("--output=/dev/null")
+        let mut cmd = self.command("sbatch");
+        cmd.arg("--output=/dev/null")
             .arg("--error=/dev/null")
-            .args(args)
-            .output()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    SlurmError::NotFound {
-                        cmd: "sbatch".into(),
-                    }
-                } else {
-                    SlurmError::Io(e)
-                }
-            })?;
+            .args(args);
+        let out = Slurm::output_retrying(&mut cmd, "sbatch")?;
         let stdout = String::from_utf8_lossy(&out.stdout);
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() {

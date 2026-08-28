@@ -54,18 +54,37 @@ impl Slurm {
         }
     }
 
+    /// Spawn `cmd` and collect its output, mapping ENOENT to
+    /// [`SlurmError::NotFound`]. `ETXTBSY` is retried briefly: it means the
+    /// binary was just written (an install-by-rename on a node, or a test
+    /// shim) and another process still holds it open — a transient state,
+    /// not a failure.
+    pub fn output_retrying(
+        cmd: &mut Command,
+        name: &str,
+    ) -> Result<std::process::Output, SlurmError> {
+        let mut attempts = 0;
+        loop {
+            match cmd.output() {
+                Ok(out) => return Ok(out),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(SlurmError::NotFound {
+                        cmd: name.to_string(),
+                    })
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 50 => {
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(e) => return Err(SlurmError::Io(e)),
+            }
+        }
+    }
+
     /// Run `name args…`, returning trimmed stdout; maps non-zero exit and
     /// ENOENT to [`SlurmError`].
     pub fn run(&self, name: &str, args: &[&str]) -> Result<String, SlurmError> {
-        let out = self.command(name).args(args).output().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                SlurmError::NotFound {
-                    cmd: name.to_string(),
-                }
-            } else {
-                SlurmError::Io(e)
-            }
-        })?;
+        let out = Self::output_retrying(self.command(name).args(args), name)?;
         if !out.status.success() {
             return Err(SlurmError::Failed {
                 cmd: name.to_string(),

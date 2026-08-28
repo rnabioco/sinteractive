@@ -103,7 +103,8 @@ pub fn quota_notice(over_kb: u64, hard_kb: u64) -> Notice {
 }
 
 /// `Session ends <date> — trimmed to finish before maintenance (<resv>)`.
-/// The date is local time as `%a %d %b %H:%M` (`Thu 03 Sep 07:55`).
+/// The date is local time as `%a %b %-d %H:%M` (`Thu Sep 3 07:55`), the
+/// exact form the 0.x script printed, so `--status` output is unchanged.
 pub fn maint_notice(end_epoch: i64, reservation: &str) -> Notice {
     Notice::new(
         "maint",
@@ -139,14 +140,14 @@ fn local_offset_at(epoch: i64) -> ::time::UtcOffset {
     ::time::UtcOffset::current_local_offset().unwrap_or(::time::UtcOffset::UTC)
 }
 
-/// `%a %d %b %H:%M` in local time; UTC when the zone cannot be determined.
+/// `%a %b %-d %H:%M` in local time; UTC when the zone cannot be determined.
 pub fn format_local_datetime(epoch: i64) -> String {
     let Ok(utc) = ::time::OffsetDateTime::from_unix_timestamp(epoch) else {
         return epoch.to_string();
     };
     let local = utc.to_offset(local_offset_at(epoch));
     let fmt = ::time::macros::format_description!(
-        "[weekday repr:short] [day] [month repr:short] [hour]:[minute]"
+        "[weekday repr:short] [month repr:short] [day padding:none] [hour]:[minute]"
     );
     local.format(&fmt).unwrap_or_else(|_| epoch.to_string())
 }
@@ -174,7 +175,7 @@ mod tests {
     fn tsv_round_trip() {
         let notices = vec![
             quota_notice(13212057, 524288000),
-            Notice::new("maint", "Session ends Thu 03 Sep 07:55 — trimmed"),
+            Notice::new("maint", "Session ends Thu Sep 3 07:55 — trimmed"),
             claude_hint_notice(),
         ];
         let tsv = to_tsv(&notices);
@@ -229,7 +230,7 @@ mod tests {
             "{}",
             n.text
         );
-        // The date part has the `%a %d %b %H:%M` shape whatever the zone.
+        // The date part has the `%a %b %-d %H:%M` shape whatever the zone.
         let date = n
             .text
             .trim_start_matches("Session ends ")
@@ -239,8 +240,9 @@ mod tests {
         let parts: Vec<&str> = date.split(' ').collect();
         assert_eq!(parts.len(), 4, "{date}");
         assert_eq!(parts[0].len(), 3);
-        assert_eq!(parts[1].len(), 2);
-        assert_eq!(parts[2].len(), 3);
+        assert_eq!(parts[1].len(), 3);
+        assert!(parts[2].len() == 1 || parts[2].len() == 2, "{date}");
+        assert!(!parts[2].starts_with('0'), "day is unpadded: {date}");
         assert_eq!(parts[3].len(), 5);
     }
 
@@ -249,7 +251,7 @@ mod tests {
         // With no zone the result is UTC and exact.
         let off = local_offset_at(1788422100);
         if off == ::time::UtcOffset::UTC {
-            assert_eq!(format_local_datetime(1788422100), "Thu 03 Sep 07:55");
+            assert_eq!(format_local_datetime(1788422100), "Thu Sep 3 07:55");
         }
         let s = format_local_datetime(1788422100);
         assert!(s.starts_with("Thu ") || s.starts_with("Wed "), "{s}");
