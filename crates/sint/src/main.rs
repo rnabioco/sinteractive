@@ -1,3 +1,6 @@
+// Used by __job/__attach/doctor, wired in phase 2.
+#[allow(dead_code)]
+mod bundle;
 mod cli;
 mod commands;
 

@@ -1,0 +1,143 @@
+// sinteractive's zellij configuration. Written next to the extracted bundle
+// by `sinteractive` at first use; `__PLUGIN__` and `__LAYOUTS__` are
+// substituted with absolute paths, `__MOUSE__` with true/false.
+//
+// Keys: Ctrl+b is the only global chord (tmux muscle memory). Inside the
+// prefix mode, keys act once and return to normal. Everything else zellij
+// binds by default is cleared so shell/editor keys pass through untouched.
+
+keybinds clear-defaults=true {
+    normal {
+        bind "Ctrl b" { SwitchToMode "Tmux"; }
+    }
+    locked {
+        bind "Ctrl b" { SwitchToMode "Tmux"; }
+    }
+    tmux {
+        // sinteractive
+        bind "n" { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "notices"; }; SwitchToMode "Normal"; }
+        bind "h" { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "help"; }; SwitchToMode "Normal"; }
+        bind "m" { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "monitor"; }; SwitchToMode "Normal"; }
+        bind "," { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "host-prev"; }; SwitchToMode "Normal"; }
+        bind "." { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "host-next"; }; SwitchToMode "Normal"; }
+        bind "Esc" { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "escape"; }; SwitchToMode "Normal"; }
+        bind "q" { Run "sinteractive" "__popup" "queue" { floating true; close_on_exit true; name "queue"; }; SwitchToMode "Normal"; }
+        bind "$" { Run "sinteractive" "__popup" "rename" { floating true; close_on_exit true; name "rename"; }; SwitchToMode "Normal"; }
+        // tmux-compatible pane keys
+        bind "Ctrl b" { Write 2; SwitchToMode "Normal"; }
+        bind "d" { Detach; }
+        bind "\"" { NewPane "Down"; SwitchToMode "Normal"; }
+        bind "%" { NewPane "Right"; SwitchToMode "Normal"; }
+        bind "c" { NewPane; SwitchToMode "Normal"; }
+        bind "x" { CloseFocus; SwitchToMode "Normal"; }
+        bind "z" { ToggleFocusFullscreen; SwitchToMode "Normal"; }
+        bind "o" { FocusNextPane; SwitchToMode "Normal"; }
+        bind "Left" { MoveFocus "Left"; SwitchToMode "Normal"; }
+        bind "Right" { MoveFocus "Right"; SwitchToMode "Normal"; }
+        bind "Down" { MoveFocus "Down"; SwitchToMode "Normal"; }
+        bind "Up" { MoveFocus "Up"; SwitchToMode "Normal"; }
+        bind "[" { SwitchToMode "Scroll"; }
+        bind "]" { Paste; SwitchToMode "Normal"; }
+        bind "r" { SwitchToMode "Resize"; }
+        bind ":" { SwitchToMode "Pane"; }
+        bind "?" { MessagePlugin "__PLUGIN__" { name "sint-ui"; payload "help"; }; SwitchToMode "Normal"; }
+    }
+    scroll {
+        bind "Esc" "q" { ScrollToBottom; SwitchToMode "Normal"; }
+        bind "Ctrl c" { ScrollToBottom; SwitchToMode "Normal"; }
+        bind "j" "Down" { ScrollDown; }
+        bind "k" "Up" { ScrollUp; }
+        bind "Ctrl f" "PageDown" "Space" { PageScrollDown; }
+        bind "Ctrl b" "PageUp" { PageScrollUp; }
+        bind "d" { HalfPageScrollDown; }
+        bind "u" { HalfPageScrollUp; }
+        bind "g" { ScrollToTop; }
+        bind "G" { ScrollToBottom; }
+        bind "/" { SwitchToMode "EnterSearch"; SearchInput 0; }
+        bind "e" { EditScrollback; SwitchToMode "Normal"; }
+    }
+    entersearch {
+        bind "Ctrl c" "Esc" { SwitchToMode "Scroll"; }
+        bind "Enter" { SwitchToMode "Search"; }
+    }
+    search {
+        bind "Esc" "q" { ScrollToBottom; SwitchToMode "Normal"; }
+        bind "n" { Search "down"; }
+        bind "p" "N" { Search "up"; }
+        bind "j" "Down" { ScrollDown; }
+        bind "k" "Up" { ScrollUp; }
+    }
+    resize {
+        bind "Esc" "Enter" { SwitchToMode "Normal"; }
+        bind "Left" "h" { Resize "Increase Left"; }
+        bind "Down" "j" { Resize "Increase Down"; }
+        bind "Up" "k" { Resize "Increase Up"; }
+        bind "Right" "l" { Resize "Increase Right"; }
+        bind "H" { Resize "Decrease Left"; }
+        bind "J" { Resize "Decrease Down"; }
+        bind "K" { Resize "Decrease Up"; }
+        bind "L" { Resize "Decrease Right"; }
+        bind "=" "+" { Resize "Increase"; }
+        bind "-" { Resize "Decrease"; }
+    }
+    pane {
+        bind "Esc" "Enter" { SwitchToMode "Normal"; }
+        bind "Left" "h" { MoveFocus "Left"; }
+        bind "Right" "l" { MoveFocus "Right"; }
+        bind "Down" "j" { MoveFocus "Down"; }
+        bind "Up" "k" { MoveFocus "Up"; }
+        bind "n" { NewPane; SwitchToMode "Normal"; }
+        bind "d" { NewPane "Down"; SwitchToMode "Normal"; }
+        bind "r" { NewPane "Right"; SwitchToMode "Normal"; }
+        bind "x" { CloseFocus; SwitchToMode "Normal"; }
+        bind "f" { ToggleFocusFullscreen; SwitchToMode "Normal"; }
+        bind "w" { ToggleFloatingPanes; SwitchToMode "Normal"; }
+        bind "e" { TogglePaneEmbedOrFloating; SwitchToMode "Normal"; }
+        bind "c" { SwitchToMode "RenamePane"; PaneNameInput 0; }
+    }
+    renamepane {
+        bind "Esc" { UndoRenamePane; SwitchToMode "Pane"; }
+        bind "Enter" { SwitchToMode "Normal"; }
+    }
+}
+
+// Behaviour
+default_mode "normal"
+mouse_mode __MOUSE__
+copy_on_select true
+copy_clipboard "system"
+scrollback_lines_to_serialize 0
+session_serialization false
+show_startup_tips false
+show_release_notes false
+pane_frames false
+simplified_ui true
+support_kitty_keyboard_protocol true
+support_kitty_graphics_protocol true
+auto_layout false
+default_shell "bash"
+
+// Layout: the sinteractive tab (shell + status plugin) from the bundle.
+layout_dir "__LAYOUTS__"
+default_layout "sint"
+
+// Web client stays off unless `sinteractive web` turns it on for a session.
+web_server false
+
+// Colours: terminal defaults; the plugin draws its own accents.
+theme "sint"
+themes {
+    sint {
+        fg 7
+        bg 0
+        black 0
+        red 1
+        green 2
+        yellow 3
+        blue 4
+        magenta 5
+        cyan 6
+        white 7
+        orange "#D97757"
+    }
+}

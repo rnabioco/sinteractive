@@ -1,0 +1,9 @@
+// The sinteractive session layout: one shell above a one-row status plugin.
+// The plugin grows itself to ~12 rows when the monitor panel is toggled on.
+// `__PLUGIN__` is substituted with the absolute path of sint-zellij.wasm.
+layout {
+    pane borderless=true focus=true
+    pane size=1 borderless=true {
+        plugin location="file:__PLUGIN__"
+    }
+}

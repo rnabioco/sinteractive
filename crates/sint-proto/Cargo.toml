@@ -1,0 +1,14 @@
+[package]
+name = "sint-proto"
+description = "Wire types shared by sinteractive's node-side sampler and its zellij status plugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Must build for wasm32-wasip1 (the plugin) and natively (the sampler):
+# serde only, no I/O, no libc.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

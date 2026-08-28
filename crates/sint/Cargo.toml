@@ -12,9 +12,16 @@ default-run = "sinteractive"
 name = "sinteractive"
 path = "src/main.rs"
 
+[build-dependencies]
+sha2.workspace = true
+
 [dependencies]
 sint-core.workspace = true
+sint-proto.workspace = true
 anyhow.workspace = true
+sha2.workspace = true
+flate2.workspace = true
+tar.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 clap.workspace = true

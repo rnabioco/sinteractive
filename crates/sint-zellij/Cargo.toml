@@ -1,0 +1,20 @@
+[package]
+name = "sint-zellij"
+description = "zellij status-bar plugin for sinteractive (WASM)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sint-proto = { path = "../sint-proto" }
+serde.workspace = true
+serde_json.workspace = true
+unicode-width.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+zellij-tile = "0.45"

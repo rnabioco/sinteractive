@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/sint", "crates/sint-core"]
+members = ["crates/sint", "crates/sint-core", "crates/sint-proto", "crates/sint-zellij"]
 
 [workspace.package]
 # Single source of truth for the version. The release step bumps this line;
@@ -13,6 +13,7 @@ repository = "https://github.com/rnabioco/sinteractive"
 
 [workspace.dependencies]
 sint-core = { path = "crates/sint-core" }
+sint-proto = { path = "crates/sint-proto" }
 
 anyhow = "1"
 thiserror = "2"
