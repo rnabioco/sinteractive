@@ -1,9 +1,9 @@
-// Used by __job/__attach/doctor, wired in phase 2.
+// `Bundle::dir` and `has_plugin` are doctor's, wired next.
 #[allow(dead_code)]
 mod bundle;
 mod cli;
 mod commands;
-// Used by __job/__attach/peek/send/doctor, wired next.
+// `remote_argv` is peek/send/doctor's (login node → compute node), wired next.
 #[allow(dead_code)]
 mod zellij_cmd;
 mod zellij_embed;
