@@ -58,8 +58,6 @@ use sint_core::metrics::{self, Sampler, Snapshot};
 use sint_core::notices::{self, Notice};
 use sint_core::now_epoch;
 use sint_core::quota::{self, QuotaSnapshot};
-use sint_core::slurm::squeue::JobRow;
-use sint_core::slurm::Slurm;
 use sint_core::state::{StateDir, StateFile};
 use sint_core::time::{format_short_duration, slurm_timestamp_to_epoch};
 use sint_proto::{HostPanel, Severity, StatusMsg, PIPE_NAME};
@@ -182,17 +180,9 @@ pub trait Deps {
     fn emit_event(&mut self, event: &Event);
 }
 
-/// One of the user's queued jobs, as the loop sees it.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct QueueJob {
-    pub job_id: u64,
-    /// `RUNNING` / `PENDING`.
-    pub state: String,
-    /// Raw `%N` nodelist (`c3cpu-a2-u[3-4]`), empty while pending.
-    pub node: String,
-    /// squeue's `%j` job name.
-    pub name: Option<String>,
-}
+/// One of the user's queued jobs, as the loop sees it: id, state, node and
+/// name — exactly what one `squeue` answers.
+pub use sint_core::slurm::squeue::JobBrief as QueueJob;
 
 /// A job to sample on its node.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -771,33 +761,6 @@ pub fn jobs_summary(rows: &[QueueJob], self_id: u64) -> String {
     parts.join(" ")
 }
 
-/// [`QueueJob`]s from squeue rows plus the `%i|%j` name lookup.
-pub fn queue_jobs(rows: &[JobRow], names: &HashMap<u64, String>) -> Vec<QueueJob> {
-    rows.iter()
-        .map(|r| QueueJob {
-            job_id: r.job_id,
-            state: r.state.clone(),
-            node: r.node.clone(),
-            name: names.get(&r.job_id).cloned(),
-        })
-        .collect()
-}
-
-/// Parse `squeue --me -h -o '%i|%j'` output into id → name.
-pub fn parse_job_names(output: &str) -> HashMap<u64, String> {
-    output
-        .lines()
-        .filter_map(|l| {
-            let (id, name) = l.trim().split_once('|')?;
-            let name = name.trim();
-            if name.is_empty() {
-                return None;
-            }
-            Some((id.trim().parse().ok()?, name.to_string()))
-        })
-        .collect()
-}
-
 /// The first node of a squeue `%N` nodelist: `c3cpu-a2-u[3-4]` →
 /// `c3cpu-a2-u3`, `n[001-004],m7` → `n001`, `node01` → `node01`. `None`
 /// when empty (a pending job).
@@ -1126,14 +1089,6 @@ fn fetch_remote(state: &StateDir, exe: &Path, targets: &[RemoteTarget]) -> Vec<R
     out
 }
 
-/// `squeue --me -h -o '%i|%j'` → id → job name; empty when squeue fails.
-fn job_names(slurm: &Slurm) -> HashMap<u64, String> {
-    slurm
-        .run("squeue", &["--me", "-h", "-o", "%i|%j"])
-        .map(|out| parse_job_names(&out))
-        .unwrap_or_default()
-}
-
 /// The real side effects.
 struct NodeDeps<'a> {
     /// Session name from the last Comment read (see `Deps::current_name`).
@@ -1183,22 +1138,28 @@ impl Deps for NodeDeps<'_> {
 
     fn claude_hint_wanted(&mut self) -> bool {
         // Only while Claude Code is actually running for this user and the
-        // integration is not live (script line 1588).
-        let running = Command::new("pgrep")
+        // integration is not live (script line 1588). The settings-file test
+        // goes first because it is two `read`s, while `pgrep` walks all of
+        // `/proc`: for the users who already installed the integration —
+        // the ones who never see this hint — that scan never happens.
+        if claude_integration_active(&self.claude_dir) {
+            return false;
+        }
+        Command::new("pgrep")
             .args(["-u", &self.uid.to_string(), "-x", "claude"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
             .map(|s| s.success())
-            .unwrap_or(false);
-        running && !claude_integration_active(&self.claude_dir)
+            .unwrap_or(false)
     }
 
     fn other_jobs(&mut self) -> Option<Vec<QueueJob>> {
-        let rows = self.ctx.slurm.my_jobs(&["RUNNING", "PENDING"]).ok()?;
-        let names = job_names(&self.ctx.slurm);
-        Some(queue_jobs(&rows, &names))
+        // One squeue, not two: the brief format carries the job name, which
+        // the full row format cannot (a Comment and a name in the same
+        // pipe-delimited row could shift each other's columns).
+        self.ctx.slurm.my_job_briefs(&["RUNNING", "PENDING"]).ok()
     }
 
     fn session_alive(&mut self) -> bool {
@@ -2224,29 +2185,16 @@ mod tests {
     }
 
     #[test]
-    fn job_name_lookup_parses_squeue_pairs() {
-        let names = parse_job_names(
-            "1|train
-2|sint-web
-
-3|
-bad|x
-4 | spaced 
-",
+    fn the_queue_comes_from_one_squeue_call() {
+        let q = sint_core::slurm::squeue::parse_job_briefs("1|RUNNING|n1|train\n2|PENDING||\n")
+            .unwrap();
+        assert_eq!(
+            q,
+            vec![
+                qjob(1, "RUNNING", "n1", Some("train")),
+                qjob(2, "PENDING", "", None),
+            ]
         );
-        assert_eq!(names.get(&1).map(String::as_str), Some("train"));
-        assert_eq!(names.get(&2).map(String::as_str), Some("sint-web"));
-        assert_eq!(names.get(&3), None);
-        assert_eq!(names.get(&4).map(String::as_str), Some("spaced"));
-        assert_eq!(names.len(), 3);
-        let rows = vec![JobRow {
-            job_id: 1,
-            state: "RUNNING".into(),
-            node: "n1".into(),
-            ..JobRow::default()
-        }];
-        let q = queue_jobs(&rows, &names);
-        assert_eq!(q, vec![qjob(1, "RUNNING", "n1", Some("train"))]);
     }
 
     #[test]

@@ -157,15 +157,30 @@ fn parse_ok_line(line: &str) -> Option<u64> {
 }
 
 /// Usage summed over every daemon that answers. `Err` when none did.
+///
+/// The daemons are asked concurrently: one unreachable host then costs one
+/// timeout for the whole probe rather than one *each*. Sequentially, the
+/// nine Bodhi hosts could block the caller for 45 s — and the caller is
+/// usually the in-session status loop, which during that time is not
+/// checking the walltime or noticing that the session has closed.
 pub fn used_kb(cfg: &Config, uid: u32) -> anyhow::Result<u64> {
     let timeout = Duration::from_secs(cfg.quota_timeout.max(1));
+    let answers: Vec<Option<u64>> = std::thread::scope(|s| {
+        let handles: Vec<_> = cfg
+            .quota_hosts
+            .iter()
+            .map(|host| s.spawn(move || ask_daemon(host, cfg.quota_port, uid, timeout)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or(None))
+            .collect()
+    });
     let mut total: u64 = 0;
     let mut answered = 0usize;
-    for host in &cfg.quota_hosts {
-        if let Some(kb) = ask_daemon(host, cfg.quota_port, uid, timeout) {
-            total = total.saturating_add(kb);
-            answered += 1;
-        }
+    for kb in answers.into_iter().flatten() {
+        total = total.saturating_add(kb);
+        answered += 1;
     }
     if answered == 0 {
         return Err(anyhow!(
@@ -413,8 +428,8 @@ mod tests {
     fn used_kb_partial_sum_when_one_host_refuses() {
         let (port, handle) = spawn_daemon("OK 1000\n", 1);
         // The listener is bound to 127.0.0.1 only, so the same port on
-        // 127.0.0.2 (also loopback on Linux) is refused at once. The refusing
-        // host goes first to prove the loop carries on past it.
+        // 127.0.0.2 (also loopback on Linux) is refused at once: a host that
+        // says nothing must not take the answer that did arrive with it.
         let mut cfg = Config::defaults();
         cfg.quota_hosts = vec!["127.0.0.2".to_string(), "127.0.0.1".to_string()];
         cfg.quota_port = port;

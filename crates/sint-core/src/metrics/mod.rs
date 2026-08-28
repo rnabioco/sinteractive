@@ -262,7 +262,10 @@ impl Sampler {
         let (load1, load5, load15) = cpu::read_loadavg();
 
         // CPU: the cgroup's CPU time over its allocation, else the host.
-        let host_now = cpu::read_proc_stat();
+        // `/proc/stat` is only read when the cgroup cannot answer: gathering
+        // it makes the kernel walk every CPU (and every IRQ), which is not a
+        // cheap thing to do twice a second on a 128-core node next to the
+        // user's real work.
         let mut pct = 0.0f32;
         let mut scoped_cpu = false;
         if let Some(cg) = &self.cgroup {
@@ -279,12 +282,17 @@ impl Sampler {
                 self.prev_cgroup = Some((usec, now));
             }
         }
-        if !scoped_cpu {
+        if scoped_cpu {
+            // A baseline from before the scoped samples would span an
+            // unknown window; start afresh if we ever fall back.
+            self.prev_host = None;
+        } else {
+            let host_now = cpu::read_proc_stat();
             if let (Some(prev), Some(cur)) = (self.prev_host, host_now) {
                 pct = cpu::cpu_pct(prev, cur);
             }
+            self.prev_host = host_now;
         }
-        self.prev_host = host_now;
 
         // Memory: cgroup usage against its limit, else the host.
         let host_mem = cpu::read_meminfo().unwrap_or((0, 0));

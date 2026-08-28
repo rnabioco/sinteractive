@@ -14,7 +14,7 @@ use anyhow::Result;
 use sint_core::events::{self, Event};
 use sint_core::state::StateDir;
 
-use super::common::Ctx;
+use super::common::{missing_target, Ctx};
 use crate::cli::EventsArgs;
 
 /// How often `--follow` re-reads the log.
@@ -30,16 +30,7 @@ fn read(state: &StateDir, job_id: u64, since: Option<i64>) -> Result<Vec<Event>>
 
 pub fn run(args: EventsArgs) -> Result<i32> {
     let ctx = Ctx::new();
-    if args.target.is_none() && ctx.cfg.job_id.is_none() {
-        let p = ctx.palette(2);
-        eprintln!(
-            "{}{}Error:{}{} events requires a JOBID or NAME outside a session.{}",
-            p.err, p.bold, p.reset, p.err, p.reset
-        );
-        eprintln!(
-            "{}Run 'sinteractive list' to see available sessions.{}",
-            p.dim, p.reset
-        );
+    if missing_target(&ctx, args.target.as_deref(), "events") {
         return Ok(1);
     }
     let Some(job_id) = ctx.resolve_reporting(args.target.as_deref())? else {

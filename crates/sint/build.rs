@@ -48,6 +48,14 @@ fn build_plugin(dest: &Path) {
             "--release",
             "--target",
             "wasm32-wasip1",
+            // Size, not speed: the plugin is a blob the zellij server loads
+            // and its work is rendering one status line. These override the
+            // workspace release profile for this nested build only, so the
+            // native binary keeps its own settings.
+            "--config",
+            "profile.release.opt-level='z'",
+            "--config",
+            "profile.release.lto=true",
             "--manifest-path",
         ])
         .arg(&plugin_manifest)

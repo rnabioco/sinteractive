@@ -166,21 +166,38 @@ pub fn run(rx: Receiver<Msg>, label: Label, mode: &str, theme: Theme) -> io::Res
 }
 
 fn event_loop(terminal: &mut DefaultTerminal, rx: &Receiver<Msg>, app: &mut App) -> io::Result<()> {
+    // Redraw when something the screen shows can have changed: a new
+    // snapshot, an input event (key, resize), or the wall-clock second the
+    // "Ns ago" staleness is derived from. Everything else is the same frame
+    // rebuilt, and this runs on a shared login node.
+    let mut dirty = true;
+    let mut drawn_second = 0i64;
     loop {
         loop {
             match rx.try_recv() {
-                Ok(msg) => app.apply(msg),
+                Ok(msg) => {
+                    app.apply(msg);
+                    dirty = true;
+                }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     app.waiting
                         .get_or_insert_with(|| "sampler stopped".to_string());
+                    dirty = true;
                     break;
                 }
             }
         }
-        terminal.draw(|f| draw(f, app))?;
+        let second = sint_core::now_epoch();
+        if dirty || second != drawn_second {
+            terminal.draw(|f| draw(f, app))?;
+            drawn_second = second;
+            dirty = false;
+        }
         if event::poll(TICK)? {
-            if let Event::Key(k) = event::read()? {
+            let ev = event::read()?;
+            dirty = true;
+            if let Event::Key(k) = ev {
                 if k.kind != KeyEventKind::Release {
                     app.key(k.code, k.modifiers);
                 }
