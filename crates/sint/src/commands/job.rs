@@ -60,6 +60,7 @@ use sint_core::notices::{self, Notice};
 use sint_core::now_epoch;
 use sint_core::quota::{self, QuotaSnapshot};
 use sint_core::state::{StateDir, StateFile};
+use sint_core::theme::{Mode, Theme};
 use sint_core::time::{format_short_duration, slurm_timestamp_to_epoch};
 use sint_proto::{HostPanel, Severity, StatusMsg, ThemePref, PIPE_NAME};
 
@@ -143,7 +144,6 @@ pub const HELP_PAGES: &[&[(&str, &str)]] = &[
     ],
 ];
 
-
 /// The palette the bar should use, resolved once for the life of the sampler.
 ///
 /// Only the session can answer this inside zellij: the plugin's own source is
@@ -154,9 +154,9 @@ pub const HELP_PAGES: &[&[(&str, &str)]] = &[
 /// every other sinteractive renderer follows.
 fn theme_pref() -> ThemePref {
     static PREF: OnceLock<ThemePref> = OnceLock::new();
-    *PREF.get_or_init(|| match sint_core::theme::Theme::detect(libc::STDOUT_FILENO).mode {
-        sint_core::theme::Mode::Light => ThemePref::Light,
-        sint_core::theme::Mode::Dark => ThemePref::Dark,
+    *PREF.get_or_init(|| match Theme::detect(libc::STDOUT_FILENO).mode {
+        Mode::Light => ThemePref::Light,
+        Mode::Dark => ThemePref::Dark,
     })
 }
 
