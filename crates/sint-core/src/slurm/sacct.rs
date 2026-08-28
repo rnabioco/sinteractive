@@ -1,5 +1,6 @@
 //! `sacct` / `sacctmgr` — accounting history and QOS limits.
 
+use super::squeue::mem_to_mb;
 use super::{Slurm, SlurmError};
 use crate::time::slurm_timestamp_to_epoch;
 
@@ -18,6 +19,31 @@ pub struct AccountedJob {
 }
 
 pub const SACCT_FORMAT: &str = "JobID,JobName,Partition,State,Elapsed,ReqMem,MaxRSS,AllocCPUS,End";
+
+/// Reduce a step-inclusive `sacct` listing to allocation rows, each carrying
+/// the largest `MaxRSS` of its steps (`123456K` style strings; the biggest
+/// by value wins, the allocation's own value — normally empty — is only
+/// kept when no step reports one). Step rows are `JOBID.batch`, `JOBID.0`,
+/// `JOBID.extern`; array tasks (`JOBID_5`) are their own allocations.
+pub fn fold_steps(rows: Vec<AccountedJob>) -> Vec<AccountedJob> {
+    let mut out: Vec<AccountedJob> = Vec::new();
+    for row in rows {
+        match row.job_id.split_once('.') {
+            None => out.push(row),
+            Some((parent, _step)) => {
+                if let Some(p) = out.iter_mut().rev().find(|j| j.job_id == parent) {
+                    let cur = mem_to_mb(&p.max_rss).unwrap_or(0);
+                    let new = mem_to_mb(&row.max_rss).unwrap_or(0);
+                    if new > cur || (p.max_rss.trim().is_empty() && !row.max_rss.trim().is_empty())
+                    {
+                        p.max_rss = row.max_rss;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
 
 /// Number of `|`-separated fields in [`SACCT_FORMAT`].
 const SACCT_FIELDS: usize = 9;
@@ -63,9 +89,12 @@ pub fn parse_sacct(output: &str) -> Result<Vec<AccountedJob>, SlurmError> {
 
 impl Slurm {
     /// Recent jobs for the user since `since` (`now-1day` style).
+    /// Allocation rows only, with `max_rss` folded in from the job's steps:
+    /// Slurm records MaxRSS on step rows (`.batch`, `.0`, …), which `-X`
+    /// hides, so the query takes every row and [`fold_steps`] reduces them.
     pub fn recent_jobs(&self, since: &str) -> Result<Vec<AccountedJob>, SlurmError> {
         let format = format!("--format={SACCT_FORMAT}");
-        let mut args = vec!["-X", "-P", "-n"];
+        let mut args = vec!["-P", "-n"];
         // sacct defaults to the invoking user; name them explicitly when the
         // environment says who that is, as the bash-era scripts did.
         let user = std::env::var("USER").unwrap_or_default();
@@ -74,7 +103,7 @@ impl Slurm {
         }
         args.extend(["--starttime", since, &format]);
         let out = self.run("sacct", &args)?;
-        parse_sacct(&out)
+        Ok(fold_steps(parse_sacct(&out)?))
     }
 
     /// `sacctmgr -nP show qos NAME format=MaxJobsPerUser` → limit, `None` when
@@ -147,6 +176,24 @@ mod tests {
         let j = &jobs[3];
         assert_eq!(j.state, "CANCELLED by 12345");
         assert_eq!(j.alloc_cpus, None);
+    }
+
+    #[test]
+    fn steps_fold_into_their_allocation() {
+        let rows = parse_sacct(
+            "100|a|p|COMPLETED|00:01:00|4G||2|2026-01-01T00:00:00\n\
+             100.batch|batch|p|COMPLETED|00:01:00||123456K|2|2026-01-01T00:00:00\n\
+             100.0|step|p|COMPLETED|00:00:30||2000000K|2|2026-01-01T00:00:00\n\
+             101_3|arr|p|FAILED|00:00:10|1G||1|2026-01-01T00:00:00\n\
+             101_3.batch|batch|p|FAILED|00:00:10||512M|1|2026-01-01T00:00:00\n",
+        )
+        .unwrap();
+        let jobs = fold_steps(rows);
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0].job_id, "100");
+        assert_eq!(jobs[0].max_rss, "2000000K");
+        assert_eq!(jobs[1].job_id, "101_3");
+        assert_eq!(jobs[1].max_rss, "512M");
     }
 
     #[test]
