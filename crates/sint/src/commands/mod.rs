@@ -8,11 +8,13 @@ use crate::cli::Command;
 
 pub mod agent_context;
 pub mod attach;
+pub mod attach_local;
 pub mod cancel;
 pub mod common;
 pub mod ensure;
 pub mod hook;
 pub mod install_claude;
+pub mod job;
 pub mod launch;
 pub mod list;
 pub mod quota;
@@ -74,8 +76,8 @@ pub fn dispatch(command: Command) -> Result<i32> {
         Command::Mcp => not_yet("mcp"),
         Command::InstallClaude => install_claude::run(),
         Command::Doctor(_) => not_yet("doctor"),
-        Command::Job(_) => not_yet("__job"),
-        Command::AttachLocal { .. } => not_yet("__attach"),
+        Command::Job(args) => job::run(args),
+        Command::AttachLocal { session } => attach_local::run(&session),
         Command::Popup { .. } => not_yet("__popup"),
     }
 }

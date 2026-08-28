@@ -58,6 +58,14 @@ pub fn ready_marker(job_id: u64) -> PathBuf {
     socket_dir(job_id).join("ready")
 }
 
+/// `<socket dir>/config` — written by `__job` with the path of the
+/// `config.kdl` the server was started with, so `__attach` on the same node
+/// attaches with the matching bundle (mouse mode is a client-side setting
+/// and the bundle id depends on it).
+pub fn config_marker(job_id: u64) -> PathBuf {
+    socket_dir(job_id).join("config")
+}
+
 pub fn xdg_cache_home(cfg: &Config) -> PathBuf {
     cfg.cache_dir.join("xdg")
 }
@@ -173,6 +181,7 @@ mod tests {
         assert_eq!(session_name(42), "sinteractive-42");
         assert_eq!(socket_dir(42), PathBuf::from("/tmp/sint-42"));
         assert_eq!(ready_marker(42), PathBuf::from("/tmp/sint-42/ready"));
+        assert_eq!(config_marker(42), PathBuf::from("/tmp/sint-42/config"));
     }
 
     #[test]
