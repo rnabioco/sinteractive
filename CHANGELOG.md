@@ -10,6 +10,15 @@ and this project adheres to
 
 ### Fixed
 
+- `wait_for_event` no longer loses an event whose line was half-written when
+  the call began. It took the file's length as its starting point, and the
+  sampler appends a line in more than one write now and then, so a call that
+  started between two of them read the line's second half alone, failed to
+  parse it and waited on for something else — the intermittent CI failure of
+  `partial_lines_wait_for_their_newline`, and a real miss for an agent whose
+  wait began at the wrong moment. The starting point is now the beginning of
+  any unterminated last line.
+
 - `sinteractive claude install` writes the absolute path of the binary that
   ran it — for the MCP server, both hooks and the statusline — rather than
   the bare `sinteractive`. Claude Code starts all four from a non-interactive
