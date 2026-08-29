@@ -67,6 +67,7 @@ mod tests {
             job_id: 7,
             socket_dir: PathBuf::from("/tmp/sint-7"),
             xdg_cache_home: PathBuf::from("/c/xdg"),
+            cache_dir: PathBuf::from("/c"),
             exe: PathBuf::from("/opt/sinteractive"),
         };
         let cmd = remote_command(&env, "echo 'hi there'");

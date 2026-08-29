@@ -2501,6 +2501,7 @@ mod tests {
             job_id: 7,
             socket_dir: "/tmp/sint-7".into(),
             xdg_cache_home: "/c/xdg".into(),
+            cache_dir: cfg.cache_dir.clone(),
             exe: "/x/sinteractive".into(),
         };
         let inherited: Vec<(OsString, OsString)> = [
@@ -2531,6 +2532,7 @@ mod tests {
         assert_eq!(get("SINTERACTIVE_NAME").as_deref(), Some("web"));
         assert_eq!(get("ZELLIJ_SOCKET_DIR").as_deref(), Some("/tmp/sint-7"));
         assert_eq!(get("XDG_CACHE_HOME").as_deref(), Some("/c/xdg"));
+        assert_eq!(get("SINTERACTIVE_CACHE").as_deref(), Some("/c"));
         assert_eq!(
             get("ZELLIJ_SESSION_NAME").as_deref(),
             Some("sinteractive-7")

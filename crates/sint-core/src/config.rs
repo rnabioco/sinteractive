@@ -423,6 +423,20 @@ mod tests {
         assert_eq!(Config::from_env().cache_dir, PathBuf::from("/explicit"));
     }
 
+    /// A session exports `XDG_CACHE_HOME=<cache>/xdg` for zellij, so the
+    /// override points at a subdirectory of our own cache dir. With
+    /// `SINTERACTIVE_CACHE` alongside it, state still resolves to the real
+    /// cache rather than the shadow `<cache>/xdg/sinteractive`.
+    #[test]
+    fn session_xdg_override_does_not_shadow_the_cache_dir() {
+        let _g = lock();
+        let _r = EnvRestore::clean();
+        let cache = "/home/test/.cache/sinteractive";
+        std::env::set_var("XDG_CACHE_HOME", format!("{cache}/xdg"));
+        std::env::set_var("SINTERACTIVE_CACHE", cache);
+        assert_eq!(Config::from_env().cache_dir, PathBuf::from(cache));
+    }
+
     #[test]
     fn mouse_spellings() {
         for v in ["on", "1", "true", "yes", "YES", "On"] {
