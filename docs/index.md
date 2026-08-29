@@ -124,8 +124,8 @@ sequenceDiagram
 ```
 
 Everything the login-node commands need is read from the shared cache
-directory the session writes to, so `status`, `monitor`, the Claude Code
-statusline and the MCP server cost no SSH and mostly no scheduler queries.
+directory the session writes to, so `status`, `monitor` and the MCP server
+cost no SSH and mostly no scheduler queries.
 The [deployment page](deploy.md#the-cache-directory) lists the files.
 
 ## Maintenance windows

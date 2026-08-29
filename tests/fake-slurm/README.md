@@ -14,7 +14,7 @@ so a test that drifts from the modelled surface fails loudly.
 
 | File           | Meaning                                                                                                      |
 | -------------- | ------------------------------------------------------------------------------------------------------------ |
-| `jobs.tsv`     | The queue: one job per line, 13 tab-separated columns (below). Missing = empty queue.                        |
+| `jobs.tsv`     | The queue: one job per line, up to 15 tab-separated columns (below). Missing = empty queue.                   |
 | `next_id`      | Id the next `sbatch` hands out (default `1000`); bumped on each submit.                                      |
 | `sbatch.fail`  | When present, `sbatch` prints its contents to stderr and exits 1.                                            |
 | `sbatch.last`  | Written by `sbatch`: the submitted script and its arguments, one per line.                                   |
@@ -29,13 +29,18 @@ so a test that drifts from the modelled surface fails loudly.
 ```
 1 job_id   2 comment   3 node   4 partition   5 elapsed   6 time_limit
 7 end_time   8 cpus   9 mem   10 tres   11 state   12 reason   13 start_time
+14 alloc_node   15 alloc_sid
 ```
 
 Values are the raw strings squeue would print: `elapsed` like `1:23:45`,
 `time_limit` like `8:00:00`, `end_time`/`start_time` like
 `2026-01-01T08:00:00` (or `N/A`/`Unknown`), `mem` like `8G`/`4000M`, `tres`
 like `gres:gpu:1` or `N/A`, `state` `RUNNING`/`PENDING`/…, `reason` `None` or
-a pend reason. A session is a job whose comment is `sinteractive` or
+a pend reason. `alloc_node` and `alloc_sid` are where the job was submitted
+from — the node, and the session id of the submitting process — which is how
+the bar tells a job launched inside a session from the rest of the queue;
+both may be left off, as a job nothing asks that about. A session is a job
+whose comment is `sinteractive` or
 `sinteractive:NAME`. An empty comment prints as `(null)` through `%k`, exactly
 as real squeue does.
 
@@ -50,8 +55,12 @@ either `-o FORMAT`/`--format` with codes `%i %k %N %P %M %l %e %C %m %b %T %r
 accepted and ignored; every other character, `|` included, is literal) or
 `--Format FIELD[,FIELD]`/`-O` with `jobid comment batchhost nodelist partition
 timeused timelimit endtime numcpus minmemory tres state statecompact reason
-starttime name username`, each padded to 20 columns plus a space like the
-real thing (callers `xargs`/trim it). All `--flag=value` spellings work.
+starttime name username allocnodes allocsid`, each padded to 20 columns plus a
+space like the real thing (callers `xargs`/trim it). A field may carry the
+real `--Format` suffix — `Name:0` for its natural width, `JobID:|` for a
+delimiter, `JobID:.10` for a width — so a pipe-delimited row is one call.
+`allocnodes`/`allocsid` are `--Format`-only, as in the real squeue. All
+`--flag=value` spellings work.
 
 `sbatch` — appends a `RUNNING` job on `fakenode01` with an empty comment and
 prints `Submitted batch job N` (`--parsable`: just `N`). `--wrap CMD` is recorded

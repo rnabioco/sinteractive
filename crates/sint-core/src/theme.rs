@@ -170,7 +170,7 @@ impl Theme {
         text: Rgb(0xFF, 0xFF, 0xFF),
         dim: Rgb(0xD9, 0xD9, 0xD9),
         track: Rgb(0x59, 0x59, 0x59),
-        hint: Rgb(0xD7, 0xE0, 0xFF),
+        hint: Rgb(0x8C, 0x9E, 0xFF),
     };
     /// Claude Code light theme.
     pub const LIGHT: Theme = Theme {

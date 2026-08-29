@@ -33,7 +33,7 @@ pub const DARK: Colors = Colors {
     text: (0xFF, 0xFF, 0xFF),
     dim: (0xD9, 0xD9, 0xD9),
     track: (0x59, 0x59, 0x59),
-    hint: (0xD7, 0xE0, 0xFF),
+    hint: (0x8C, 0x9E, 0xFF),
 };
 
 pub const LIGHT: Colors = Colors {
@@ -184,7 +184,12 @@ pub fn status_line(st: &State, cols: usize) -> String {
     }
     if !m.jobs.is_empty() {
         segs.push(Seg {
-            text: format!("{}jobs{RESET} {}{}{RESET}", fg(c.dim), fg(c.text), m.jobs),
+            text: format!(
+                "{}{}{RESET} {}launched{RESET}",
+                fg(c.text),
+                m.jobs,
+                fg(c.dim)
+            ),
             drop_prio: 4,
         });
     }

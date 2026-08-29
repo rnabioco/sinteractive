@@ -194,6 +194,11 @@ pub trait Deps {
     /// The user's RUNNING/PENDING jobs (this one included); `None` when
     /// squeue failed, so a hiccup is never read as "every job finished".
     fn other_jobs(&mut self) -> Option<Vec<QueueJob>>;
+
+    /// The session the process that submitted a job belonged to, read from
+    /// `/proc/<sid>/environ` on this node. `None` when that process is gone
+    /// or was not in a session — see [`launched_here`].
+    fn submitter_session(&mut self, sid: u32) -> Option<u64>;
     /// Which of those jobs are sinteractive sessions, by Comment.
     ///
     /// A session is an orchestration shell, so its CPU and memory are not
@@ -591,7 +596,17 @@ impl JobLoop {
                 deps.remove_metrics(id);
             }
         }
-        self.jobs = jobs_summary(&queue, self_id);
+        let mine: Vec<QueueJob> = queue
+            .iter()
+            .filter(|j| {
+                j.job_id != self_id
+                    && launched_here(j, &self.cfg.host, self_id, || {
+                        deps.submitter_session(j.alloc_sid)
+                    })
+            })
+            .cloned()
+            .collect();
+        self.jobs = jobs_summary(&mine, self_id);
         self.queue = queue;
     }
 
@@ -835,6 +850,29 @@ impl JobLoop {
 
 // ---- pure helpers the driver uses ------------------------------------------
 
+/// Whether `job` was launched from this session.
+///
+/// Slurm records where a job was submitted from — the node in `AllocNodes`
+/// and the session id of the submitting process in `AllocSID` — so a job
+/// submitted on this session's node is a candidate. `submitter` then reads
+/// that process's environment: a live shell inside a session names the
+/// session it belongs to, so a sibling session's job on the same node is
+/// excluded. A submitter that has already exited (`sbatch` or `salloc
+/// --no-shell` from a script, which returns immediately) cannot be asked,
+/// and the job counts on the node alone rather than going missing from the
+/// session that started it.
+pub fn launched_here(
+    job: &QueueJob,
+    host: &str,
+    self_id: u64,
+    submitter: impl FnOnce() -> Option<u64>,
+) -> bool {
+    if job.alloc_node.is_empty() || job.alloc_node != host {
+        return false;
+    }
+    submitter().is_none_or(|s| s == self_id)
+}
+
 /// `2R 1PD` from the user's RUNNING/PENDING jobs other than `self_id`;
 /// empty when there are none.
 pub fn jobs_summary(rows: &[QueueJob], self_id: u64) -> String {
@@ -1042,6 +1080,22 @@ fn sleep_interruptible(d: Duration) {
         }
         std::thread::sleep((end - now).min(Duration::from_millis(100)));
     }
+}
+
+/// The sinteractive session a process belongs to: `SINTERACTIVE_JOB_ID` from
+/// `/proc/<sid>/environ`, which the session exports into everything it runs.
+/// `None` when the process has exited, is not ours to read, or was started
+/// outside a session.
+fn submitter_session(sid: u32) -> Option<u64> {
+    if sid == 0 {
+        return None;
+    }
+    let environ = std::fs::read(format!("/proc/{sid}/environ")).ok()?;
+    environ
+        .split(|b| *b == 0)
+        .find_map(|kv| kv.strip_prefix(b"SINTERACTIVE_JOB_ID="))
+        .and_then(|v| std::str::from_utf8(v).ok())
+        .and_then(|v| v.trim().parse().ok())
 }
 
 /// This node's short hostname, as `hostname -s` printed it; falls back to
@@ -1253,6 +1307,10 @@ impl Deps for NodeDeps<'_> {
         // the full row format cannot (a Comment and a name in the same
         // pipe-delimited row could shift each other's columns).
         self.ctx.slurm.my_job_briefs(&["RUNNING", "PENDING"]).ok()
+    }
+
+    fn submitter_session(&mut self, sid: u32) -> Option<u64> {
+        submitter_session(sid)
     }
 
     fn session_ids(&mut self) -> HashSet<u64> {
@@ -1555,6 +1613,9 @@ mod tests {
         events: Vec<Event>,
         /// Ids `session_ids` reports as sinteractive sessions.
         sessions: HashSet<u64>,
+        /// What `submitter_session` answers, by alloc sid; a sid that is
+        /// absent stands for a submitter that has already exited.
+        submitters: HashMap<u32, u64>,
         session_id_queries: usize,
     }
 
@@ -1564,6 +1625,7 @@ mod tests {
                 end,
                 alive: true,
                 queue: Some(Vec::new()),
+                submitters: HashMap::from([(OUR_SID, 4242)]),
                 ..Default::default()
             }
         }
@@ -1589,6 +1651,9 @@ mod tests {
         }
         fn other_jobs(&mut self) -> Option<Vec<QueueJob>> {
             self.queue.clone()
+        }
+        fn submitter_session(&mut self, sid: u32) -> Option<u64> {
+            self.submitters.get(&sid).copied()
         }
         fn session_ids(&mut self) -> HashSet<u64> {
             self.session_id_queries += 1;
@@ -1634,9 +1699,16 @@ mod tests {
             job_id: id,
             state: state.into(),
             node: node.into(),
+            // Submitted from the test session's own node by a live shell
+            // that the fake attributes to it, so the bar counts it.
+            alloc_node: "node01".into(),
+            alloc_sid: OUR_SID,
             name: name.map(str::to_string),
         }
     }
+
+    /// An alloc sid the fake reports as belonging to this session.
+    const OUR_SID: u32 = 700;
 
     fn snap(ts: i64, cpu: f32, used_mb: u64) -> Snapshot {
         Snapshot {
@@ -2048,6 +2120,71 @@ mod tests {
     }
 
     #[test]
+    fn only_jobs_launched_from_this_session_count() {
+        let job = |alloc_node: &str, sid: u32| QueueJob {
+            job_id: 9001,
+            state: "RUNNING".into(),
+            alloc_node: alloc_node.into(),
+            alloc_sid: sid,
+            ..QueueJob::default()
+        };
+        let ours = |sid: u32| match sid {
+            700 => Some(4242),
+            701 => Some(77),
+            _ => None,
+        };
+        // Submitted on our node by a live shell of ours.
+        assert!(launched_here(&job("node01", 700), "node01", 4242, || ours(
+            700
+        )));
+        // Submitted from the login node, or from another node entirely.
+        assert!(!launched_here(&job("login01", 700), "node01", 4242, || {
+            ours(700)
+        }));
+        assert!(!launched_here(&job("", 0), "node01", 4242, || ours(0)));
+        // A sibling session on the same node: its shell names another job.
+        assert!(!launched_here(
+            &job("node01", 701),
+            "node01",
+            4242,
+            || ours(701)
+        ));
+        // `sbatch` from a shell that has since exited: nothing left to ask,
+        // so the node decides rather than the job going missing.
+        assert!(launched_here(&job("node01", 9), "node01", 4242, || ours(9)));
+    }
+
+    #[test]
+    fn the_bar_counts_only_this_session_s_jobs() {
+        let mut f = Fake::alive(Some(T0 + 7200));
+        let elsewhere = |id: u64, alloc_node: &str, sid: u32| QueueJob {
+            job_id: id,
+            state: "RUNNING".into(),
+            node: "n2".into(),
+            alloc_node: alloc_node.into(),
+            alloc_sid: sid,
+            name: Some("train".into()),
+        };
+        f.submitters = HashMap::from([(OUR_SID, 4242), (701, 77)]);
+        f.queue = Some(vec![
+            qjob(4242, "RUNNING", "node01", Some("sint-t")),
+            // Launched from here.
+            elsewhere(9001, "node01", OUR_SID),
+            // The user's own work, started from the login node, and a
+            // sibling session's job on this very node.
+            elsewhere(9002, "login01", 42),
+            elsewhere(9003, "node01", 701),
+        ]);
+        let mut lp = JobLoop::new(cfg());
+        lp.step(T0, &mut f);
+        assert_eq!(f.sent.last().unwrap().jobs, "1R");
+        // The monitor panel is a different question — you watch a job you
+        // started anywhere — so every other running job is still polled.
+        let asked: Vec<u64> = f.remote_requests[0].iter().map(|t| t.job_id).collect();
+        assert_eq!(asked, vec![9001, 9002, 9003]);
+    }
+
+    #[test]
     fn started_once_and_walltime_events_once_per_crossing() {
         let end = T0 + 10_000;
         let mut f = Fake::alive(Some(end));
@@ -2424,8 +2561,10 @@ mod tests {
 
     #[test]
     fn the_queue_comes_from_one_squeue_call() {
-        let q = sint_core::slurm::squeue::parse_job_briefs("1|RUNNING|n1|train\n2|PENDING||\n")
-            .unwrap();
+        let q = sint_core::slurm::squeue::parse_job_briefs(
+            "1|RUNNING|n1|node01|700|train\n2|PENDING||node01|700|\n",
+        )
+        .unwrap();
         assert_eq!(
             q,
             vec![
