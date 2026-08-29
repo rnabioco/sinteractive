@@ -1,13 +1,19 @@
 //! `sinteractive queue [--all] [--watch] [--json]` — your jobs: what is
 //! running, what is pending and why, and the last day's history with a
 //! memory right-sizing hint. `--all` adds everyone's jobs per partition;
-//! `--watch` redraws every 5 s (Ctrl-C exits).
+//! `--watch` redraws every 5 s and ends on `q`, `Esc` or Ctrl-C.
+//!
+//! The watch view is what `Ctrl+b q` opens in a floating pane, so it needs
+//! the key that closes every other sint view: leaving it Ctrl-C-only made
+//! the one popup you cannot quit the way you quit the monitor.
 
 use std::collections::{BTreeMap, HashMap};
-use std::io::Write;
-use std::time::Duration;
+use std::io::{IsTerminal, Write};
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode, size as terminal_size};
 use serde::Serialize;
 use sint_core::color::Palette;
 use sint_core::now_epoch;
@@ -31,6 +37,10 @@ const FINISHED: [&str; 6] = [
 ];
 
 const WATCH_EVERY: Duration = Duration::from_secs(5);
+
+/// Rows the watch frame keeps for itself: the title, the blank under it,
+/// and the key legend pinned to the last row.
+const WATCH_CHROME: usize = 3;
 
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct PartitionSummary {
@@ -127,28 +137,183 @@ pub fn run(args: QueueArgs) -> Result<i32> {
         print!("{}", render(&snap, &p));
         return Ok(0);
     }
+    // Keys need raw mode — cooked stdin would hold `q` until Enter. Only
+    // with a terminal on both ends: piped or redirected output stays the
+    // plain redraw loop it was, ended by a signal.
+    let keys = std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal()
+        && enable_raw_mode().is_ok();
+    let _raw = RawGuard(keys);
     loop {
         let snap = Snapshot::gather(&ctx, args.all)?;
-        let mut out = std::io::stdout().lock();
-        // Clear and home, then the frame in one write so it never flickers.
         let stamp = time::OffsetDateTime::now_local()
             .unwrap_or_else(|_| time::OffsetDateTime::now_utc())
             .format(time::macros::format_description!(
                 "[hour]:[minute]:[second]"
             ))
             .unwrap_or_default();
-        let _ = write!(
-            out,
-            "\x1b[2J\x1b[H{}sinteractive queue{} {}{stamp} — every 5 s, Ctrl-C to exit{}\n\n{}",
-            p.bold,
-            p.reset,
-            p.dim,
-            p.reset,
-            render(&snap, &p)
-        );
+        let size = terminal_size()
+            .ok()
+            .map(|(cols, rows)| (cols as usize, rows as usize));
+        let frame = watch_frame(&render(&snap, &p), &p, &stamp, size, keys);
+        // Raw mode drops the ONLCR translation, so the frame carries its own
+        // carriage returns or every row steps one column right.
+        let frame = if keys {
+            frame.replace('\n', "\r\n")
+        } else {
+            frame
+        };
+        let mut out = std::io::stdout().lock();
+        // Clear and home, then the frame in one write so it never flickers.
+        let _ = write!(out, "\x1b[2J\x1b[H{frame}");
         let _ = out.flush();
         drop(out);
-        std::thread::sleep(WATCH_EVERY);
+        if !keys {
+            std::thread::sleep(WATCH_EVERY);
+            continue;
+        }
+        if let Wait::Quit = wait(WATCH_EVERY)? {
+            // Leave the cursor on a line of its own: raw mode left it
+            // wherever the legend ended, and a shell prompt would land there.
+            println!("\r");
+            return Ok(0);
+        }
+    }
+}
+
+/// One redraw: a title saying what this is, the tables, and a key legend
+/// pinned to the bottom row.
+///
+/// The body is clipped to `size` rather than allowed to overflow. The
+/// floating pane `Ctrl+b q` opens is short and the recent list is long, and
+/// a frame taller than the pane scrolls its own title and legend off the
+/// top — which is what left the popup looking like a wall of rows with no
+/// name on it and no visible way out.
+fn watch_frame(
+    body: &str,
+    p: &Palette,
+    stamp: &str,
+    size: Option<(usize, usize)>,
+    keys: bool,
+) -> String {
+    let (reset, bold, dim) = (&p.reset, &p.bold, &p.dim);
+    let cols = size.map(|(c, _)| c).unwrap_or(usize::MAX);
+    // Widest first: the subtitle goes when the pane is too narrow for it,
+    // then the clock. A title that wraps costs a body row and unpins the
+    // legend from the bottom.
+    let (name, sub, clock) = (
+        "sinteractive queue",
+        " — running, pending, recent",
+        format!("  {stamp}"),
+    );
+    let w = |s: &str| s.chars().count();
+    let title = if w(name) + w(sub) + w(&clock) <= cols {
+        format!("{bold}{name}{reset}{dim}{sub}{clock}{reset}")
+    } else if w(name) + w(&clock) <= cols {
+        format!("{bold}{name}{reset}{dim}{clock}{reset}")
+    } else {
+        format!("{bold}{name}{reset}")
+    };
+    let legend = watch_legend(p, keys, cols);
+
+    let mut lines: Vec<String> = body.lines().map(str::to_string).collect();
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    let Some((_, rows)) = size else {
+        return format!("{title}\n\n{}\n\n{legend}\n", lines.join("\n"));
+    };
+    let room = rows.saturating_sub(WATCH_CHROME);
+    if room == 0 {
+        return title;
+    }
+    if lines.len() > room {
+        // The clipped rows are the oldest of the recent history, so the
+        // count doubles as the pointer to the command that prints them all.
+        let hidden = lines.len() - room + 1;
+        lines.truncate(room - 1);
+        lines.push(format!(
+            "  {dim}… {hidden} more — `sinteractive queue` prints them all{reset}"
+        ));
+    }
+    lines.resize(room, String::new());
+    format!("{title}\n\n{}\n{legend}", lines.join("\n"))
+}
+
+/// The legend, dropped to its shortest form on a narrow pane. `q` comes
+/// first in every form: it is the one key someone who opened the popup by
+/// accident needs.
+fn watch_legend(p: &Palette, keys: bool, cols: usize) -> String {
+    let (reset, dim, key) = (&p.reset, &p.dim, &p.key);
+    if !keys {
+        return format!("{dim}redraws every 5 s — Ctrl-C to exit{reset}");
+    }
+    // Each part carries its own plain text, because the styled one is mostly
+    // escapes and `len()` on it means nothing.
+    let parts = [
+        ("q quit", format!("{key}q{reset}{dim} quit{reset}")),
+        (
+            "   r refresh",
+            format!("   {key}r{reset}{dim} refresh{reset}"),
+        ),
+        ("   every 5 s", format!("   {dim}every 5 s{reset}")),
+    ];
+    let mut line = String::new();
+    let mut used = 0;
+    for (plain, styled) in parts {
+        used += plain.chars().count();
+        if used > cols {
+            break;
+        }
+        line.push_str(&styled);
+    }
+    line
+}
+
+/// Puts the terminal back into cooked mode on every exit path — a `?` out
+/// of the watch loop included, which is why it is a guard and not a call at
+/// the end.
+struct RawGuard(bool);
+
+impl Drop for RawGuard {
+    fn drop(&mut self) {
+        if self.0 {
+            let _ = disable_raw_mode();
+        }
+    }
+}
+
+/// What ended the pause between redraws.
+enum Wait {
+    Quit,
+    Redraw,
+}
+
+/// Wait up to `budget` for a keypress.
+///
+/// `q` and `Esc` are the monitor TUI's keys; Ctrl-C and Ctrl-D are here
+/// because raw mode delivers them as ordinary keys rather than as a signal
+/// or EOF, and the habit of pressing them must keep working. `r` and a
+/// resize redraw at once instead of finishing the five seconds.
+fn wait(budget: Duration) -> Result<Wait> {
+    let deadline = Instant::now() + budget;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() || !event::poll(left)? {
+            return Ok(Wait::Redraw);
+        }
+        match event::read()? {
+            Event::Resize(..) => return Ok(Wait::Redraw),
+            Event::Key(k) if k.kind != KeyEventKind::Release => match k.code {
+                KeyCode::Char('q' | 'Q') | KeyCode::Esc => return Ok(Wait::Quit),
+                KeyCode::Char('c' | 'd') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                    return Ok(Wait::Quit)
+                }
+                KeyCode::Char('r' | 'R') => return Ok(Wait::Redraw),
+                _ => {}
+            },
+            _ => {}
+        }
     }
 }
 
@@ -382,6 +547,43 @@ impl Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_watch_frame_names_itself_and_keeps_its_legend_on_screen() {
+        let p = Palette::none();
+        let body: String = (0..40).map(|i| format!("row {i}\n")).collect();
+        let frame = watch_frame(&body, &p, "12:00:00", Some((80, 12)), true);
+        let lines: Vec<&str> = frame.lines().collect();
+        // Exactly the pane: title, blank, 9 body rows, legend. Any more and
+        // the terminal scrolls the title and the legend out of sight.
+        assert_eq!(lines.len(), 12, "{frame}");
+        assert!(
+            lines[0].starts_with("sinteractive queue — running, pending"),
+            "{frame}"
+        );
+        assert!(lines[0].ends_with("12:00:00"), "{frame}");
+        assert!(lines[10].contains("… 32 more"), "{frame}");
+        assert!(lines[11].starts_with("q quit"), "{frame}");
+
+        // A body that fits keeps the legend on the bottom row all the same.
+        let short = watch_frame("row 0\nrow 1\n", &p, "12:00:00", Some((80, 12)), true);
+        let lines: Vec<&str> = short.lines().collect();
+        assert_eq!(lines.len(), 12, "{short}");
+        assert_eq!(lines[2], "row 0");
+        assert!(lines[11].starts_with("q quit"), "{short}");
+
+        // Narrow: the title loses its subtitle and the legend its extras,
+        // and `q` survives both.
+        let narrow = watch_frame(&body, &p, "12:00:00", Some((12, 12)), true);
+        let lines: Vec<&str> = narrow.lines().collect();
+        assert_eq!(lines[0], "sinteractive queue");
+        assert_eq!(lines[11], "q quit");
+
+        // Without keys the legend says what does work instead.
+        let piped = watch_frame(&body, &p, "12:00:00", None, false);
+        assert!(piped.contains("Ctrl-C to exit"), "{piped}");
+        assert!(piped.contains("row 39"), "no clipping without a size");
+    }
 
     #[test]
     fn memory_hints() {

@@ -116,7 +116,7 @@ sinteractive attach build
 sinteractive list
 sinteractive status build
 
-# The queue, refreshed every 5 s
+# The queue, refreshed every 5 s (q to exit)
 sinteractive queue --watch
 
 # The build session's node, nvitop-style, from the login node
@@ -139,7 +139,7 @@ pass through untouched. `Ctrl+b h` shows the same legend in the status bar.
 | `Ctrl+b n` | Read the notices (quota, trimmed end time, hints) one at a time; `n` for the next, `Esc` back |
 | `Ctrl+b m` | Focus the monitor panel (CPU, memory and GPU bars), opening it if it is closed; again to hand the focus back to the shell |
 | `Ctrl+b ,` / `Ctrl+b .` | Previous / next job in the monitor panel, without focusing it |
-| `Ctrl+b q` | Your queue in a floating pane (`sinteractive queue --watch`); `Ctrl+c` closes it |
+| `Ctrl+b q` | Your queue in a floating pane (`sinteractive queue --watch`) — running, pending and the last 24 h; `q` closes it, `r` refreshes |
 | `Ctrl+b c` | New pane |
 | `Ctrl+b "` / `Ctrl+b %` | Split down / split right |
 | `Ctrl+b x` | Close the focused pane |

@@ -10,6 +10,23 @@ and this project adheres to
 
 ### Fixed
 
+- The `Ctrl+b q` popup says what it is and how to leave. `queue --watch`
+  slept between redraws and read no keys, so the only way out of the floating
+  pane was Ctrl-C; worse, the frame was as long as the recent history, so in
+  a short pane it scrolled its own heading off the top and left a wall of
+  rows with no name on it. The watch view now draws to the pane it is in — a
+  title, the tables clipped to what fits (`… N more`), and a key legend
+  pinned to the bottom row — and reads keys: `q` or `Esc` quits, `r` redraws
+  now, Ctrl-C and Ctrl-D still work. With output redirected it stays the
+  plain redraw loop it was.
+- The bar's help legend names the key that turns its pages. `(1/2)` said
+  there was more to see but not how to reach it; the counter now comes with
+  `^b h more · ^b esc close`, dropped first when the bar is too narrow for
+  both it and the keys. A single page shows no counter at all.
+- The bar's fence rule is a lighter orange (`#E6A692` dark, `#DF8B70` light)
+  rather than the full accent. It runs the whole width of the pane, where the
+  accent's own weight pulled the eye off the line beneath it; the glyph, job
+  ids and gauges keep the accent.
 - The terminal-background query no longer leaves its answer at the prompt.
   OSC 11 went out once per palette — two or three times in a `launch` — each
   with a 100 ms window, so on anything but a local terminal the reply landed
