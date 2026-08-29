@@ -417,6 +417,10 @@ pub enum HookEvent {
     SessionStart,
     /// UserPromptSubmit: warn when walltime is short
     Prompt,
+    /// WorktreeCreate: make the worktree on the cluster's scratch filesystem
+    WorktreeCreate,
+    /// WorktreeRemove: remove a worktree the create hook made
+    WorktreeRemove,
 }
 
 #[derive(Args, Debug, Clone, Default)]

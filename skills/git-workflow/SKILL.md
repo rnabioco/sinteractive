@@ -11,10 +11,17 @@ stricter of its own — a `CONTRIBUTING.md`, a release checklist — that wins.
 
 ## Branch in a worktree, never on `main`
 
-One worktree per line of work. The convention is
-`<repo>/.claude/worktrees/<name>`, which is what the `EnterWorktree` tool
-creates; prefer it over `git worktree add` so the session's working directory
-follows the worktree instead of being left behind in the main checkout.
+One worktree per line of work, made with the `EnterWorktree` tool; prefer it
+over `git worktree add` so the session's working directory follows the
+worktree instead of being left behind in the main checkout. Where the
+worktree lands is the tool's business, not yours: with sinteractive's
+`worktree-create` hook registered (`sinteractive claude install`) it is on
+the cluster's scratch filesystem — `/scratch/alpine/$USER/worktrees/<repo>/
+<name>` on Alpine — because a worktree is a throwaway build tree and
+`/projects` is the small, backed-up tier; elsewhere it is Claude Code's
+stock `<repo>/.claude/worktrees/<name>`. `git worktree list` says where.
+Never symlink `.claude/worktrees` somewhere else: Claude Code refuses to
+create a worktree through a symlink.
 
 The base commit comes from the `worktree.baseRef` setting: `fresh` (the
 default) branches from `origin/<default-branch>`, so the work starts from what
@@ -25,6 +32,7 @@ on uncommitted local history.
 `.claude/worktrees/` is a byproduct of the workflow, not source. If the
 repository does not already ignore it, add it to `.gitignore` — or to
 `.git/info/exclude` when the ignore file is shared and the convention is not.
+A worktree on scratch needs no ignoring; it is not inside the checkout.
 
 Leave with `ExitWorktree`: `keep` while the branch is still in flight,
 `remove` once the pull request has merged. A worktree outliving its branch is

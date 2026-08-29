@@ -143,7 +143,7 @@ A person at a prompt attaches; a script or an agent reaches in with these.
 |---|---|
 | `claude install` | Install the Claude Code skills, hooks, statusline and MCP server |
 | `claude context` | Brief a coding agent on the session it is running inside |
-| `claude hook session-start\|prompt` | Hook entry points (Claude Code runs these) |
+| `claude hook session-start\|prompt\|worktree-create\|worktree-remove` | Hook entry points (Claude Code runs these) |
 | `claude statusline` | statusLine command (Claude Code runs this) |
 | `claude mcp` | MCP server over stdio (Claude Code runs this) |
 
@@ -271,6 +271,7 @@ Set personal defaults in your `~/.bashrc`; explicit flags always win.
 | `SINTERACTIVE_POLL` | Seconds between scheduler re-checks in the session (floor 5) | `30` |
 | `SINTERACTIVE_MONITOR_SESSIONS` | Show your *other* sinteractive sessions in the monitor panel alongside your real jobs | `off` |
 | `SINTERACTIVE_AGENT_WARN` | Seconds left below which the Claude Code prompt hook warns | `1800` |
+| `SINTERACTIVE_WORKTREES` | Where the Claude Code worktree hook puts worktrees (`<here>/<repo>/<name>`) | `/scratch/alpine/$USER/worktrees` where that scratch exists, else `<repo>/.claude/worktrees` |
 | `SINTERACTIVE_QUOTA_POLL` | Seconds between storage-quota checks (floor 30) | `600` |
 | `SINTERACTIVE_QUOTA_FILE` | Pipe-delimited file of hard quotas | `/cluster/scripts/quota_current.txt` |
 | `SINTERACTIVE_QUOTA_HOSTS` | Quota daemons to sum usage across | Bodhi's `172.20.8.110-118` |
@@ -371,9 +372,14 @@ make claude-install           # equivalent, from a checkout
 
 This installs the six skills (`hpc-compute`, `slurm-discovery`, `hpc-storage`,
 `hpc-software`, `slurm-batch`, `git-workflow`) into `~/.claude/skills/`, then
-registers in your `settings.json` the two hooks (`sinteractive claude hook
+registers in your `settings.json` the four hooks (`sinteractive claude hook
 session-start` briefs the agent on the session it is in; `sinteractive claude hook
-prompt` warns when walltime is short), the statusline (`sinteractive
+prompt` warns when walltime is short; `sinteractive claude hook
+worktree-create` / `worktree-remove` take over Claude Code's worktree
+creation so that every repository's worktrees land on the cluster's scratch
+filesystem — `/scratch/alpine/$USER/worktrees/<repo>/<name>` on Alpine,
+`SINTERACTIVE_WORKTREES/<repo>/<name>` where that is set, the stock
+`<repo>/.claude/worktrees` elsewhere), the statusline (`sinteractive
 statusline`, which shows the model, context usage and the working directory
 under the input box; session state stays on the status bar) and the MCP server (`sinteractive claude mcp`, via `claude mcp
 add`), each by the absolute path of the binary that ran the install, so PATH order in Claude Code's

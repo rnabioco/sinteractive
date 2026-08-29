@@ -21,6 +21,28 @@
           }
         ]
       }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sinteractive claude hook worktree-create",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sinteractive claude hook worktree-remove",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   },
   "statusLine": {

@@ -497,16 +497,17 @@ fn hook_scripts(v: &Value, out: &mut BTreeSet<String>) {
 }
 
 /// Which sinteractive hook a `command` string is, if any: the current form
-/// (`sinteractive claude hook session-start` / `… hook prompt`), the
-/// ungrouped spelling an earlier install wrote (`sinteractive hook …`) and
-/// the 0.x scripts (`…/sinteractive-session-context.sh`,
+/// (`sinteractive claude hook session-start` / `… hook prompt` /
+/// `… hook worktree-create` / `… hook worktree-remove`), the ungrouped
+/// spelling an earlier install wrote (`sinteractive hook …`) and the 0.x
+/// scripts (`…/sinteractive-session-context.sh`,
 /// `…/sinteractive-walltime-guard.sh`) all map to the same identity, so an
 /// upgrade replaces the old entry instead of adding a second hook.
 fn hook_identity(command: &str) -> Option<&'static str> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| {
         regex::Regex::new(
-            r"sinteractive(?:-session-context\.sh|-walltime-guard\.sh|\s+(?:claude\s+)?hook\s+(session-start|prompt))\b",
+            r"sinteractive(?:-session-context\.sh|-walltime-guard\.sh|\s+(?:claude\s+)?hook\s+(session-start|prompt|worktree-create|worktree-remove))\b",
         )
         .unwrap()
     });
@@ -514,6 +515,8 @@ fn hook_identity(command: &str) -> Option<&'static str> {
     Some(match m.get(1).map(|g| g.as_str()) {
         Some("session-start") => "session-start",
         Some("prompt") => "prompt",
+        Some("worktree-create") => "worktree-create",
+        Some("worktree-remove") => "worktree-remove",
         Some(_) => return None,
         None if m.get(0).unwrap().as_str().contains("session-context") => "session-start",
         None => "prompt",
@@ -531,7 +534,7 @@ fn renamed_command(command: &str, exe: &str) -> Option<String> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| {
         regex::Regex::new(
-            r"^\s*(?:\S*/)?sinteractive\s+(?:claude\s+)?(?<verb>hook\s+(?:session-start|prompt)|statusline)\s*$",
+            r"^\s*(?:\S*/)?sinteractive\s+(?:claude\s+)?(?<verb>hook\s+(?:session-start|prompt|worktree-create|worktree-remove)|statusline)\s*$",
         )
         .unwrap()
     });
@@ -913,7 +916,9 @@ mod tests {
     fn snippet() -> Map<String, Value> {
         obj(r#"{"hooks":{
             "SessionStart":[{"hooks":[{"type":"command","command":"sinteractive claude hook session-start","timeout":10}]}],
-            "UserPromptSubmit":[{"hooks":[{"type":"command","command":"sinteractive claude hook prompt","timeout":10}]}]
+            "UserPromptSubmit":[{"hooks":[{"type":"command","command":"sinteractive claude hook prompt","timeout":10}]}],
+            "WorktreeCreate":[{"hooks":[{"type":"command","command":"sinteractive claude hook worktree-create","timeout":30}]}],
+            "WorktreeRemove":[{"hooks":[{"type":"command","command":"sinteractive claude hook worktree-remove","timeout":30}]}]
         }}"#)
     }
 
@@ -932,6 +937,14 @@ mod tests {
             Some("session-start")
         );
         assert_eq!(hook_identity("sinteractive  hook prompt"), Some("prompt"));
+        assert_eq!(
+            hook_identity("/x/bin/sinteractive claude hook worktree-create"),
+            Some("worktree-create")
+        );
+        assert_eq!(
+            hook_identity("sinteractive claude hook worktree-remove"),
+            Some("worktree-remove")
+        );
         assert_eq!(hook_identity("sinteractive statusline"), None);
         assert_eq!(hook_identity("my-hook.sh"), None);
         assert!(is_legacy_hook(
@@ -941,11 +954,19 @@ mod tests {
     }
 
     #[test]
-    fn fresh_settings_get_both_hooks_in_order() {
+    fn fresh_settings_get_every_hook_in_order() {
         let mut s = Map::new();
         assert!(merge_hooks(&mut s, &snippet(), &Map::new()).unwrap());
         let keys: Vec<&String> = s["hooks"].as_object().unwrap().keys().collect();
-        assert_eq!(keys, ["SessionStart", "UserPromptSubmit"]);
+        assert_eq!(
+            keys,
+            [
+                "SessionStart",
+                "UserPromptSubmit",
+                "WorktreeCreate",
+                "WorktreeRemove"
+            ]
+        );
         assert_eq!(s["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
         // Idempotent.
         assert!(!merge_hooks(&mut s, &snippet(), &Map::new()).unwrap());

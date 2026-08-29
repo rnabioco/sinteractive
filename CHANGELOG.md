@@ -8,6 +8,23 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Claude Code's worktrees go to scratch. `claude install` registers two
+  more hooks, `sinteractive claude hook worktree-create` and
+  `worktree-remove`, on Claude Code's `WorktreeCreate` / `WorktreeRemove`
+  events, which replace its own `git worktree` logic: a worktree — a
+  throwaway build tree — now lands at
+  `/scratch/alpine/$USER/worktrees/<repo>/<name>` on Alpine rather than
+  under the checkout on `/projects`, the small backed-up tier. This holds
+  for every repository the user opens, not one that has been set up for it.
+  `SINTERACTIVE_WORKTREES` names another root; where there is no such
+  scratch (Bodhi, a laptop) the stock `<repo>/.claude/worktrees` is kept.
+  The branch is `worktree-<name>` from the remote's default branch, as
+  Claude Code's own `fresh` base does, and removal deletes it with the tree.
+  (A symlinked `.claude/worktrees` is not an option: Claude Code refuses to
+  create a worktree through one.)
+
 ### Fixed
 
 - The monitor panel lists the jobs launched from this session, and only

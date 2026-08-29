@@ -58,6 +58,11 @@ pub struct Config {
     /// list. Your own session's entry is always shown — it is the host the
     /// status line's `cpu … / mem …` fields come from.
     pub monitor_sessions: bool,
+    /// `SINTERACTIVE_WORKTREES` — where the Claude Code worktree hook puts
+    /// worktrees (`<here>/<repo>/<name>`). Unset: `/scratch/alpine/$USER/
+    /// worktrees` where that scratch exists, else the stock
+    /// `<repo>/.claude/worktrees`.
+    pub worktrees: Option<PathBuf>,
 }
 
 /// Default quota file (Bodhi).
@@ -142,6 +147,7 @@ impl Config {
             name: None,
             theme: None,
             monitor_sessions: false,
+            worktrees: None,
         }
     }
 
@@ -181,6 +187,7 @@ impl Config {
             monitor_sessions: env_str("SINTERACTIVE_MONITOR_SESSIONS")
                 .and_then(|v| parse_bool(&v))
                 .unwrap_or(d.monitor_sessions),
+            worktrees: env_str("SINTERACTIVE_WORKTREES").map(PathBuf::from),
         };
         // Floors, as in the script: the loop must not spin on the scheduler.
         if c.poll < 5 {
