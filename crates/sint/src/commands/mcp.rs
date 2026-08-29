@@ -702,6 +702,13 @@ pub struct Thresholds {
 ///
 /// The file is polled every `poll`; no inotify, so it works on the shared
 /// filesystems the cache lives on.
+///
+/// "After this call started" is measured in whole lines: the sampler
+/// appends a line in more than one write now and then, and a call that
+/// begins between two of them must not take the tail of that line for the
+/// first new event — it would fail to parse and the event would be lost.
+/// So the starting offset is the beginning of any unterminated last line,
+/// not the end of the file.
 pub fn wait_for_event(
     state: &StateDir,
     job_id: u64,
@@ -713,7 +720,7 @@ pub fn wait_for_event(
     let wanted = |kind: &str| kinds.is_empty() || kinds.iter().any(|k| k == kind);
     let log = state.events_file(job_id);
     let deadline = Instant::now() + timeout;
-    let mut offset = fs::metadata(&log).map(|m| m.len()).unwrap_or(0);
+    let mut offset = start_of_unfinished_line(&log);
     let mut walltime = WalltimeWatch::new(state, job_id, thresholds, now_epoch());
     loop {
         if let Some(event) = next_logged_event(&log, &mut offset, &wanted) {
@@ -737,6 +744,32 @@ pub fn wait_for_event(
 /// The first complete line past `offset` whose `kind` is wanted, advancing
 /// `offset` over every complete line read. Lines that are not JSON objects
 /// are skipped. A log shorter than `offset` was replaced; read it afresh.
+/// Where a fresh reader of `log` should start: the file's length when it
+/// ends in a newline (or is empty or absent), else the offset of the last
+/// line's first byte, so that a line caught half-written is read whole once
+/// it finishes. Only the tail is scanned, back to the nearest newline.
+fn start_of_unfinished_line(log: &Path) -> u64 {
+    let Ok(mut file) = fs::File::open(log) else {
+        return 0;
+    };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    const CHUNK: u64 = 4096;
+    let mut end = len;
+    let mut buf = vec![0u8; CHUNK as usize];
+    while end > 0 {
+        let start = end.saturating_sub(CHUNK);
+        let n = (end - start) as usize;
+        if file.seek(SeekFrom::Start(start)).is_err() || file.read_exact(&mut buf[..n]).is_err() {
+            return len;
+        }
+        if let Some(i) = buf[..n].iter().rposition(|&b| b == b'\n') {
+            return start + i as u64 + 1;
+        }
+        end = start;
+    }
+    0
+}
+
 fn next_logged_event(log: &Path, offset: &mut u64, wanted: &dyn Fn(&str) -> bool) -> Option<Value> {
     let mut file = fs::File::open(log).ok()?;
     let len = file.metadata().ok()?.len();
@@ -943,6 +976,54 @@ mod tests {
         let got = wait_for_event(&state, 7, &[], T, Duration::from_secs(5), FAST);
         writer.join().unwrap();
         assert_eq!(got, json!({"ts": 9, "kind": "gpu", "util": 50}));
+    }
+
+    #[test]
+    fn a_wait_that_begins_mid_line_still_gets_that_line() {
+        // The race the test above ran into on CI: the writer's first half
+        // landed before wait_for_event measured the file, so "the end" was
+        // in the middle of a line and its second half came back alone.
+        let (_tmp, state) = dir();
+        let log = state.events_file(7);
+        fs::write(
+            &log,
+            "{\"ts\":1,\"kind\":\"old\"}\n{\"ts\":9,\"kind\":\"gpu\"",
+        )
+        .unwrap();
+        let writer = {
+            let log = log.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(40));
+                let mut f = fs::OpenOptions::new().append(true).open(&log).unwrap();
+                f.write_all(b",\"util\":50}\n").unwrap();
+            })
+        };
+        let got = wait_for_event(&state, 7, &[], T, Duration::from_secs(5), FAST);
+        writer.join().unwrap();
+        assert_eq!(got, json!({"ts": 9, "kind": "gpu", "util": 50}));
+
+        // A log that ends cleanly starts at its end: nothing old is replayed.
+        let got = wait_for_event(&state, 7, &[], T, Duration::from_millis(30), FAST);
+        assert_eq!(got, json!({"timed_out": true}));
+    }
+
+    #[test]
+    fn the_start_offset_backs_up_over_a_partial_line() {
+        let (_tmp, state) = dir();
+        let log = state.events_file(8);
+        assert_eq!(start_of_unfinished_line(&log), 0, "absent");
+        fs::write(&log, "").unwrap();
+        assert_eq!(start_of_unfinished_line(&log), 0, "empty");
+        fs::write(&log, "abc\n").unwrap();
+        assert_eq!(start_of_unfinished_line(&log), 4, "clean end");
+        fs::write(&log, "abc\nde").unwrap();
+        assert_eq!(start_of_unfinished_line(&log), 4, "partial last line");
+        fs::write(&log, "de").unwrap();
+        assert_eq!(start_of_unfinished_line(&log), 0, "partial only line");
+        // Longer than one scan chunk, newline well behind the tail.
+        let long = format!("x\n{}", "y".repeat(10_000));
+        fs::write(&log, &long).unwrap();
+        assert_eq!(start_of_unfinished_line(&log), 2, "across chunks");
     }
 
     #[test]
