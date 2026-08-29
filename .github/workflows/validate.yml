@@ -20,7 +20,7 @@ jobs:
 
       - name: Syntax
         run: |
-          for f in completions/sinteractive.bash tests/fake-slurm/lib.sh tests/fake-slurm/s*; do
+          for f in completions/sinteractive.bash scripts/*.sh tests/fake-slurm/lib.sh tests/fake-slurm/s*; do
             bash -n "$f"
             echo "ok  $f"
           done
@@ -28,7 +28,7 @@ jobs:
       - name: ShellCheck
         run: |
           shellcheck --version
-          shellcheck --severity=warning tests/fake-slurm/lib.sh tests/fake-slurm/s*
+          shellcheck --severity=warning scripts/*.sh tests/fake-slurm/lib.sh tests/fake-slurm/s*
 
       - name: JSON
         run: |

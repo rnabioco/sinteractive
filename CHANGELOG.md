@@ -22,6 +22,20 @@ and this project adheres to
   left alone, so re-running it after an upgrade heals a configuration that
   already has the bare name (an MCP entry's `env` and the user's own hooks
   are kept as they are).
+- `make install` no longer kills the sessions that are running. The binary
+  was `install`ed over `~/.local/bin/sinteractive` in place, and on an NFS
+  home (Alpine) that pulls the inode out from under every process executing
+  it on another node — each session's zellij server, and the `launch` or
+  `attach` on the login node — which then die with SIGBUS the next time
+  they touch a page not yet in memory: "Lost connection to the Zellij
+  server" on exit, followed by "Bus error (core dumped)" from the login
+  shell. Each build now lands as `<bindir>/.sinteractive-<sha>` with
+  `sinteractive` a symlink swapped in by rename, an existing in-place copy
+  is hard-linked to a versioned name first so its inode survives the swap,
+  and old builds are pruned only when no queued or running job can be using
+  them (everything since the earliest submit time in the queue stays, plus
+  two before it). A session also keeps spawning its helpers from the build
+  it started on, since `current_exe()` resolves through the symlink.
 - The `Ctrl+b q` popup says what it is and how to leave. `queue --watch`
   slept between redraws and read no keys, so the only way out of the floating
   pane was Ctrl-C; worse, the frame was as long as the recent history, so in

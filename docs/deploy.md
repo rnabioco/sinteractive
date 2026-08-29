@@ -68,6 +68,26 @@ installed copy rather than a checkout. `make install` refuses with a hint
 when `target/release/sinteractive` has not been built; the Makefile does not
 fall back to anything else.
 
+The binary is never written over in place. Every running session *is* this
+binary, executing on its compute node as the zellij server, and so is every
+`launch` or `attach` sitting on a login node. On an NFS home (Alpine's
+Isilon) unlinking or renaming over a file that another node is executing
+takes the inode away underneath it: the next page that process faults in
+comes back `ESTALE` and it dies with `SIGBUS` — the server first ("Lost
+connection to the Zellij server"), then the client ("Bus error (core
+dumped)"). So `scripts/install-bin.sh` puts each build at
+`<bindir>/.sinteractive-<sha>` (a no-op for a build already there) and
+swaps `<bindir>/sinteractive`, a relative symlink, into place with a
+rename. `current_exe()` resolves through the symlink, so a session keeps
+spawning its helpers from the build it started on instead of mixing zellij
+client and server versions across an upgrade. Old builds are pruned only
+when nothing can still be running them: everything installed since the
+earliest submit time in the queue is kept (the user's jobs, or every job for
+a root install), plus the two builds before that; with no scheduler or no
+jobs, the current build and the two before it. `make nodes` is different —
+`/usr/local` there is node-local, the running copy is on the same kernel
+as the rename, and renaming over it is safe — so it keeps its `mv`.
+
 Then check it:
 
 ```bash
