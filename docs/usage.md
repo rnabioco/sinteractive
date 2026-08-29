@@ -153,7 +153,7 @@ pass through untouched. `Ctrl+b h` shows the same legend in the status bar.
 ### The status bar
 
 ```
-● sint 31761255 · rusttest · c3cpu-a2-u3-4 · 22m left · jobs 3R · ^b h help
+● sint 31761255 · rusttest · c3cpu-a2-u3-4 · 22m left · 3R launched · ^b h help
 ```
 
 - The dot spins while the session is starting, and turns yellow, then red,
@@ -161,7 +161,12 @@ pass through untouched. `Ctrl+b h` shows the same legend in the status bar.
   ten minutes by default). `SINTERACTIVE_GRACE` seconds before the limit the
   session ends itself, so teardown runs cleanly instead of under Slurm's
   SIGKILL.
-- `jobs 3R` counts your running (`R`) and pending (`PD`) jobs.
+- `3R launched` counts the running (`R`) and pending (`PD`) jobs started
+  *from this session* — not every job you own, which the session cannot do
+  anything about. Slurm records the node a job was submitted from and the
+  session id of the process that submitted it, so a job counts when it was
+  submitted on this node and that process is either gone or names this
+  session. Absent when nothing has been launched, which is most of the time.
 - `▣ N jobs monitorable ^b m` appears when there is a host the monitor panel
   could show and the panel is closed.
 - `⚠ N notices ^b n` appears when the session has something to say — a

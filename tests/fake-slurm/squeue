@@ -7,7 +7,10 @@
 # optional width like %.10i, any other character literal), and
 # --Format FIELD[,FIELD] / -O (jobid comment batchhost nodelist partition
 # timeused timelimit endtime numcpus minmemory tres tres-per-node state
-# statecompact reason starttime name), 20 columns wide each like the real one.
+# statecompact reason starttime name allocnodes allocsid), 20 columns wide
+# each like the real one — or FIELD:[.]SIZE and FIELD:SUFFIX, where a size of
+# 0 (or a bare suffix) is the field's natural width and the suffix character
+# is appended, as in `JobID:|,Name:0`.
 # Anything else is an error, so a test never silently gets the wrong answer.
 
 # shellcheck source=tests/fake-slurm/lib.sh
@@ -72,6 +75,10 @@ function fld(c,   v) {
   if (c == "D") return 1
   if (c == "j") return ($2 ~ /^sinteractive:/) ? "sint-" substr($2, 14) : "sinteractive"
   if (c == "u") return user
+  # Where a job was submitted from. Real squeue has no % code for these, so
+  # they are reachable through --Format only (see render()).
+  if (c == "A") return $14
+  if (c == "Z") return $15
   return "\001"
 }
 function title(c) {
@@ -92,6 +99,8 @@ function title(c) {
   if (c == "D") return "NODES"
   if (c == "j") return "NAME"
   if (c == "u") return "USER"
+  if (c == "A") return "ALLOC_NODES"
+  if (c == "Z") return "ALLOC_SID"
   return "?"
 }
 # Render an -o format string for the current row (header=1: column titles).
@@ -103,7 +112,8 @@ function render(header,   out, i, ch, code, v) {
     i++
     while (substr(fmt, i, 1) ~ /[.0-9]/) i++
     code = substr(fmt, i, 1)
-    v = header ? title(code) : fld(code)
+    # AllocNodes/AllocSID exist in --Format only, as in the real squeue.
+    v = (code == "A" || code == "Z") ? "\001" : (header ? title(code) : fld(code))
     if (v == "\001") {
       printf "squeue: unsupported format code %%%s (fake-slurm)\n", code > "/dev/stderr"
       exit 1
@@ -131,14 +141,33 @@ function fcode(name) {
   if (name == "starttime") return "S"
   if (name == "name") return "j"
   if (name == "username") return "u"
+  if (name == "allocnodes") return "A"
+  if (name == "allocsid") return "Z"
   printf "squeue: unsupported --Format field %s (fake-slurm)\n", name > "/dev/stderr"
   exit 1
+}
+# A --Format field: NAME, NAME:SIZE, NAME:.SIZE or NAME:SUFFIX. No colon is
+# the default 20 columns and a space; a colon with no size is the natural
+# width. Anything after the digits is a suffix character, appended as-is.
+function fspec(i, spec,   p, rest, size) {
+  p = index(spec, ":")
+  if (p == 0) { fsize[i] = -1; fsuffix[i] = ""; return spec }
+  rest = substr(spec, p + 1)
+  sub(/^\./, "", rest)
+  size = ""
+  while (rest ~ /^[0-9]/) { size = size substr(rest, 1, 1); rest = substr(rest, 2) }
+  fsize[i] = (size == "") ? 0 : size + 0
+  fsuffix[i] = rest
+  return substr(spec, 1, p - 1)
 }
 function renderF(header,   out, i, v) {
   out = ""
   for (i = 1; i <= nF; i++) {
     v = header ? title(fcodes[i]) : fld(fcodes[i])
-    out = out sprintf("%-20s ", v)
+    if (fsize[i] < 0) out = out sprintf("%-20s ", v)
+    else if (fsize[i] == 0) out = out v
+    else out = out sprintf("%-" fsize[i] "s", substr(v, 1, fsize[i]))
+    out = out fsuffix[i]
   }
   return out
 }
@@ -149,7 +178,7 @@ BEGIN {
   nF = 0
   if (Format != "") {
     nF = split(Format, names, ",")
-    for (i = 1; i <= nF; i++) fcodes[i] = fcode(names[i])
+    for (i = 1; i <= nF; i++) fcodes[i] = fcode(fspec(i, names[i]))
   }
   if (!noheader) print (Format != "") ? renderF(1) : render(1)
 }

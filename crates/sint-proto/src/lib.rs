@@ -119,7 +119,8 @@ pub struct StatusMsg {
     pub load: String,
     /// `gpu0 87% 31/40G`; empty when there are no GPUs.
     pub gpu: String,
-    /// Other jobs of the user: `2R 1PD`; empty when none.
+    /// Jobs launched from this session: `2R 1PD`; empty when none — which
+    /// is most of the time, and says nothing worth a segment.
     pub jobs: String,
     pub notices: Vec<Notice>,
     /// Key legend pages for help mode: `[[("n", "notices"), …], …]`.

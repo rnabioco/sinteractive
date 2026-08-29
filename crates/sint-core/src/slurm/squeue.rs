@@ -118,19 +118,33 @@ fn parse_job_id_field(s: &str) -> Option<u64> {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct JobBrief {
     pub job_id: u64,
-    /// `%T` — `RUNNING` / `PENDING`.
+    /// `State` — `RUNNING` / `PENDING`.
     pub state: String,
-    /// Raw `%N` nodelist (`c3cpu-a2-u[3-4]`), empty while pending.
+    /// Raw `NodeList` (`c3cpu-a2-u[3-4]`), empty while pending.
     pub node: String,
-    /// `%j`; `None` when squeue printed an empty name.
+    /// `AllocNodes` — the node the job was submitted *from*, which for
+    /// anything launched inside a session is that session's own node.
+    pub alloc_node: String,
+    /// `AllocSID` — the session id of the process that submitted the job,
+    /// on `alloc_node`. 0 when squeue printed no number.
+    pub alloc_sid: u32,
+    /// `Name`; `None` when squeue printed an empty name.
     pub name: Option<String>,
 }
 
-/// The `-o` format string that produces [`JobBrief`]. The job name is free
-/// text and may contain `|`, so it comes last and takes the rest of the
-/// line — the same "no column may be shifted" rule [`JOB_ROW_FORMAT`]
-/// follows for the Comment.
-pub const JOB_BRIEF_FORMAT: &str = "%i|%T|%N|%j";
+/// The `--Format` string that produces [`JobBrief`]. `--Format` rather than
+/// `-o`, because the alloc node and sid — which say where a job was
+/// submitted from — have no `%` code.
+///
+/// The job name is free text and may contain `|`, so it comes last and takes
+/// the rest of the line: the same "no column may be shifted" rule
+/// [`JOB_ROW_FORMAT`] follows for the Comment. `:0` asks for its natural
+/// width — `--Format` otherwise pads *and truncates* every field at 20
+/// columns.
+pub const JOB_BRIEF_FORMAT: &str = "JobID:|,State:|,NodeList:|,AllocNodes:|,AllocSID:|,Name:0";
+
+/// Number of `|`-separated fields in [`JOB_BRIEF_FORMAT`].
+const JOB_BRIEF_FIELDS: usize = 6;
 
 /// Parse [`JOB_BRIEF_FORMAT`] output. Blank lines are skipped; a short or
 /// unparseable row is an error, so a squeue hiccup is never read as "these
@@ -138,7 +152,7 @@ pub const JOB_BRIEF_FORMAT: &str = "%i|%T|%N|%j";
 pub fn parse_job_briefs(output: &str) -> Result<Vec<JobBrief>, SlurmError> {
     let bad = |line: &str| SlurmError::Parse {
         cmd: "squeue".into(),
-        reason: format!("expected 4 fields, got {line:?}"),
+        reason: format!("expected {JOB_BRIEF_FIELDS} fields, got {line:?}"),
     };
     let mut rows = Vec::new();
     for line in output.lines() {
@@ -146,17 +160,17 @@ pub fn parse_job_briefs(output: &str) -> Result<Vec<JobBrief>, SlurmError> {
         if line.trim().is_empty() {
             continue;
         }
-        let mut fields = line.splitn(4, '|');
-        let (Some(id), Some(state), Some(node), Some(name)) =
-            (fields.next(), fields.next(), fields.next(), fields.next())
-        else {
+        let f: Vec<&str> = line.splitn(JOB_BRIEF_FIELDS, '|').collect();
+        if f.len() < JOB_BRIEF_FIELDS {
             return Err(bad(line));
-        };
-        let name = name.trim();
+        }
+        let name = f[5].trim();
         rows.push(JobBrief {
-            job_id: parse_job_id_field(id).ok_or_else(|| bad(line))?,
-            state: state.trim().to_string(),
-            node: node.trim().to_string(),
+            job_id: parse_job_id_field(f[0]).ok_or_else(|| bad(line))?,
+            state: f[1].trim().to_string(),
+            node: f[2].trim().to_string(),
+            alloc_node: f[3].trim().to_string(),
+            alloc_sid: f[4].trim().parse().unwrap_or(0),
             name: (!name.is_empty()).then(|| name.to_string()),
         });
     }
@@ -263,7 +277,7 @@ impl Slurm {
         if !states.is_empty() {
             args.extend(["--states", states.as_str()]);
         }
-        args.extend(["--noheader", "-o", JOB_BRIEF_FORMAT]);
+        args.extend(["--noheader", "-O", JOB_BRIEF_FORMAT]);
         parse_job_briefs(&self.run("squeue", &args)?)
     }
 
@@ -436,10 +450,10 @@ mod tests {
     #[test]
     fn job_briefs_keep_a_piped_name_whole() {
         let rows = parse_job_briefs(
-            "1|RUNNING|n1|train\n\
-             2|PENDING||\n\
+            "1|RUNNING|n1|login01|4242|train\n\
+             2|PENDING||n1|17|\n\
              \n\
-             3|RUNNING|n[001-004],m7|a name | with a pipe \n",
+             3|RUNNING|n[001-004],m7|n1|17|a name | with a pipe \n",
         )
         .unwrap();
         assert_eq!(
@@ -448,18 +462,27 @@ mod tests {
                 job_id: 1,
                 state: "RUNNING".into(),
                 node: "n1".into(),
+                alloc_node: "login01".into(),
+                alloc_sid: 4242,
                 name: Some("train".into()),
             }
         );
         assert_eq!(rows[1].name, None, "an empty name is no name");
         assert_eq!(rows[1].node, "");
+        assert_eq!(rows[1].alloc_node, "n1", "a pending job still has one");
         assert_eq!(rows[2].node, "n[001-004],m7");
         assert_eq!(rows[2].name.as_deref(), Some("a name | with a pipe"));
         assert_eq!(rows.len(), 3);
         assert!(parse_job_briefs("").unwrap().is_empty());
         // Fail closed: a short or unparseable row is never "no such job".
-        assert!(parse_job_briefs("1|RUNNING|n1\n").is_err());
-        assert!(parse_job_briefs("JOBID|RUNNING|n1|x\n").is_err());
+        assert!(parse_job_briefs("1|RUNNING|n1|login01|4242\n").is_err());
+        assert!(parse_job_briefs("JOBID|RUNNING|n1|login01|4242|x\n").is_err());
+        // A sid squeue could not print leaves the job unattributable, not
+        // a parse failure that would read as "these jobs finished".
+        assert_eq!(
+            parse_job_briefs("1|RUNNING|n1|login01|N/A|x\n").unwrap()[0].alloc_sid,
+            0
+        );
     }
 
     #[test]

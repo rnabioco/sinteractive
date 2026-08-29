@@ -184,7 +184,12 @@ pub fn status_line(st: &State, cols: usize) -> String {
     }
     if !m.jobs.is_empty() {
         segs.push(Seg {
-            text: format!("{}jobs{RESET} {}{}{RESET}", fg(c.dim), fg(c.text), m.jobs),
+            text: format!(
+                "{}{}{RESET} {}launched{RESET}",
+                fg(c.text),
+                m.jobs,
+                fg(c.dim)
+            ),
             drop_prio: 4,
         });
     }
