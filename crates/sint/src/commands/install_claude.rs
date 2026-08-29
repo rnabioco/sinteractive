@@ -66,6 +66,7 @@ pub fn run() -> Result<i32> {
     };
 
     let claude_dir = claude_config_dir();
+    let exe = exe_command();
     fs::create_dir_all(claude_dir.join("hooks"))
         .with_context(|| format!("could not create {}", claude_dir.join("hooks").display()))?;
 
@@ -103,7 +104,7 @@ pub fn run() -> Result<i32> {
 
     // settings.json: hooks + statusLine.
     let snippet_path = assets.join("claude/settings-snippet.json");
-    match register_settings(&claude_dir, &snippet_path) {
+    match register_settings(&claude_dir, &snippet_path, &exe) {
         Ok(SettingsOutcome::Unchanged) => println!(
             "{}✓{} {}The hooks and statusline are already registered; your settings were left alone.{}",
             p.ok, p.reset, p.dim, p.reset
@@ -119,7 +120,7 @@ pub fn run() -> Result<i32> {
                 (true, true, _) => "Registered the hooks and statusline",
                 (true, false, _) => "Registered the hooks",
                 (false, true, _) => "Registered the statusline",
-                _ => "Renamed the hooks and statusline onto `sinteractive claude …`",
+                _ => "Pointed the hooks and statusline at this binary",
             };
             println!("{}✓{} {what} in {}{}{}", p.ok, p.reset, p.id, path.display(), p.reset);
             if let Some(b) = backup {
@@ -150,18 +151,27 @@ pub fn run() -> Result<i32> {
     }
 
     // MCP server.
-    match register_mcp(&claude_dir) {
+    match register_mcp(&claude_dir, &exe) {
         Ok(McpOutcome::AddedViaCli) => println!(
-            "{}✓{} Registered the MCP server ({}claude mcp add --scope user sinteractive{})",
+            "{}✓{} Registered the MCP server ({}claude mcp add --scope user sinteractive -- {exe} claude mcp{})",
             p.ok, p.reset, p.key, p.reset
         ),
         Ok(McpOutcome::AlreadyRegistered) => println!(
             "{}✓{} {}The MCP server is already registered.{}",
             p.ok, p.reset, p.dim, p.reset
         ),
-        Ok(McpOutcome::Written { path, backup }) => {
+        Ok(McpOutcome::Written {
+            path,
+            backup,
+            updated,
+        }) => {
+            let what = if updated {
+                "Pointed the MCP server at this binary"
+            } else {
+                "Registered the MCP server"
+            };
             println!(
-                "{}✓{} Registered the MCP server in {}{}{}",
+                "{}✓{} {what} in {}{}{}",
                 p.ok,
                 p.reset,
                 p.id,
@@ -183,7 +193,7 @@ pub fn run() -> Result<i32> {
                 p.warn, p.reset
             );
             println!(
-                "  {}run it by hand: claude mcp add --scope user sinteractive -- sinteractive mcp{}",
+                "  {}run it by hand: claude mcp add --scope user sinteractive -- {exe} claude mcp{}",
                 p.dim, p.reset
             );
         }
@@ -348,28 +358,46 @@ pub enum SettingsOutcome {
         hooks: bool,
         statusline: bool,
         /// Entries an earlier install wrote were renamed onto the current
-        /// `sinteractive claude …` spellings.
+        /// `<exe> claude …` spelling: the grouped verb, this binary's path.
         migrated: bool,
     },
 }
 
+/// How the hooks, statusline and MCP server invoke this binary: its absolute
+/// path, so Claude Code runs the copy that installed them whatever its PATH
+/// holds. Hooks and the MCP server start from a non-interactive shell that
+/// knows no aliases, and an older `sinteractive` earlier on PATH — the 0.x
+/// script in /usr/local/bin, say — would take the call and fail it. The bare
+/// name is the fallback when the running executable cannot be found out.
+fn exe_command() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(str::to_owned))
+        .unwrap_or_else(|| "sinteractive".into())
+}
+
 /// The statusLine entry added when the user has none.
-fn statusline_value() -> Value {
+fn statusline_value(exe: &str) -> Value {
     json!({
         "type": "command",
-        "command": "sinteractive claude statusline",
+        "command": format!("{exe} claude statusline"),
         "refreshInterval": 5
     })
 }
 
 /// Merge the snippet's hooks and the statusline into
-/// `<claude_dir>/settings.json` (following a symlink to its target).
+/// `<claude_dir>/settings.json` (following a symlink to its target), with
+/// every command spelled as `<exe> claude …`.
 pub fn register_settings(
     claude_dir: &Path,
     snippet_path: &Path,
+    exe: &str,
 ) -> Result<SettingsOutcome, Refused> {
-    let snippet = load_object(snippet_path)
+    let mut snippet = load_object(snippet_path)
         .map_err(|m| Refused(format!("could not read {}: {m}", snippet_path.display())))?;
+    // The snippet names the bare `sinteractive`; what lands in the settings
+    // is this binary.
+    migrate_commands(&mut snippet, exe);
 
     let link = claude_dir.join("settings.json");
     let settings = resolve_settings_path(&link)?;
@@ -384,17 +412,18 @@ pub fn register_settings(
     let other = load_object(&claude_dir.join("settings.local.json")).unwrap_or_default();
 
     let mut merged = base.clone();
-    // Bring an earlier install's `sinteractive hook …` / `sinteractive
-    // statusline` entries up to date first, so the merge below sees the same
-    // spellings the snippet carries.
-    let migrated = migrate_commands(&mut merged);
+    // Bring an earlier install's entries up to date first — the ungrouped
+    // `sinteractive hook …` / `sinteractive statusline` spellings, and any
+    // that name the binary by a different path (or by no path) — so the
+    // merge below sees the same spellings the snippet carries.
+    let migrated = migrate_commands(&mut merged, exe);
     let hooks = merge_hooks(&mut merged, &snippet, &other).map_err(|m| {
         Refused(format!(
             "could not merge into {}: {m}; it was left alone.",
             settings.display()
         ))
     })?;
-    let statusline = merge_statusline(&mut merged);
+    let statusline = merge_statusline(&mut merged, exe);
 
     if !hooks && !statusline && !migrated {
         return Ok(SettingsOutcome::Unchanged);
@@ -491,53 +520,58 @@ fn hook_identity(command: &str) -> Option<&'static str> {
     })
 }
 
-/// Rename `command` onto its current spelling, if it is one of ours in the
-/// ungrouped form an earlier install wrote. Anything else — a hand-edited
+/// Spell `command` the way this install writes it — `<exe> claude <verb>` —
+/// if it is one of ours: `sinteractive` by name or by any path, running the
+/// current `claude hook …` / `claude statusline` or the ungrouped `hook …` /
+/// `statusline` an earlier install wrote. Anything else — a hand-edited
 /// command, a wrapper script, an argument we do not know — returns `None` and
-/// is left alone; the hidden aliases keep it working either way.
-fn renamed_command(command: &str) -> Option<String> {
+/// is left alone; the hidden aliases keep the old verbs working either way.
+/// `None` too when it is already spelled right.
+fn renamed_command(command: &str, exe: &str) -> Option<String> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| {
         regex::Regex::new(
-            r"^\s*(?<pre>\S*\bsinteractive)\s+(?<verb>hook\s+(?:session-start|prompt)|statusline)\s*$",
+            r"^\s*(?:\S*/)?sinteractive\s+(?:claude\s+)?(?<verb>hook\s+(?:session-start|prompt)|statusline)\s*$",
         )
         .unwrap()
     });
     let c = re.captures(command)?;
-    Some(format!("{} claude {}", &c["pre"], &c["verb"]))
+    let verb = c["verb"].split_whitespace().collect::<Vec<_>>().join(" ");
+    let new = format!("{exe} claude {verb}");
+    (new != command).then_some(new)
 }
 
-/// Rewrite the `command` strings an earlier install wrote onto their current
-/// spellings, anywhere in the settings tree. Returns whether anything changed.
-fn migrate_commands(settings: &mut Map<String, Value>) -> bool {
+/// Rewrite our `command` strings anywhere in the settings tree onto
+/// `<exe> claude …`. Returns whether anything changed.
+fn migrate_commands(settings: &mut Map<String, Value>, exe: &str) -> bool {
     // A plain loop rather than `any`: every entry has to be visited, so
     // short-circuiting on the first rename would leave the rest untouched.
     let mut changed = false;
     for v in settings.values_mut() {
-        changed |= migrate_value(v);
+        changed |= migrate_value(v, exe);
     }
     changed
 }
 
-fn migrate_value(value: &mut Value) -> bool {
+fn migrate_value(value: &mut Value, exe: &str) -> bool {
     match value {
         Value::Object(m) => {
             let mut changed = false;
             if let Some(Value::String(cmd)) = m.get_mut("command") {
-                if let Some(new) = renamed_command(cmd) {
+                if let Some(new) = renamed_command(cmd, exe) {
                     *cmd = new;
                     changed = true;
                 }
             }
             for child in m.values_mut() {
-                changed |= migrate_value(child);
+                changed |= migrate_value(child, exe);
             }
             changed
         }
         Value::Array(a) => {
             let mut changed = false;
             for v in a {
-                changed |= migrate_value(v);
+                changed |= migrate_value(v, exe);
             }
             changed
         }
@@ -643,11 +677,11 @@ fn strip_legacy_hooks(settings: &mut Map<String, Value>) -> bool {
 }
 
 /// Add the statusline when the user has none. Returns whether it was added.
-pub fn merge_statusline(settings: &mut Map<String, Value>) -> bool {
+pub fn merge_statusline(settings: &mut Map<String, Value>, exe: &str) -> bool {
     if settings.contains_key("statusLine") {
         return false;
     }
-    settings.insert("statusLine".into(), statusline_value());
+    settings.insert("statusLine".into(), statusline_value(exe));
     true
 }
 
@@ -712,22 +746,27 @@ pub enum McpOutcome {
     Written {
         path: PathBuf,
         backup: Option<PathBuf>,
+        /// An entry an earlier install wrote was pointed at this binary,
+        /// rather than a new one added.
+        updated: bool,
     },
     CliFailed(String),
 }
 
-fn mcp_server_value() -> Value {
+fn mcp_server_value(exe: &str) -> Value {
     json!({
         "type": "stdio",
-        "command": "sinteractive",
+        "command": exe,
         "args": ["claude", "mcp"]
     })
 }
 
 /// Register the MCP server: through `claude mcp add` when `claude` is on
 /// PATH, else by editing `.claude.json` (in `CLAUDE_CONFIG_DIR` when set,
-/// which is where Claude Code keeps it then, else `~`).
-fn register_mcp(claude_dir: &Path) -> Result<McpOutcome, Refused> {
+/// which is where Claude Code keeps it then, else `~`). An entry that is
+/// already there goes through the file either way, since `claude mcp add`
+/// refuses to touch one and it may name a binary that is not this one.
+fn register_mcp(claude_dir: &Path, exe: &str) -> Result<McpOutcome, Refused> {
     if let Some(claude) = find_on_path("claude") {
         let out = Command::new(claude)
             .args([
@@ -737,27 +776,25 @@ fn register_mcp(claude_dir: &Path) -> Result<McpOutcome, Refused> {
                 "user",
                 "sinteractive",
                 "--",
-                "sinteractive",
+                exe,
                 "claude",
                 "mcp",
             ])
             .output();
-        return Ok(match out {
-            Ok(o) if o.status.success() => McpOutcome::AddedViaCli,
+        match out {
+            Ok(o) if o.status.success() => return Ok(McpOutcome::AddedViaCli),
             Ok(o) => {
                 let msg = format!(
                     "{}{}",
                     String::from_utf8_lossy(&o.stdout),
                     String::from_utf8_lossy(&o.stderr)
                 );
-                if msg.contains("already exists") {
-                    McpOutcome::AlreadyRegistered
-                } else {
-                    McpOutcome::CliFailed(msg.trim().to_string())
+                if !msg.contains("already exists") {
+                    return Ok(McpOutcome::CliFailed(msg.trim().to_string()));
                 }
             }
-            Err(e) => McpOutcome::CliFailed(e.to_string()),
-        });
+            Err(e) => return Ok(McpOutcome::CliFailed(e.to_string())),
+        }
     }
 
     let path = if std::env::var_os("CLAUDE_CONFIG_DIR").is_some_and(|d| !d.is_empty()) {
@@ -772,22 +809,38 @@ fn register_mcp(claude_dir: &Path) -> Result<McpOutcome, Refused> {
             path.display()
         ))
     })?;
-    if !merge_mcp(&mut doc).map_err(|m| {
+    let outcome = merge_mcp(&mut doc, exe).map_err(|m| {
         Refused(format!(
             "could not merge into {}: {m}; it was left alone.",
             path.display()
         ))
-    })? {
-        return Ok(McpOutcome::AlreadyRegistered);
-    }
+    })?;
+    let updated = match outcome {
+        McpMerge::Unchanged => return Ok(McpOutcome::AlreadyRegistered),
+        McpMerge::Added => false,
+        McpMerge::Repointed => true,
+    };
     let backup = write_json(&path, &Value::Object(doc))
         .map_err(|m| Refused(format!("could not write {}: {m}", path.display())))?;
-    Ok(McpOutcome::Written { path, backup })
+    Ok(McpOutcome::Written {
+        path,
+        backup,
+        updated,
+    })
 }
 
-/// Add `mcpServers.sinteractive` when absent. An existing entry, however it
-/// is configured, is the user's and stays. Returns whether it was added.
-pub fn merge_mcp(doc: &mut Map<String, Value>) -> Result<bool, String> {
+#[derive(Debug, PartialEq)]
+pub enum McpMerge {
+    Unchanged,
+    Added,
+    Repointed,
+}
+
+/// Add `mcpServers.sinteractive` when absent, and point an entry an install
+/// wrote — `sinteractive` by any path or none, running `claude mcp` or the
+/// older `mcp` — at this binary, keeping whatever else it carries (`env`,
+/// say). An entry configured any other way is the user's and stays.
+pub fn merge_mcp(doc: &mut Map<String, Value>, exe: &str) -> Result<McpMerge, String> {
     let servers = match doc.get("mcpServers") {
         None | Some(Value::Null) => {
             doc.insert("mcpServers".into(), Value::Object(Map::new()));
@@ -797,11 +850,41 @@ pub fn merge_mcp(doc: &mut Map<String, Value>) -> Result<bool, String> {
         Some(_) => return Err("\"mcpServers\" is not an object".into()),
     };
     let servers = servers.as_object_mut().unwrap();
-    if servers.contains_key("sinteractive") {
-        return Ok(false);
+    let wanted = mcp_server_value(exe);
+    match servers.get_mut("sinteractive") {
+        None => {
+            servers.insert("sinteractive".into(), wanted);
+            Ok(McpMerge::Added)
+        }
+        Some(entry) if is_our_mcp_entry(entry) => {
+            let entry = entry.as_object_mut().unwrap();
+            let mut changed = false;
+            for key in ["command", "args"] {
+                if entry.get(key) != wanted.get(key) {
+                    entry.insert(key.into(), wanted[key].clone());
+                    changed = true;
+                }
+            }
+            Ok(if changed {
+                McpMerge::Repointed
+            } else {
+                McpMerge::Unchanged
+            })
+        }
+        Some(_) => Ok(McpMerge::Unchanged),
     }
-    servers.insert("sinteractive".into(), mcp_server_value());
-    Ok(true)
+}
+
+/// Whether an `mcpServers` entry is one an install wrote: the command is
+/// `sinteractive` (bare or by any path) and the arguments are `claude mcp`
+/// or the pre-1.0 `mcp`.
+fn is_our_mcp_entry(entry: &Value) -> bool {
+    let ours = entry
+        .get("command")
+        .and_then(Value::as_str)
+        .is_some_and(|c| Path::new(c).file_name() == Some(OsStr::new("sinteractive")));
+    let args = entry.get("args").and_then(Value::as_array);
+    ours && args.is_some_and(|a| *a == [json!("claude"), json!("mcp")] || *a == [json!("mcp")])
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {
@@ -907,66 +990,134 @@ mod tests {
         assert!(merge_hooks(&mut s, &snippet(), &Map::new()).unwrap());
     }
 
+    const EXE: &str = "/opt/bin/sinteractive";
+
     #[test]
-    fn renames_only_our_own_ungrouped_commands() {
+    fn renames_only_our_own_commands_onto_this_binary() {
+        // The ungrouped verbs an earlier install wrote, by name or by path.
         assert_eq!(
-            renamed_command("sinteractive hook prompt").as_deref(),
-            Some("sinteractive claude hook prompt")
+            renamed_command("sinteractive hook prompt", EXE).as_deref(),
+            Some("/opt/bin/sinteractive claude hook prompt")
         );
         assert_eq!(
-            renamed_command("/opt/bin/sinteractive statusline").as_deref(),
+            renamed_command("/usr/local/bin/sinteractive statusline", EXE).as_deref(),
             Some("/opt/bin/sinteractive claude statusline")
         );
-        // Already current, not ours, or carrying extra arguments: left alone.
-        assert_eq!(renamed_command("sinteractive claude hook prompt"), None);
-        assert_eq!(renamed_command("sinteractive status"), None);
-        assert_eq!(renamed_command("sinteractive hook prompt --json"), None);
-        assert_eq!(renamed_command("my-sinteractive-wrapper statusline"), None);
+        // The current verbs, but naming the binary by PATH or by another
+        // path: pointed at this one.
+        assert_eq!(
+            renamed_command("sinteractive claude hook prompt", EXE).as_deref(),
+            Some("/opt/bin/sinteractive claude hook prompt")
+        );
+        assert_eq!(
+            renamed_command("/old/sinteractive  claude   statusline", EXE).as_deref(),
+            Some("/opt/bin/sinteractive claude statusline")
+        );
+        // Already right, not ours, or carrying extra arguments: left alone.
+        assert_eq!(
+            renamed_command("/opt/bin/sinteractive claude hook prompt", EXE),
+            None
+        );
+        assert_eq!(renamed_command("sinteractive status", EXE), None);
+        assert_eq!(
+            renamed_command("sinteractive hook prompt --json", EXE),
+            None
+        );
+        assert_eq!(
+            renamed_command("my-sinteractive-wrapper statusline", EXE),
+            None
+        );
+        assert_eq!(renamed_command("my-sinteractive statusline", EXE), None);
+        assert_eq!(
+            renamed_command("bash ~/.claude/hooks/sinteractive-walltime-guard.sh", EXE),
+            None
+        );
     }
 
     #[test]
     fn migration_rewrites_an_earlier_install() {
         let mut s = obj(r#"{
             "hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"sinteractive hook session-start"}]}]},
-            "statusLine":{"type":"command","command":"sinteractive statusline"}
+            "statusLine":{"type":"command","command":"sinteractive claude statusline"}
         }"#);
-        assert!(migrate_commands(&mut s));
+        assert!(migrate_commands(&mut s, EXE));
         assert_eq!(
             s["hooks"]["SessionStart"][0]["hooks"][0]["command"],
-            "sinteractive claude hook session-start"
+            "/opt/bin/sinteractive claude hook session-start"
         );
-        assert_eq!(s["statusLine"]["command"], "sinteractive claude statusline");
+        assert_eq!(
+            s["statusLine"]["command"],
+            "/opt/bin/sinteractive claude statusline"
+        );
         // Idempotent, and a hand-written statusline is not ours to touch.
-        assert!(!migrate_commands(&mut s));
+        assert!(!migrate_commands(&mut s, EXE));
         let mut mine = obj(r#"{"statusLine":{"type":"command","command":"my-prompt"}}"#);
-        assert!(!migrate_commands(&mut mine));
+        assert!(!migrate_commands(&mut mine, EXE));
     }
 
     #[test]
     fn statusline_only_when_absent() {
         let mut s = Map::new();
-        assert!(merge_statusline(&mut s));
-        assert_eq!(s["statusLine"]["command"], "sinteractive claude statusline");
-        assert!(!merge_statusline(&mut s));
+        assert!(merge_statusline(&mut s, EXE));
+        assert_eq!(
+            s["statusLine"]["command"],
+            "/opt/bin/sinteractive claude statusline"
+        );
+        assert!(!merge_statusline(&mut s, EXE));
         let mut s = obj(r#"{"statusLine":{"type":"command","command":"mine"}}"#);
-        assert!(!merge_statusline(&mut s));
+        assert!(!merge_statusline(&mut s, EXE));
         assert_eq!(s["statusLine"]["command"], "mine");
     }
 
     #[test]
-    fn mcp_only_when_absent() {
+    fn mcp_added_when_absent_and_repointed_when_ours() {
         let mut d = Map::new();
-        assert!(merge_mcp(&mut d).unwrap());
+        assert_eq!(merge_mcp(&mut d, EXE).unwrap(), McpMerge::Added);
+        assert_eq!(d["mcpServers"]["sinteractive"]["command"], EXE);
         assert_eq!(
             d["mcpServers"]["sinteractive"]["args"],
             json!(["claude", "mcp"])
         );
-        assert!(!merge_mcp(&mut d).unwrap());
+        assert_eq!(merge_mcp(&mut d, EXE).unwrap(), McpMerge::Unchanged);
+
+        // What `claude mcp add` wrote before 1.0.1: the bare name, which
+        // PATH may resolve to some other sinteractive. Its `env` survives.
+        let mut d = obj(
+            r#"{"mcpServers":{"sinteractive":{"type":"stdio","command":"sinteractive","args":["claude","mcp"],"env":{"A":"1"}}}}"#,
+        );
+        assert_eq!(merge_mcp(&mut d, EXE).unwrap(), McpMerge::Repointed);
+        assert_eq!(d["mcpServers"]["sinteractive"]["command"], EXE);
+        assert_eq!(d["mcpServers"]["sinteractive"]["env"]["A"], "1");
+        let keys: Vec<&String> = d["mcpServers"]["sinteractive"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
+        assert_eq!(keys, ["type", "command", "args", "env"]);
+
+        // Another path and the pre-1.0 verb: both brought up to date.
+        let mut d = obj(
+            r#"{"mcpServers":{"sinteractive":{"command":"/old/sinteractive","args":["mcp"]}}}"#,
+        );
+        assert_eq!(merge_mcp(&mut d, EXE).unwrap(), McpMerge::Repointed);
+        assert_eq!(d["mcpServers"]["sinteractive"]["command"], EXE);
+        assert_eq!(
+            d["mcpServers"]["sinteractive"]["args"],
+            json!(["claude", "mcp"])
+        );
+
+        // Not ours: left alone.
         let mut d = obj(r#"{"mcpServers":{"sinteractive":{"command":"custom"}}}"#);
-        assert!(!merge_mcp(&mut d).unwrap());
+        assert_eq!(merge_mcp(&mut d, EXE).unwrap(), McpMerge::Unchanged);
         assert_eq!(d["mcpServers"]["sinteractive"]["command"], "custom");
+        let mut d = obj(
+            r#"{"mcpServers":{"sinteractive":{"command":"sinteractive","args":["claude","mcp","--verbose"]}}}"#,
+        );
+        assert_eq!(merge_mcp(&mut d, EXE).unwrap(), McpMerge::Unchanged);
+        assert_eq!(d["mcpServers"]["sinteractive"]["command"], "sinteractive");
+
         let mut d = obj(r#"{"mcpServers":[]}"#);
-        assert!(merge_mcp(&mut d).is_err());
+        assert!(merge_mcp(&mut d, EXE).is_err());
     }
 
     #[test]

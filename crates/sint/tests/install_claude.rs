@@ -12,6 +12,17 @@ use common::{repo_root, FakeSlurm};
 use predicates::prelude::*;
 use serde_json::Value;
 
+/// What the install writes as the command: the absolute path of the binary
+/// under test, so Claude Code runs this one whatever its PATH holds.
+fn exe() -> String {
+    assert_cmd::cargo::cargo_bin("sinteractive")
+        .canonicalize()
+        .expect("sinteractive binary")
+        .to_str()
+        .unwrap()
+        .to_owned()
+}
+
 fn install(fx: &FakeSlurm) -> assert_cmd::assert::Assert {
     fx.sinteractive()
         .env("SINTERACTIVE_SHARE", repo_root())
@@ -85,14 +96,14 @@ fn fresh_install_creates_skills_hooks_settings_and_mcp() {
     );
     assert_eq!(
         settings["statusLine"]["command"],
-        "sinteractive claude statusline"
+        format!("{} claude statusline", exe())
     );
     assert_eq!(settings["statusLine"]["refreshInterval"], 5);
     assert!(backups(&claude, "settings.json").is_empty());
 
     // MCP server in the config dir's .claude.json.
     let cfg = read_json(&claude.join(".claude.json"));
-    assert_eq!(cfg["mcpServers"]["sinteractive"]["command"], "sinteractive");
+    assert_eq!(cfg["mcpServers"]["sinteractive"]["command"], exe());
     assert_eq!(
         cfg["mcpServers"]["sinteractive"]["args"],
         serde_json::json!(["claude", "mcp"])
@@ -166,7 +177,7 @@ fn existing_settings_are_preserved_and_backed_up() {
     assert_eq!(start[0]["hooks"][0]["command"], "echo mine");
     assert_eq!(
         start[1]["hooks"][0]["command"],
-        "sinteractive claude hook session-start"
+        format!("{} claude hook session-start", exe())
     );
     assert_eq!(
         settings["hooks"]["UserPromptSubmit"]
@@ -318,17 +329,17 @@ fn an_earlier_installs_entries_are_renamed_not_duplicated() {
     assert_eq!(start[0]["hooks"][0]["command"], "echo mine");
     assert_eq!(
         start[1]["hooks"][0]["command"],
-        "sinteractive claude hook session-start"
+        format!("{} claude hook session-start", exe())
     );
     let prompt = settings["hooks"]["UserPromptSubmit"].as_array().unwrap();
     assert_eq!(prompt.len(), 1);
     assert_eq!(
         prompt[0]["hooks"][0]["command"],
-        "sinteractive claude hook prompt"
+        format!("{} claude hook prompt", exe())
     );
     assert_eq!(
         settings["statusLine"]["command"],
-        "sinteractive claude statusline"
+        format!("{} claude statusline", exe())
     );
 
     // Nothing left to do the second time.
@@ -360,14 +371,14 @@ fn legacy_script_hooks_are_replaced_by_native_ones() {
     assert_eq!(start.len(), 1);
     assert_eq!(
         start[0]["hooks"][0]["command"],
-        "sinteractive claude hook session-start"
+        format!("{} claude hook session-start", exe())
     );
     let prompt = settings["hooks"]["UserPromptSubmit"].as_array().unwrap();
     assert_eq!(prompt.len(), 2);
     assert_eq!(prompt[0]["hooks"][0]["command"], "echo keep");
     assert_eq!(
         prompt[1]["hooks"][0]["command"],
-        "sinteractive claude hook prompt"
+        format!("{} claude hook prompt", exe())
     );
     // Idempotent afterwards.
     install(&fx).success();
