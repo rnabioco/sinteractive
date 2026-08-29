@@ -23,6 +23,11 @@ pub struct Colors {
     /// outshines the words beside it.
     pub track: (u8, u8, u8),
     pub hint: (u8, u8, u8),
+    /// The fence rule: the accent lifted towards white. It runs the full
+    /// width of the pane, so at the accent's own weight it pulled the eye
+    /// away from the words under it; a lighter orange still fences the
+    /// region off without competing with it.
+    pub rule: (u8, u8, u8),
 }
 
 pub const DARK: Colors = Colors {
@@ -34,6 +39,7 @@ pub const DARK: Colors = Colors {
     dim: (0xD9, 0xD9, 0xD9),
     track: (0x59, 0x59, 0x59),
     hint: (0x8C, 0x9E, 0xFF),
+    rule: (0xE6, 0xA6, 0x92),
 };
 
 pub const LIGHT: Colors = Colors {
@@ -45,6 +51,7 @@ pub const LIGHT: Colors = Colors {
     dim: (0x3F, 0x3F, 0x3F),
     track: (0xA6, 0xA6, 0xA6),
     hint: (0x57, 0x69, 0xF7),
+    rule: (0xDF, 0x8B, 0x70),
 };
 
 pub fn colors(theme: ThemeMode) -> Colors {
@@ -75,7 +82,7 @@ fn fg(c: (u8, u8, u8)) -> String {
 /// its own first row — the bar always, the panel too when it is open, which
 /// leaves the open panel framed between two rules.
 pub fn rule(cols: usize, c: &Colors) -> String {
-    format!("{}{}{RESET}", fg(c.accent), "\u{2501}".repeat(cols))
+    format!("{}{}{RESET}", fg(c.rule), "\u{2501}".repeat(cols))
 }
 
 /// Braille spinner frames used in the red phase (single-width, no jitter).
@@ -318,16 +325,38 @@ pub fn help_line(st: &State, page: usize, cols: usize) -> String {
     for (k, d) in entries {
         parts.push(format!("{}{k}{RESET} {}{d}{RESET}", fg(c.hint), fg(c.dim)));
     }
-    let mut line = parts.join(&format!(" {}·{RESET} ", fg(c.dim)));
-    let tail = format!("   {}({}/{pages}){RESET}", fg(c.dim), page + 1);
-    if visible_width(&line) + visible_width(&tail) > cols {
+    let sep = format!(" {}·{RESET} ", fg(c.dim));
+    // `(1/2)` said there was a second page but not how to reach it: the key
+    // that opens help is the key that pages it, and nothing on the bar said
+    // so. The counter is dropped for a lone page, and the nav hint is the
+    // first thing to go on a narrow bar — the keys themselves are the point.
+    let counter = if pages > 1 {
+        format!("({}/{pages}) ", page + 1)
+    } else {
+        String::new()
+    };
+    let nav = if page + 1 < pages {
+        "^b h more · ^b esc close"
+    } else {
+        "^b esc close"
+    };
+    let tail = |nav: &str| match format!("{counter}{nav}") {
+        t if t.is_empty() => String::new(),
+        t => format!("   {}{}{RESET}", fg(c.dim), t.trim_end()),
+    };
+    let mut tail_s = tail(nav);
+    let mut line = parts.join(&sep);
+    if visible_width(&line) + visible_width(&tail_s) > cols {
+        tail_s = tail("");
+    }
+    if visible_width(&line) + visible_width(&tail_s) > cols {
         // Trim entries from the end until it fits.
-        while parts.len() > 2 && visible_width(&parts.join(" · ")) + visible_width(&tail) > cols {
+        while parts.len() > 2 && visible_width(&parts.join(&sep)) + visible_width(&tail_s) > cols {
             parts.pop();
         }
-        line = parts.join(&format!(" {}·{RESET} ", fg(c.dim)));
+        line = parts.join(&sep);
     }
-    format!("{line}{tail}")
+    format!("{line}{tail_s}")
 }
 
 /// A horizontal bar of `width` cells for `pct` (0–100).
@@ -718,7 +747,33 @@ mod tests {
         st.mode = BarMode::Help { page: 0 };
         let h = render(&st, 1, 100);
         assert!(h.contains("notices"));
-        assert!(h.contains("(1/1)"));
+        // One page: no counter to explain, just the way out.
+        assert!(!h.contains("(1/1)"), "{h}");
+        assert!(h.contains("^b esc close"), "{h}");
+    }
+
+    #[test]
+    fn the_help_counter_names_the_key_that_turns_the_page() {
+        let mut st = state();
+        let mut msg = st.msg.clone();
+        msg.help.push(vec![("c".into(), "new pane".into())]);
+        st.apply_msg(msg);
+        st.mode = BarMode::Help { page: 0 };
+        let first = strip_ansi(&render(&st, 1, 100));
+        assert!(first.contains("(1/2) ^b h more"), "{first}");
+        st.mode = BarMode::Help { page: 1 };
+        let last = strip_ansi(&render(&st, 1, 100));
+        // The last page has nowhere to page on to; `^b h` closes, as does esc.
+        assert!(last.contains("(2/2) ^b esc close"), "{last}");
+        // The hint goes before the keys do when the bar is narrow.
+        for cols in [24usize, 40, 60] {
+            let narrow = help_line(&st, 1, cols);
+            assert!(
+                visible_width(&narrow) <= cols,
+                "cols={cols} width={}",
+                visible_width(&narrow)
+            );
+        }
     }
 
     #[test]
