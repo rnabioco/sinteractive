@@ -370,8 +370,8 @@ This installs the six skills (`hpc-compute`, `slurm-discovery`, `hpc-storage`,
 registers in your `settings.json` the two hooks (`sinteractive claude hook
 session-start` briefs the agent on the session it is in; `sinteractive claude hook
 prompt` warns when walltime is short), the statusline (`sinteractive
-statusline`, which shows model, context usage and the session's remaining time
-under the input box) and the MCP server (`sinteractive claude mcp`, via `claude mcp
+statusline`, which shows the model, context usage and the working directory
+under the input box; session state stays on the status bar) and the MCP server (`sinteractive claude mcp`, via `claude mcp
 add`). The merge is additive, idempotent and backed up; a `settings.json` that
 does not parse is left alone and the snippet printed instead. Old 0.x hook
 scripts are removed and their entries replaced.

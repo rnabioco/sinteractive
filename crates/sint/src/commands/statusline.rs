@@ -6,11 +6,11 @@
 //! `workspace.current_dir`, …), and shows the command's first line of stdout
 //! under its input box. ANSI colour is honoured.
 //!
-//! The line: `⏺ Opus · ctx 42% · ~/proj` on a login node, and inside an
-//! sinteractive session additionally `· sint 147845 mywork · 2h41m · ⚠1`.
-//! Everything session-side comes from the cache files only — the state file
-//! aged exactly and the notices file — so a 5-second refresh never touches
-//! the scheduler.
+//! The line: `⏺ Opus · ctx 42% · ~/d/r/sinteractive`, on a login node and
+//! inside a session alike. The job, the walltime left and the notice count
+//! are the status bar's: it is on screen the whole time, in every pane, and
+//! says all three in more detail than this line had room for. Printing them
+//! twice only crowded out the working directory.
 //!
 //! `install-claude` registers it as
 //! `{"statusLine":{"type":"command","command":"sinteractive statusline","refreshInterval":5}}`.
@@ -21,11 +21,9 @@ use anyhow::Result;
 use serde_json::Value;
 use sint_core::color::Palette;
 use sint_core::config::ColorMode;
-use sint_core::notices;
-use sint_core::now_epoch;
-use sint_core::time::format_short_duration;
 
-use super::common::Ctx;
+/// How wide the working directory may be before it is shortened.
+const CWD_WIDTH: usize = 36;
 
 /// Fields we read from Claude's payload; everything is optional because the
 /// schema grows over time.
@@ -61,16 +59,6 @@ pub fn parse_claude_status(json: &str) -> ClaudeStatus {
     }
 }
 
-/// Session facts for the line, from the cache only.
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct SessionBits {
-    pub job_id: u64,
-    pub name: Option<String>,
-    pub remaining: Option<i64>,
-    pub notices: usize,
-    pub severe: bool,
-}
-
 /// Abbreviate `$HOME` to `~`.
 fn tilde(path: &str) -> String {
     match std::env::var("HOME") {
@@ -79,7 +67,56 @@ fn tilde(path: &str) -> String {
     }
 }
 
-pub fn render(claude: &ClaudeStatus, session: Option<&SessionBits>, p: &Palette) -> String {
+/// The working directory, narrow enough that a deep tree cannot push the
+/// rest of the line off the terminal.
+///
+/// Past `budget` columns every directory above the last falls back to its
+/// initial — `~/d/r/s/.c/w/fix-session-cache-dir` — which bounds the width
+/// at two columns per level however deep the tree goes. Still too wide, and
+/// leading levels are dropped for a `…`; a last component wider than the
+/// budget on its own keeps its tail, which is the half that tells two long
+/// sibling directories apart.
+fn short_path(path: &str, budget: usize) -> String {
+    let full = tilde(path);
+    if full.chars().count() <= budget {
+        return full;
+    }
+    let mut parts: Vec<&str> = full.split('/').collect();
+    let leaf = parts.pop().unwrap_or_default();
+    // A dotted directory keeps its dot: `.c` is legible where `.` is not.
+    let mut initials: Vec<String> = parts
+        .iter()
+        .map(|p| {
+            p.chars()
+                .take(if p.starts_with('.') { 2 } else { 1 })
+                .collect()
+        })
+        .collect();
+    let mut elided = false;
+    loop {
+        let mut line = String::new();
+        if elided {
+            line.push_str("…/");
+        }
+        for i in &initials {
+            line.push_str(i);
+            line.push('/');
+        }
+        line.push_str(leaf);
+        if line.chars().count() <= budget {
+            return line;
+        }
+        if initials.is_empty() {
+            let n = leaf.chars().count();
+            let tail: String = leaf.chars().skip(n + 1 - budget).collect();
+            return format!("…{tail}");
+        }
+        initials.remove(0);
+        elided = true;
+    }
+}
+
+pub fn render(claude: &ClaudeStatus, p: &Palette) -> String {
     let sep = format!(" {}·{} ", p.dim, p.reset);
     let mut parts: Vec<String> = Vec::new();
     let model = claude.model.as_deref().unwrap_or("claude");
@@ -95,31 +132,12 @@ pub fn render(claude: &ClaudeStatus, session: Option<&SessionBits>, p: &Palette)
         parts.push(format!("{col}ctx {pct:.0}%{}", p.reset));
     }
     if let Some(cwd) = &claude.cwd {
-        parts.push(format!("{}{}{}", p.dim, tilde(cwd), p.reset));
-    }
-    if let Some(s) = session {
-        let mut id = format!("{}sint{} {}{}{}", p.dim, p.reset, p.id, s.job_id, p.reset);
-        if let Some(n) = &s.name {
-            id.push_str(&format!(" {}{n}{}", p.id, p.reset));
-        }
-        parts.push(id);
-        match s.remaining {
-            Some(rem) => {
-                let col = if rem <= 600 {
-                    &p.err
-                } else if rem <= 3600 {
-                    &p.warn
-                } else {
-                    &p.ok
-                };
-                parts.push(format!("{col}{}{}", format_short_duration(rem), p.reset));
-            }
-            None => parts.push(format!("{}budget stale{}", p.warn, p.reset)),
-        }
-        if s.notices > 0 {
-            let col = if s.severe { &p.err } else { &p.warn };
-            parts.push(format!("{col}⚠{}{}", s.notices, p.reset));
-        }
+        parts.push(format!(
+            "{}{}{}",
+            p.dim,
+            short_path(cwd, CWD_WIDTH),
+            p.reset
+        ));
     }
     parts.join(&sep)
 }
@@ -128,22 +146,6 @@ pub fn run() -> Result<i32> {
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
     let claude = parse_claude_status(&input);
-    let ctx = Ctx::new();
-    let session = ctx.cfg.job_id.map(|job_id| {
-        let now = now_epoch();
-        let state = ctx.state.read_state(job_id);
-        let notes = notices::read(&ctx.state, job_id);
-        SessionBits {
-            job_id,
-            name: state
-                .as_ref()
-                .and_then(|s| s.name.clone())
-                .or_else(|| ctx.cfg.name.clone()),
-            remaining: state.as_ref().and_then(|s| s.aged_remaining(now)),
-            severe: notes.iter().any(|n| n.is_severe()),
-            notices: notes.len(),
-        }
-    });
     // Claude renders ANSI, but stdout is a pipe: force colour unless the
     // user turned it off.
     let mode = match ColorMode::from_env() {
@@ -151,7 +153,7 @@ pub fn run() -> Result<i32> {
         _ => ColorMode::Always,
     };
     let p = Palette::for_fd(mode, 1);
-    println!("{}", render(&claude, session.as_ref(), &p));
+    println!("{}", render(&claude, &p));
     Ok(0)
 }
 
@@ -172,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn renders_login_and_session_lines() {
+    fn renders_the_claude_side_only() {
         let p = Palette::none();
         let c = ClaudeStatus {
             model: Some("Opus".into()),
@@ -180,23 +182,45 @@ mod tests {
             cwd: Some("/proj".into()),
             cost_usd: None,
         };
-        assert_eq!(render(&c, None, &p), "⏺ Opus · ctx 42% · /proj");
-        let s = SessionBits {
-            job_id: 147845,
-            name: Some("mywork".into()),
-            remaining: Some(9660),
-            notices: 1,
-            severe: true,
-        };
+        assert_eq!(render(&c, &p), "⏺ Opus · ctx 42% · /proj");
         assert_eq!(
-            render(&c, Some(&s), &p),
-            "⏺ Opus · ctx 42% · /proj · sint 147845 mywork · 2h 41m · ⚠1"
+            render(&ClaudeStatus::default(), &p),
+            "⏺ claude",
+            "an empty payload is still a line"
         );
-        let stale = SessionBits {
-            remaining: None,
-            notices: 0,
-            ..s
-        };
-        assert!(render(&c, Some(&stale), &p).ends_with("budget stale"));
+    }
+
+    #[test]
+    fn a_deep_working_directory_stops_growing() {
+        // Short enough to leave alone.
+        assert_eq!(short_path("~/proj", 36), "~/proj");
+        assert_eq!(
+            short_path("~/devel/rnabioco/sinteractive", 36),
+            "~/devel/rnabioco/sinteractive"
+        );
+        // Past the budget the ancestors go to initials, dots kept.
+        assert_eq!(
+            short_path(
+                "~/devel/rnabioco/sinteractive/.claude/worktrees/fix-session-cache-dir",
+                36
+            ),
+            "~/d/r/s/.c/w/fix-session-cache-dir"
+        );
+        // An absolute path keeps its leading slash.
+        assert_eq!(
+            short_path("/opt/a/bb/ccc/dddd/eeeee/ffffff/ggggggg/hhhh/crates", 36),
+            "/o/a/b/c/d/e/f/g/h/crates"
+        );
+        // Deeper still: levels drop from the left for a `…`.
+        assert_eq!(
+            short_path("~/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/leaf", 20),
+            "…/o/p/q/r/s/t/u/leaf"
+        );
+        // A leaf wider than the whole budget keeps its tail: the half that
+        // tells two long sibling directories apart.
+        assert_eq!(
+            short_path("~/x/some-very-long-directory-name-indeed", 20),
+            "…rectory-name-indeed"
+        );
     }
 }

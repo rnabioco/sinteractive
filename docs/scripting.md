@@ -256,10 +256,13 @@ on the guard.
 
 **The statusline.** `sinteractive claude statusline` is registered as Claude Code's
 `statusLine` command (`refreshInterval` 5). It shows `⏺ Opus · ctx 42% ·
-~/proj` on a login node and, inside a session, adds `· sint 147845 mywork ·
-2h41m · ⚠1` — the remaining walltime and the notice count, read from the
-cache files only, so a 5-second refresh never touches the scheduler. Theme
-follows `SINTERACTIVE_THEME` and Claude Code's own dark/light palette.
+~/d/r/sinteractive` — model, context usage and the working directory, whose
+ancestors fall back to their initial once the path is long, so a deep tree
+cannot push the rest of the line off the terminal. Nothing session-side is on
+it: the job, the walltime left and the notice count are the status bar's, on
+screen the whole time and in more detail. The line reads no files, so a
+5-second refresh costs nothing at all. Theme follows `SINTERACTIVE_THEME` and
+Claude Code's own dark/light palette.
 
 While Claude Code is running in a session whose hooks are not registered yet,
 a `sinteractive claude install` hint joins the session's notices — the
