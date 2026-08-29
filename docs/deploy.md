@@ -92,7 +92,7 @@ Then check it:
 
 ```bash
 sinteractive doctor
-#   ✓ binary   /home/me/.local/bin/sinteractive 1.0.0 (zellij 0.45.1)
+#   ✓ binary   /home/me/.local/bin/sinteractive 1.1.0 (zellij 0.45.1)
 #   ✓ plugin   status plugin embedded
 #   ✓ bundle   extracted to /home/me/.cache/sinteractive/bin/1a14af25b66b
 #   ✓ cache    /home/me/.cache/sinteractive writable on nfs (2.0 GB)

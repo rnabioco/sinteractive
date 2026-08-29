@@ -3688,7 +3688,7 @@ checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
 name = "sint"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -3720,7 +3720,7 @@ dependencies = [
 
 [[package]]
 name = "sint-core"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -3738,7 +3738,7 @@ dependencies = [
 
 [[package]]
 name = "sint-proto"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3746,7 +3746,7 @@ dependencies = [
 
 [[package]]
 name = "sint-zellij"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde",
  "serde_json",
