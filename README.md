@@ -219,10 +219,10 @@ sinteractive session peek build -n 40
 |---|---|
 | `Ctrl+b d` | Detach — the session keeps running |
 | `Ctrl+b h` (or `?`) | Key legend in the bar; again for the next page, `Esc` to close |
-| `Ctrl+b n` | Read the notices (quota, trimmed end time, hints) one at a time; `Esc` back |
+| `Ctrl+b n` | Read the notices (quota, trimmed end time, hints) one at a time; `Ctrl+b n` again for the next, `Ctrl+b Esc` closes |
 | `Ctrl+b m` | Focus the monitor panel (CPU, memory and GPU bars), opening it if it is closed; again to hand the focus back to the shell. In the panel: `←`/`→` job, `t` the full monitor TUI, `esc` back to the shell, `x` close |
 | `Ctrl+b ,` / `Ctrl+b .` | Previous / next job in the monitor panel, without focusing it |
-| `Ctrl+b q` | Your queue in a floating pane (`sinteractive queue --watch`) — running, pending and the last 24 h; `q` closes it, `r` refreshes |
+| `Ctrl+b q` | Your queue in a floating pane (`sinteractive queue --watch`) — running, pending and the last 24 h; `q` or `Esc` closes it, `r` refreshes (the pane says so on its second line) |
 | `Ctrl+b c` | New pane |
 | `Ctrl+b "` / `Ctrl+b %` | Split down / split right |
 | `Ctrl+b x` | Close the focused pane |

@@ -295,7 +295,13 @@ pub fn notices_line(st: &State, idx: usize, cols: usize) -> String {
     } else {
         c.warn
     };
-    let hint = format!("{}^b n next · ^b esc back{RESET}", fg(c.dim));
+    // The way out is named the same way everywhere: `close`. `next` only
+    // when there is a next; on the last notice `^b n` closes as well.
+    let hint = if idx + 1 < n {
+        format!("{}^b n next · ^b esc close{RESET}", fg(c.dim))
+    } else {
+        format!("{}^b n or ^b esc close{RESET}", fg(c.dim))
+    };
     let head = format!("{}⚠ {}/{n}{RESET}  ", fg(col), idx + 1);
     // The hint goes first on a narrow bar: the notice itself is the point,
     // and a truncated one-word notice is worse than no key legend.
@@ -756,7 +762,16 @@ mod tests {
         let l = render(&st, 1, 100);
         assert!(l.contains("1/1"));
         assert!(l.contains("QUOTA over by"));
-        assert!(l.contains("n next"));
+        // The only notice: no "next" to promise, both keys close.
+        assert!(l.contains("^b n or ^b esc close"), "{l}");
+        let mut two = st.msg.clone();
+        two.notices.push(two.notices[0].clone());
+        st.apply_msg(two);
+        let l = render(&st, 1, 100);
+        assert!(
+            l.contains("1/2") && l.contains("^b n next · ^b esc close"),
+            "{l}"
+        );
         for cols in [20, 30, 60, 100] {
             let short = notices_line(&st, 0, cols);
             assert!(
@@ -922,8 +937,7 @@ mod tests {
         let mut st = state();
         st.mode = BarMode::Notices { idx: 0 };
         let n = strip_ansi(&render(&st, 1, 100));
-        assert!(n.contains("^b n next"), "{n}");
-        assert!(n.contains("^b esc back"), "{n}");
+        assert!(n.contains("^b n or ^b esc close"), "{n}");
         st.mode = BarMode::Status;
         st.is_panel = true;
         st.panel_open = true;
