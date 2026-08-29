@@ -53,6 +53,13 @@ fn now_epoch() -> i64 {
         .as_secs() as i64
 }
 
+/// This machine's short hostname, the way `__job` names its own node.
+fn short_hostname() -> String {
+    let out = Command::new("hostname").output().expect("hostname");
+    let name = String::from_utf8_lossy(&out.stdout);
+    name.trim().split('.').next().unwrap_or("").to_string()
+}
+
 /// `YYYY-MM-DDTHH:MM:SS` in UTC, the way the binary reads it under `TZ=UTC`.
 fn slurm_stamp(epoch: i64) -> String {
     time::OffsetDateTime::from_unix_timestamp(epoch)
@@ -126,13 +133,22 @@ fn job_brings_up_a_session_and_tears_it_down() {
     let runtime = scratch.path().join("rt");
     fs::create_dir_all(&runtime).expect("runtime dir");
 
+    // `__job` names its node after the real hostname, and only a job
+    // submitted from that node is one of the session's.
+    let host = short_hostname();
     let fx = FakeSlurm::with_jobs(&[
         Job::new(JOB_ID, "sinteractive:t")
             .node("fakenode01")
             .end_time(&slurm_stamp(now_epoch() + 3600)),
         Job::new(4243, "sinteractive").state("PENDING"),
-        // Another running job on another node: sampled over the fake ssh.
-        Job::new(OTHER_ID, "").node("fakenode[02-03]"),
+        // Another running job on another node, launched from here by a
+        // shell that has since exited: sampled over the fake ssh.
+        Job::new(OTHER_ID, "")
+            .node("fakenode[02-03]")
+            .submitted_from(&host, 0),
+        // The user's own work from elsewhere: not this session's, never
+        // sampled.
+        Job::new(4245, "").node("fakenode04"),
     ]);
 
     let log = scratch.path().join("job.log");

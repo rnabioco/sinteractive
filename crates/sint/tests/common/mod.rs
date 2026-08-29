@@ -46,6 +46,10 @@ pub struct Job {
     pub state: String,
     pub reason: String,
     pub start_time: String,
+    /// Where the job was submitted from (`AllocNodes` / `AllocSID`); empty
+    /// and 0 — nowhere in particular — unless a test says otherwise.
+    pub alloc_node: String,
+    pub alloc_sid: u32,
 }
 
 impl Default for Job {
@@ -64,6 +68,8 @@ impl Default for Job {
             state: "RUNNING".into(),
             reason: "None".into(),
             start_time: "2026-01-01T00:00:00".into(),
+            alloc_node: String::new(),
+            alloc_sid: 0,
         }
     }
 }
@@ -127,6 +133,14 @@ impl Job {
         self
     }
 
+    /// Submitted on `node` by a process in session `sid` (0: a process
+    /// that has since exited).
+    pub fn submitted_from(mut self, node: &str, sid: u32) -> Self {
+        self.alloc_node = node.into();
+        self.alloc_sid = sid;
+        self
+    }
+
     /// The `jobs.tsv` line for this job (no trailing newline).
     pub fn to_tsv(&self) -> String {
         [
@@ -143,6 +157,8 @@ impl Job {
             self.state.clone(),
             self.reason.clone(),
             self.start_time.clone(),
+            self.alloc_node.clone(),
+            self.alloc_sid.to_string(),
         ]
         .join("\t")
     }
