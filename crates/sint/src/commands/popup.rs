@@ -46,6 +46,14 @@ fn rename(job_id: u64) -> Result<i32> {
         .job(job_id)?
         .and_then(|r| parse_comment(&r.comment).flatten());
     let hint = current.as_deref().unwrap_or("");
+    // How to leave comes first: this is a floating pane that closes when
+    // the prompt does, and someone who opened it by accident needs to know
+    // that an empty Enter (or Ctrl-C) is the way out and changes nothing.
+    eprintln!(
+        "{}rename this session{} {}— type a name and press Enter; Enter alone or Ctrl-C leaves it as it is{}",
+        p.bold, p.reset, p.dim, p.reset
+    );
+    eprintln!();
     eprint!("{}session name{} [{hint}]: ", p.key, p.reset);
     std::io::stderr().flush()?;
     let mut line = String::new();

@@ -4,6 +4,7 @@
 //!
 //! ```text
 //! ● c3gpu-a1-u1 · job 31756988 (train) · 4 CPUs 32G gpu 0,1 · 2s ago · cache
+//! q or Esc closes this · g gpu procs only · ↑↓ scroll
 //! gpu0 NVIDIA A100-SXM4-40GB          65°C  250/400W  1410MHz  1 proc
 //!      util ██████████████████░░  87%   mem ███████████████░░░░░ 31G/40G
 //! cpu  ████████░░░░░░░░░░░░  42%  of 4      ▁▂▃▅▆▇█▆▅▃▂▁
@@ -11,8 +12,10 @@
 //! load 3.0 2.0 1.0 · host 64 CPUs · 12 procs
 //!     PID USER        CPU%     RSS  GPU-MEM  SM%  S  COMMAND
 //!    4242 jay        150.0    2.0G      30G   80  R  python train.py
-//! q quit · g gpu procs only · ↑↓ scroll
 //! ```
+//!
+//! The key legend is the second row, not a footer: in the floating pane the
+//! panel's `t` opens, the way out has to be the first thing on screen.
 //!
 //! The terminal is restored on every exit path: ratatui's init installs a
 //! panic hook that restores it, and [`Restore`] does the same on drop.
@@ -249,16 +252,20 @@ fn draw(f: &mut Frame, app: &App) {
         .as_ref()
         .map(|s| s.gpus.len() as u16 * 2)
         .unwrap_or(0);
-    let [header, gpus, cpu, table, footer] = Layout::vertical([
+    // The key legend sits right under the header, not on the bottom row:
+    // in the floating pane the panel's `t` opens, the way out has to be the
+    // first thing on screen, not something to hunt for at the foot.
+    let [header, keys, gpus, cpu, table] = Layout::vertical([
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(gpu_rows),
         Constraint::Length(3),
         Constraint::Min(1),
-        Constraint::Length(1),
     ])
     .areas(area);
 
     f.render_widget(Paragraph::new(header_line(app)), header);
+    f.render_widget(Paragraph::new(keys_line(app)), keys);
     match &app.latest {
         Some(s) => {
             f.render_widget(Paragraph::new(gpu_lines(s, &c, gpus.width)), gpus);
@@ -276,7 +283,6 @@ fn draw(f: &mut Frame, app: &App) {
             );
         }
     }
-    f.render_widget(Paragraph::new(footer_line(app)), footer);
 }
 
 fn header_line(app: &App) -> Line<'static> {
@@ -505,13 +511,16 @@ fn table_lines(app: &App, s: &Snapshot, area: Rect) -> Vec<Line<'static>> {
     out
 }
 
-fn footer_line(app: &App) -> Line<'static> {
+/// The key legend, second row of the screen. The way out comes first.
+fn keys_line(app: &App) -> Line<'static> {
     let c = app.colors;
     let key = Style::default().fg(c.hint);
     let dim = Style::default().fg(c.dim);
     Line::from(vec![
         Span::styled("q", key),
-        Span::styled(" quit · ", dim),
+        Span::styled(" or ", dim),
+        Span::styled("Esc", key),
+        Span::styled(" closes this · ", dim),
         Span::styled("g", key),
         Span::styled(
             if app.gpu_only {
@@ -719,8 +728,8 @@ mod tests {
         );
         empty.apply(Msg::Waiting("no snapshot yet".into()));
         assert_eq!(text(&[header_line(&empty)]), "● node01 · ssh");
-        let f = text(&[footer_line(&empty)]);
-        assert_eq!(f, "q quit · g gpu procs only · ↑↓ scroll");
+        let k = text(&[keys_line(&empty)]);
+        assert_eq!(k, "q or Esc closes this · g gpu procs only · ↑↓ scroll");
     }
 
     #[test]

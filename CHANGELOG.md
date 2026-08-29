@@ -10,6 +10,18 @@ and this project adheres to
 
 ### Fixed
 
+- Every popup says how to leave it, at the top. The queue view (`Ctrl+b q`)
+  had its key legend pinned to the bottom row, which in a short floating
+  pane is the last place the eye goes; it is now the line under the title —
+  `q or Esc closes this · r refreshes · redraws every 5 s` — and the closing
+  part is never dropped, however narrow the pane. The monitor TUI (`t` from
+  the panel) moves its legend from the footer to the row under its header
+  and spells out `q or Esc closes this`. The rename prompt (`Ctrl+b $`)
+  opens with a line saying that Enter alone or Ctrl-C leaves the name as it
+  is. The bar's notices popup (`Ctrl+b n`) says `close` rather than `back`,
+  and on the last notice `^b n or ^b esc close` instead of promising a
+  `next` that is not there.
+
 - `wait_for_event` no longer loses an event whose line was half-written when
   the call began. It took the file's length as its starting point, and the
   sampler appends a line in more than one write now and then, so a call that

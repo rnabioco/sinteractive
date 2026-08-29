@@ -38,8 +38,8 @@ const FINISHED: [&str; 6] = [
 
 const WATCH_EVERY: Duration = Duration::from_secs(5);
 
-/// Rows the watch frame keeps for itself: the title, the blank under it,
-/// and the key legend pinned to the last row.
+/// Rows the watch frame keeps for itself: the title, the key legend under
+/// it, and the blank before the tables.
 const WATCH_CHROME: usize = 3;
 
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
@@ -174,15 +174,16 @@ pub fn run(args: QueueArgs) -> Result<i32> {
         }
         if let Wait::Quit = wait(WATCH_EVERY)? {
             // Leave the cursor on a line of its own: raw mode left it
-            // wherever the legend ended, and a shell prompt would land there.
+            // wherever the frame ended, and a shell prompt would land there.
             println!("\r");
             return Ok(0);
         }
     }
 }
 
-/// One redraw: a title saying what this is, the tables, and a key legend
-/// pinned to the bottom row.
+/// One redraw: a title saying what this is, the key legend right under it
+/// — the way out is the first thing to read, not something to hunt for at
+/// the foot of a pane — then the tables.
 ///
 /// The body is clipped to `size` rather than allowed to overflow. The
 /// floating pane `Ctrl+b q` opens is short and the recent list is long, and
@@ -199,8 +200,8 @@ fn watch_frame(
     let (reset, bold, dim) = (&p.reset, &p.bold, &p.dim);
     let cols = size.map(|(c, _)| c).unwrap_or(usize::MAX);
     // Widest first: the subtitle goes when the pane is too narrow for it,
-    // then the clock. A title that wraps costs a body row and unpins the
-    // legend from the bottom.
+    // then the clock. A title that wraps costs a body row and pushes the
+    // legend down.
     let (name, sub, clock) = (
         "sinteractive queue",
         " — running, pending, recent",
@@ -221,11 +222,11 @@ fn watch_frame(
         lines.pop();
     }
     let Some((_, rows)) = size else {
-        return format!("{title}\n\n{}\n\n{legend}\n", lines.join("\n"));
+        return format!("{title}\n{legend}\n\n{}\n", lines.join("\n"));
     };
     let room = rows.saturating_sub(WATCH_CHROME);
     if room == 0 {
-        return title;
+        return format!("{title}\n{legend}");
     }
     if lines.len() > room {
         // The clipped rows are the oldest of the recent history, so the
@@ -236,13 +237,13 @@ fn watch_frame(
             "  {dim}… {hidden} more — `sinteractive queue` prints them all{reset}"
         ));
     }
-    lines.resize(room, String::new());
-    format!("{title}\n\n{}\n{legend}", lines.join("\n"))
+    format!("{title}\n{legend}\n\n{}", lines.join("\n"))
 }
 
-/// The legend, dropped to its shortest form on a narrow pane. `q` comes
-/// first in every form: it is the one key someone who opened the popup by
-/// accident needs.
+/// The legend, dropped to its shortest form on a narrow pane. The way out
+/// comes first and is never dropped: it is the one thing someone who opened
+/// the popup by accident needs, so on a pane too narrow even for that it
+/// is still printed and the terminal clips it.
 fn watch_legend(p: &Palette, keys: bool, cols: usize) -> String {
     let (reset, dim, key) = (&p.reset, &p.dim, &p.key);
     if !keys {
@@ -251,18 +252,24 @@ fn watch_legend(p: &Palette, keys: bool, cols: usize) -> String {
     // Each part carries its own plain text, because the styled one is mostly
     // escapes and `len()` on it means nothing.
     let parts = [
-        ("q quit", format!("{key}q{reset}{dim} quit{reset}")),
         (
-            "   r refresh",
-            format!("   {key}r{reset}{dim} refresh{reset}"),
+            "q or Esc closes this",
+            format!("{key}q{reset}{dim} or {reset}{key}Esc{reset}{dim} closes this{reset}"),
         ),
-        ("   every 5 s", format!("   {dim}every 5 s{reset}")),
+        (
+            "   r refreshes",
+            format!("   {key}r{reset}{dim} refreshes{reset}"),
+        ),
+        (
+            "   redraws every 5 s",
+            format!("   {dim}redraws every 5 s{reset}"),
+        ),
     ];
     let mut line = String::new();
     let mut used = 0;
-    for (plain, styled) in parts {
+    for (i, (plain, styled)) in parts.into_iter().enumerate() {
         used += plain.chars().count();
-        if used > cols {
+        if used > cols && i > 0 {
             break;
         }
         line.push_str(&styled);
@@ -549,12 +556,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_watch_frame_names_itself_and_keeps_its_legend_on_screen() {
+    fn the_watch_frame_names_itself_and_says_how_to_leave_up_top() {
         let p = Palette::none();
         let body: String = (0..40).map(|i| format!("row {i}\n")).collect();
         let frame = watch_frame(&body, &p, "12:00:00", Some((80, 12)), true);
         let lines: Vec<&str> = frame.lines().collect();
-        // Exactly the pane: title, blank, 9 body rows, legend. Any more and
+        // Exactly the pane: title, legend, blank, 9 body rows. Any more and
         // the terminal scrolls the title and the legend out of sight.
         assert_eq!(lines.len(), 12, "{frame}");
         assert!(
@@ -562,22 +569,29 @@ mod tests {
             "{frame}"
         );
         assert!(lines[0].ends_with("12:00:00"), "{frame}");
-        assert!(lines[10].contains("… 32 more"), "{frame}");
-        assert!(lines[11].starts_with("q quit"), "{frame}");
+        assert_eq!(
+            lines[1],
+            "q or Esc closes this   r refreshes   redraws every 5 s"
+        );
+        assert_eq!(lines[2], "");
+        assert_eq!(lines[3], "row 0");
+        assert!(lines[11].contains("… 32 more"), "{frame}");
 
-        // A body that fits keeps the legend on the bottom row all the same.
+        // A body that fits: same chrome, then the rows, nothing padded.
         let short = watch_frame("row 0\nrow 1\n", &p, "12:00:00", Some((80, 12)), true);
         let lines: Vec<&str> = short.lines().collect();
-        assert_eq!(lines.len(), 12, "{short}");
-        assert_eq!(lines[2], "row 0");
-        assert!(lines[11].starts_with("q quit"), "{short}");
+        assert_eq!(lines.len(), 5, "{short}");
+        assert!(lines[1].starts_with("q or Esc closes this"), "{short}");
+        assert_eq!(lines[3], "row 0");
 
-        // Narrow: the title loses its subtitle and the legend its extras,
-        // and `q` survives both.
-        let narrow = watch_frame(&body, &p, "12:00:00", Some((12, 12)), true);
+        // Narrow: the title loses its subtitle and the legend its extras;
+        // the way out survives both, even on a pane too narrow to hold it.
+        let narrow = watch_frame(&body, &p, "12:00:00", Some((22, 12)), true);
         let lines: Vec<&str> = narrow.lines().collect();
         assert_eq!(lines[0], "sinteractive queue");
-        assert_eq!(lines[11], "q quit");
+        assert_eq!(lines[1], "q or Esc closes this");
+        let tiny = watch_frame(&body, &p, "12:00:00", Some((8, 12)), true);
+        assert_eq!(tiny.lines().nth(1), Some("q or Esc closes this"));
 
         // Without keys the legend says what does work instead.
         let piped = watch_frame(&body, &p, "12:00:00", None, false);
