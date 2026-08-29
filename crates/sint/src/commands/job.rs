@@ -27,11 +27,15 @@
 //! job is read every [`SAMPLE_EVERY`] seconds and written to
 //! `<jobid>.metrics.json` every [`METRICS_EVERY`] (what `monitor` reads on
 //! a login node); it also feeds the bar's `cpu 34% 12/32G` / `gpu0 87%`
-//! fields and the monitor panel's own-host entry. The user's other RUNNING
-//! jobs are sampled every [`REMOTE_EVERY`] seconds on a background thread
-//! (`ssh NODE sinteractive snapshot --json --job ID`, or that job's own
-//! fresh `<id>.metrics.json` when it is an sinteractive session) and appear
-//! as further panel entries.
+//! fields and the monitor panel's own-host entry. The RUNNING jobs launched
+//! from this session are sampled every [`REMOTE_EVERY`] seconds on a
+//! background thread (`ssh NODE sinteractive snapshot --json --job ID` —
+//! run directly for a job on this node — or that job's own fresh
+//! `<id>.metrics.json` when it is an sinteractive session) and appear as
+//! further panel entries. Which jobs those are is Slurm's word first
+//! ([`launched_here`]) and the job's own environment last
+//! ([`Origin`]): the first sample of a job that only looked like ours
+//! settles it, and it is neither shown nor sampled again.
 //!
 //! Session events (`started`, `walltime_warn`, `walltime_red`,
 //! `quota_over`, `job_done`, `gpu_idle`, `ended`) are appended to
@@ -55,7 +59,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context, Result};
 use sint_core::config::Config;
 use sint_core::events::{self, Event};
-use sint_core::metrics::{self, Sampler, Snapshot};
+use sint_core::metrics::{self, Origin, Sampler, Snapshot};
 use sint_core::notices::{self, Notice};
 use sint_core::now_epoch;
 use sint_core::quota::{self, QuotaSnapshot};
@@ -337,6 +341,13 @@ pub struct JobLoop {
     /// queue. Always empty when the user has opted in to seeing them,
     /// because then nothing needs classifying.
     sessions: HashSet<u64>,
+    /// Which queued jobs Slurm's record says were launched from here
+    /// ([`launched_here`]), refreshed with the queue.
+    candidates: HashSet<u64>,
+    /// What a job's own environment said about where it was launched from,
+    /// from its first sample; kept while the job is queued, since a job
+    /// does not change its mind.
+    origins: HashMap<u64, Origin>,
     alive_checked: Option<i64>,
     /// Consecutive failed alive checks.
     alive_misses: u32,
@@ -385,6 +396,8 @@ impl JobLoop {
             queue: Vec::new(),
             seen_jobs: HashMap::new(),
             sessions: HashSet::new(),
+            candidates: HashSet::new(),
+            origins: HashMap::new(),
             alive_checked: None,
             alive_misses: 0,
             last_sent: None,
@@ -434,8 +447,8 @@ impl JobLoop {
         v
     }
 
-    /// The monitor panel's hosts: this node first, then every other
-    /// running job that has answered, by job id.
+    /// The monitor panel's hosts: this node first, then every running job
+    /// launched from here that has answered, by job id.
     fn hosts(&self, now: i64) -> Vec<HostPanel> {
         let mut v = Vec::new();
         if let Some(s) = &self.local {
@@ -573,6 +586,20 @@ impl JobLoop {
         } else {
             deps.session_ids()
         };
+        // Slurm's word on where each job was launched from. A job's own
+        // environment, once sampled, has the last word (`origins`); a
+        // verdict is kept while the job is queued and dropped with it.
+        self.candidates = queue
+            .iter()
+            .filter(|j| {
+                j.job_id != self_id
+                    && launched_here(j, &self.cfg.host, self_id, || {
+                        deps.submitter_session(j.alloc_sid)
+                    })
+            })
+            .map(|j| j.job_id)
+            .collect();
+        self.origins.retain(|id, _| self.seen_jobs.contains_key(id));
 
         // Two different questions: a job that is merely not monitored is
         // still running, and its `<id>.metrics.json` belongs to whoever
@@ -596,37 +623,60 @@ impl JobLoop {
                 deps.remove_metrics(id);
             }
         }
-        let mine: Vec<QueueJob> = queue
+        self.queue = queue;
+        self.reclassify();
+    }
+
+    /// Whether `job_id` was launched from this session: submitted on this
+    /// node by a shell of ours as far as Slurm can tell, and not since
+    /// contradicted by the job's own environment.
+    fn ours(&self, job_id: u64) -> bool {
+        self.candidates.contains(&job_id)
+            && self
+                .origins
+                .get(&job_id)
+                .is_none_or(|o| o.session == Some(self.cfg.job_id))
+    }
+
+    /// What follows from the classification: the `2R 1PD` summary, and the
+    /// panel entries of jobs that are no longer monitored.
+    fn reclassify(&mut self) {
+        let self_id = self.cfg.job_id;
+        let mine: Vec<QueueJob> = self
+            .queue
             .iter()
-            .filter(|j| {
-                j.job_id != self_id
-                    && launched_here(j, &self.cfg.host, self_id, || {
-                        deps.submitter_session(j.alloc_sid)
-                    })
-            })
+            .filter(|j| j.job_id != self_id && self.ours(j.job_id))
             .cloned()
             .collect();
         self.jobs = jobs_summary(&mine, self_id);
-        self.queue = queue;
+        let dropped: Vec<u64> = self
+            .remotes
+            .keys()
+            .filter(|id| !self.monitored(**id))
+            .copied()
+            .collect();
+        for id in dropped {
+            self.remotes.remove(&id);
+        }
     }
 
-    /// Whether the panel should carry this job at all. See
+    /// Whether the panel should carry this job at all: launched from this
+    /// session ([`Self::ours`]) and not itself a session — see
     /// [`Deps::session_ids`]; `self.sessions` is empty when the user has
-    /// opted in, so this is then true for every other job.
+    /// opted in, so sessions launched from here are then shown too.
     fn monitored(&self, job_id: u64) -> bool {
-        job_id != self.cfg.job_id && !self.sessions.contains(&job_id)
+        job_id != self.cfg.job_id && !self.sessions.contains(&job_id) && self.ours(job_id)
     }
 
-    /// The other monitored running jobs not on this node.
+    /// The monitored running jobs, on this node or another.
     fn remote_targets(&self) -> Vec<RemoteTarget> {
         self.queue
             .iter()
             .filter(|j| j.state == "RUNNING" && self.monitored(j.job_id))
             .filter_map(|j| {
-                let node = first_node(&j.node)?;
-                (node != self.cfg.host).then_some(RemoteTarget {
+                Some(RemoteTarget {
                     job_id: j.job_id,
-                    node,
+                    node: first_node(&j.node)?,
                 })
             })
             .collect()
@@ -642,7 +692,17 @@ impl JobLoop {
                 deps.poll_remote(&targets);
             }
         }
+        let mut settled = false;
         for r in deps.take_remote() {
+            // The job's own environment, on its first sample: the answer
+            // Slurm's record could only guess at. Recorded before anything
+            // else, so a job that turns out to be someone else's is neither
+            // shown nor written out, now or later.
+            if let Some(o) = &r.snapshot.scope.origin {
+                if self.origins.insert(r.job_id, o.clone()).as_ref() != Some(o) {
+                    settled = true;
+                }
+            }
             // A round in flight when the classification changed can still
             // land: drop it whole rather than cache it. Writing
             // `<id>.metrics.json` for another session would overwrite what
@@ -654,6 +714,9 @@ impl JobLoop {
                 deps.write_metrics(r.job_id, &r.snapshot);
             }
             self.remotes.insert(r.job_id, r.snapshot);
+        }
+        if settled {
+            self.reclassify();
         }
     }
 
@@ -857,10 +920,14 @@ impl JobLoop {
 /// submitted on this session's node is a candidate. `submitter` then reads
 /// that process's environment: a live shell inside a session names the
 /// session it belongs to, so a sibling session's job on the same node is
-/// excluded. A submitter that has already exited (`sbatch` or `salloc
-/// --no-shell` from a script, which returns immediately) cannot be asked,
-/// and the job counts on the node alone rather than going missing from the
-/// session that started it.
+/// excluded. A submitter that has already exited cannot be asked, and the
+/// job counts on the node alone rather than going missing from the session
+/// that started it — which happens all the time, not only for `sbatch`
+/// from a script: an agent's every command runs in a shell that is gone
+/// the moment it returns, and so is a pane the user has closed. That is
+/// why this is only Slurm's word: for a running job, its own environment
+/// ([`Origin`]) has the last one, and a job that a previous session on
+/// this node started is dropped on its first sample.
 pub fn launched_here(
     job: &QueueJob,
     host: &str,
@@ -1125,14 +1192,14 @@ struct RemotePoller {
 }
 
 impl RemotePoller {
-    fn start(state: StateDir, exe: PathBuf) -> Self {
+    fn start(state: StateDir, exe: PathBuf, host: String) -> Self {
         let (req, req_rx) = mpsc::sync_channel::<Vec<RemoteTarget>>(1);
         let (res_tx, res) = mpsc::channel();
         let _ = std::thread::Builder::new()
             .name("remote-poll".into())
             .spawn(move || {
                 for targets in req_rx {
-                    for r in fetch_remote(&state, &exe, &targets) {
+                    for r in fetch_remote(&state, &exe, &host, &targets) {
                         if res_tx.send(r).is_err() {
                             return;
                         }
@@ -1152,10 +1219,17 @@ impl RemotePoller {
 }
 
 /// One round: a target's own fresh `<id>.metrics.json` is used as is;
-/// the rest get `ssh NODE <exe> snapshot --json --job ID`, all spawned at
-/// once, with [`REMOTE_TIMEOUT`] for the lot. A target that fails (no ssh
-/// access, no binary there, timeout) is simply absent from the result.
-fn fetch_remote(state: &StateDir, exe: &Path, targets: &[RemoteTarget]) -> Vec<RemoteSnapshot> {
+/// the rest get `ssh NODE <exe> snapshot --json --job ID` — `<exe>
+/// snapshot` run directly for a job on `host`, this node, which needs no
+/// ssh and may not even allow it — all spawned at once, with
+/// [`REMOTE_TIMEOUT`] for the lot. A target that fails (no ssh access, no
+/// binary there, timeout) is simply absent from the result.
+fn fetch_remote(
+    state: &StateDir,
+    exe: &Path,
+    host: &str,
+    targets: &[RemoteTarget],
+) -> Vec<RemoteSnapshot> {
     let now = now_epoch();
     let mut out = Vec::new();
     let mut pending: Vec<(u64, Child, std::fs::File)> = Vec::new();
@@ -1170,11 +1244,6 @@ fn fetch_remote(state: &StateDir, exe: &Path, targets: &[RemoteTarget]) -> Vec<R
                 continue;
             }
         }
-        let remote = format!(
-            "{} snapshot --json --job {}",
-            shell_quote(&exe.to_string_lossy()),
-            t.job_id
-        );
         // stdout goes to a file, not a pipe: nothing to drain while the
         // children run, however long a process list they print.
         let Ok(file) = tempfile::tempfile() else {
@@ -1183,7 +1252,20 @@ fn fetch_remote(state: &StateDir, exe: &Path, targets: &[RemoteTarget]) -> Vec<R
         let Ok(clone) = file.try_clone() else {
             continue;
         };
-        let child = ssh_batch(&t.node, 5, &remote)
+        let job = t.job_id.to_string();
+        let mut cmd = if t.node == host {
+            let mut c = Command::new(exe);
+            c.args(["snapshot", "--json", "--job", &job]);
+            c
+        } else {
+            let remote = format!(
+                "{} snapshot --json --job {job}",
+                shell_quote(&exe.to_string_lossy())
+            );
+            ssh_batch(&t.node, 5, &remote)
+        };
+        let child = cmd
+            .stdin(Stdio::null())
             .stdout(Stdio::from(clone))
             .stderr(Stdio::null())
             .spawn();
@@ -1534,7 +1616,7 @@ pub fn run(args: JobArgs) -> Result<i32> {
         uid,
         claude_dir,
         sampler: Sampler::for_current_job(),
-        remote: RemotePoller::start(ctx.state.clone(), exe),
+        remote: RemotePoller::start(ctx.state.clone(), exe, lcfg.host.clone()),
     };
     let mut lp = JobLoop::new(lcfg);
     let mut ended_by_us = false;
@@ -1587,7 +1669,7 @@ pub fn run(args: JobArgs) -> Result<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sint_core::metrics::{Cpu, Gpu, GpuProc, Mem, Scope};
+    use sint_core::metrics::{Cpu, Gpu, GpuProc, Mem, Origin, Scope};
 
     #[derive(Default)]
     struct Fake {
@@ -2178,10 +2260,101 @@ mod tests {
         let mut lp = JobLoop::new(cfg());
         lp.step(T0, &mut f);
         assert_eq!(f.sent.last().unwrap().jobs, "1R");
-        // The monitor panel is a different question — you watch a job you
-        // started anywhere — so every other running job is still polled.
+        // The monitor panel is the same question: only the job launched
+        // from here is polled at all.
+        let asked: Vec<u64> = f.remote_requests[0].iter().map(|t| t.job_id).collect();
+        assert_eq!(asked, vec![9001]);
+    }
+
+    #[test]
+    fn a_job_s_own_environment_settles_where_it_was_launched_from() {
+        let mut f = Fake::alive(Some(T0 + 7200));
+        f.local = Some(snap(T0, 10.0, 1024));
+        // Three jobs submitted on this node by shells that have since
+        // exited — an agent's, a closed pane's, a previous session's on
+        // this node. Slurm's record cannot tell them apart, so all three
+        // are candidates, counted and polled.
+        let stale = |id: u64, node: &str| QueueJob {
+            job_id: id,
+            state: "RUNNING".into(),
+            node: node.into(),
+            alloc_node: "node01".into(),
+            alloc_sid: 9,
+            name: Some("job".into()),
+        };
+        f.queue = Some(vec![
+            qjob(4242, "RUNNING", "node01", Some("sint-t")),
+            stale(9001, "n2"),
+            stale(9002, "n3"),
+            stale(9003, "n4"),
+        ]);
+        let mut lp = JobLoop::new(cfg());
+        lp.step(T0, &mut f);
+        assert_eq!(f.sent.last().unwrap().jobs, "3R");
         let asked: Vec<u64> = f.remote_requests[0].iter().map(|t| t.job_id).collect();
         assert_eq!(asked, vec![9001, 9002, 9003]);
+
+        // Their own environments answer: launched from here, from another
+        // session, and from a plain shell.
+        let with = |ts: i64, session: Option<u64>| {
+            let mut s = snap(ts, 50.0, 1024);
+            s.scope.origin = Some(Origin { session });
+            s
+        };
+        f.remote_ready = vec![
+            RemoteSnapshot {
+                job_id: 9001,
+                snapshot: with(T0 + 1, Some(4242)),
+                fetched: true,
+            },
+            RemoteSnapshot {
+                job_id: 9002,
+                snapshot: with(T0 + 1, Some(77)),
+                fetched: true,
+            },
+            RemoteSnapshot {
+                job_id: 9003,
+                snapshot: with(T0 + 1, None),
+                fetched: true,
+            },
+        ];
+        lp.step(T0 + 2, &mut f);
+        let m = f.sent.last().unwrap();
+        let shown: Vec<u64> = m.hosts.iter().map(|h| h.job_id).collect();
+        assert_eq!(shown, vec![4242, 9001], "{:?}", m.hosts);
+        assert_eq!(m.jobs, "1R");
+        // The other two were never written out, and are not asked again.
+        assert!(
+            !f.metrics.iter().any(|(id, _)| *id == 9002 || *id == 9003),
+            "{:?}",
+            f.metrics
+        );
+        lp.step(T0 + REMOTE_EVERY + 2, &mut f);
+        let asked: Vec<u64> = f.remote_requests[1].iter().map(|t| t.job_id).collect();
+        assert_eq!(asked, vec![9001]);
+        // The verdict outlives the queue refresh that first let them in.
+        lp.step(T0 + JOBS_EVERY + 5, &mut f);
+        assert_eq!(f.sent.last().unwrap().jobs, "1R");
+
+        // A job with nothing to read yet — an allocation between steps —
+        // stays on Slurm's word until it has.
+        f.queue = Some(vec![
+            qjob(4242, "RUNNING", "node01", Some("sint-t")),
+            stale(9001, "n2"),
+            stale(9004, "n5"),
+        ]);
+        f.remote_ready = vec![RemoteSnapshot {
+            job_id: 9004,
+            snapshot: snap(T0 + 90, 0.0, 0),
+            fetched: true,
+        }];
+        // Past the queue cadence (the last refresh was at T0 + 35).
+        lp.step(T0 + 3 * JOBS_EVERY, &mut f);
+        lp.step(T0 + 3 * JOBS_EVERY + 1, &mut f);
+        let m = f.sent.last().unwrap();
+        assert_eq!(m.jobs, "2R");
+        let shown: Vec<u64> = m.hosts.iter().map(|h| h.job_id).collect();
+        assert_eq!(shown, vec![4242, 9001, 9004], "{:?}", m.hosts);
     }
 
     #[test]
@@ -2476,14 +2649,21 @@ mod tests {
         ]);
         let mut lp = JobLoop::new(cfg());
         lp.step(T0, &mut f);
-        // One request on the first tick: the running job on another node
-        // only (the one sharing this node is sampled by our own scope).
+        // One request on the first tick, for both running jobs: the one on
+        // another node, and the one sharing this node, which is sampled
+        // here without ssh.
         assert_eq!(
             f.remote_requests,
-            vec![vec![RemoteTarget {
-                job_id: 9001,
-                node: "c3cpu-a2-u3".into()
-            }]]
+            vec![vec![
+                RemoteTarget {
+                    job_id: 9001,
+                    node: "c3cpu-a2-u3".into()
+                },
+                RemoteTarget {
+                    job_id: 9003,
+                    node: "node01".into()
+                }
+            ]]
         );
         lp.step(T0 + 5, &mut f);
         assert_eq!(f.remote_requests.len(), 1, "not before REMOTE_EVERY");
@@ -2535,13 +2715,11 @@ mod tests {
         assert_eq!(f.removed, vec![9001]);
         assert_eq!(f.sent.last().unwrap().hosts.len(), 1);
         assert_eq!(f.kinds(), ["started", "job_done"]);
-        // Nothing left to poll on other nodes: no further requests.
+        // Only the job on this node is left to poll.
         lp.step(T0 + 40, &mut f);
-        assert_eq!(f.remote_requests.len(), 2, "{:?}", f.remote_requests);
-        assert!(f
-            .remote_requests
-            .iter()
-            .all(|r| r.len() == 1 && r[0].job_id == 9001));
+        let last = f.remote_requests.last().unwrap();
+        assert_eq!(last.len(), 1, "{:?}", f.remote_requests);
+        assert_eq!(last[0].job_id, 9003);
     }
 
     #[test]

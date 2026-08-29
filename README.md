@@ -35,7 +35,7 @@ environment variables.
 | Multiple panes | No | Yes — splits, zoom, scrollback (`Ctrl+b`) |
 | Mouse and copy | Terminal's own | Mouse on by default; select-to-copy lands in your local clipboard |
 | Status bar | None | Job id, node, walltime left, your queue, notices (`⚠ N notices`) |
-| Monitor panel | None | `Ctrl+b m`: CPU, memory and GPU bars for every job you can see, in-session; `t` for the full process view |
+| Monitor panel | None | `Ctrl+b m`: CPU, memory and GPU bars for this session and every job launched from it, in-session; `t` for the full process view |
 | Remote read/drive | None | `sinteractive session peek` / `send` from the login node or an agent |
 | X11 forwarding | Manual setup | `attach --ssh` (`ssh -X`) |
 

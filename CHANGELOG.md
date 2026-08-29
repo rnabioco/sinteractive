@@ -10,6 +10,27 @@ and this project adheres to
 
 ### Fixed
 
+- The monitor panel lists the jobs launched from this session, and only
+  those. It listed every running job the user owns, while the bar's
+  `3R launched` count used Slurm's record of where a job was submitted
+  from — which is blind whenever the submitting shell has exited, and it
+  always has: an agent's every command runs in a shell that is gone the
+  moment it returns, and so is a closed pane. Any job of yours submitted on
+  this node by an earlier session, or a stray shell, was counted as this
+  session's. Both now use the same test, and a running job has the last
+  word itself: Slurm hands a job the environment of the shell that
+  submitted it, and a session exports `SINTERACTIVE_JOB_ID` into every
+  shell it runs, so the job's own processes say which session started it
+  for as long as it runs. The panel and the count ask Slurm first (a job
+  submitted elsewhere is never a candidate), then the job's first sample
+  settles it — a job that another session started is neither shown nor
+  sampled again. A pending job has no processes yet and stays on Slurm's
+  word; so does an allocation between steps. `snapshot --json` and
+  `<id>.metrics.json` carry the answer as `scope.origin`
+  (`{"session": ID}`, `{"session": null}` for a plain shell, absent when
+  nothing could be read). A job launched from here that lands on this very
+  node is now sampled too, directly rather than over ssh; it was skipped.
+
 - Every popup says how to leave it, at the top. The queue view (`Ctrl+b q`)
   had its key legend pinned to the bottom row, which in a short floating
   pane is the last place the eye goes; it is now the line under the title —
