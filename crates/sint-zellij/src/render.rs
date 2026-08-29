@@ -514,19 +514,45 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         return out;
     };
     out.push(job_strip(st, cols));
-    // Resource rows.
-    let bw = 20usize.min(cols.saturating_sub(30).max(5));
+    // The resource rows share one grid — label, bar, percentage, then the
+    // row's own detail — so a `gpu0` under `cpu` and `mem` does not set its
+    // bar one cell to the right of theirs. The label column is as wide as
+    // the widest label that can turn up (`trend`, or a two-digit GPU), not
+    // the widest on this host, so the grid stays put as the selection moves
+    // between a CPU job and a GPU job.
+    let gpu_rows = h.gpus.len().min(rows.saturating_sub(out.len() + 2));
+    let lw = h.gpus[..gpu_rows]
+        .iter()
+        .map(|g| format!("gpu{}", g.index).len())
+        .fold("trend".len(), usize::max);
+    // Everything after the bar, at its widest: ` 100%  31G / 40G  61°C 240W `
+    // and the GPU row's memory mini-bar.
+    let bw = 24usize.min(cols.saturating_sub(lw + 1 + 34 + GPU_MEM_BAR).max(5));
+    let label = |s: &str| format!("{}{s:<lw$}{RESET}", fg(c.dim));
+    let pct = |p: u8| format!("{}{p:>3}%{RESET}", fg(c.text));
+    // `used / total`, the amount right-aligned and the total padded on the
+    // right when something follows it, so the slashes and what comes after
+    // line up between the memory row and the GPU rows.
+    let used_of = |used: u64, total: u64, tw: usize| {
+        format!(
+            "{}{:>4}{RESET} {}/{RESET} {}{:<tw$}{RESET}",
+            fg(c.text),
+            mb_to_g(used),
+            fg(c.dim),
+            fg(c.text),
+            mb_to_g(total)
+        )
+    };
     let stale = if h.age_secs > 30 {
         format!("  {}{}s old{RESET}", fg(c.warn), h.age_secs)
     } else {
         String::new()
     };
     out.push(format!(
-        "{}cpu{RESET} {} {}{:>3}%{RESET} {}of{RESET} {}{}{RESET} {}·{RESET} {}load{RESET} {}{:.1}{RESET}{stale}",
-        fg(c.dim),
+        "{} {} {}  {}of{RESET} {}{}{RESET} {}·{RESET} {}load{RESET} {}{:.1}{RESET}{stale}",
+        label("cpu"),
         bar(h.cpu_pct, bw, c.ok, c.track),
-        fg(c.text),
-        h.cpu_pct,
+        pct(h.cpu_pct),
         fg(c.dim),
         fg(c.text),
         h.cpu_alloc,
@@ -537,17 +563,13 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
     ));
     let mem_pct = pct_of(h.mem_used_mb, h.mem_alloc_mb);
     out.push(format!(
-        "{}mem{RESET} {} {}{:>3}% {}{RESET} {}/{RESET} {}{}{RESET}",
-        fg(c.dim),
+        "{} {} {}  {}",
+        label("mem"),
         bar(mem_pct, bw, c.accent, c.track),
-        fg(c.text),
-        mem_pct,
-        mb_to_g(h.mem_used_mb),
-        fg(c.dim),
-        fg(c.text),
-        mb_to_g(h.mem_alloc_mb)
+        pct(mem_pct),
+        used_of(h.mem_used_mb, h.mem_alloc_mb, 0)
     ));
-    for g in h.gpus.iter().take(rows.saturating_sub(out.len())) {
+    for g in &h.gpus[..gpu_rows] {
         let mem_pct = pct_of(g.mem_used_mb, g.mem_total_mb);
         let extra = [
             g.temp_c.map(|t| format!("{t}°C")),
@@ -558,32 +580,31 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         .collect::<Vec<_>>()
         .join(" ");
         out.push(format!(
-            "{}gpu{}{RESET} {} {}{:>3}%{RESET} {}{}/{}{RESET} {}{}{RESET} {}",
-            fg(c.dim),
-            g.index,
+            "{} {} {}  {}  {}{:<10}{RESET} {}",
+            label(&format!("gpu{}", g.index)),
             bar(g.util_pct, bw, c.warn, c.track),
-            fg(c.text),
-            g.util_pct,
-            fg(c.dim),
-            mb_to_g(g.mem_used_mb),
-            mb_to_g(g.mem_total_mb),
+            pct(g.util_pct),
+            used_of(g.mem_used_mb, g.mem_total_mb, 4),
             fg(c.text),
             extra,
-            bar(mem_pct, 8, c.accent, c.track)
+            bar(mem_pct, GPU_MEM_BAR, c.accent, c.track)
         ));
     }
     // A CPU-only job leaves rows over: spend them on where the load has
     // been, which is the one thing a bar cannot say.
     if out.len() < rows && h.cpu_history.len() > 1 {
         out.push(format!(
-            "{}trend{RESET} {}",
-            fg(c.dim),
-            sparkline(&h.cpu_history, cols.saturating_sub(8))
+            "{} {}",
+            label("trend"),
+            sparkline(&h.cpu_history, cols.saturating_sub(lw + 1))
         ));
     }
     out.truncate(rows);
     out
 }
+
+/// Width of the memory mini-bar at the end of a GPU row.
+const GPU_MEM_BAR: usize = 8;
 
 /// Render the monitor-panel pane (the `view=monitor` instance): the rule and
 /// the panel rows, no status line.
@@ -794,6 +815,56 @@ mod tests {
         assert!(!out.contains("python train.py"), "top lives behind `t`");
         for l in &lines {
             assert!(visible_width(l) <= 100, "{l:?}");
+        }
+    }
+
+    #[test]
+    fn resource_rows_share_a_grid() {
+        let mut st = state();
+        st.is_panel = true;
+        st.panel_open = true;
+        let col = |l: &str, pred: fn(char) -> bool| l.chars().position(pred).unwrap();
+        let bar_col = |l: &str| col(l, |ch| ch == '█' || ch == '░');
+        let pct_col = |l: &str| col(l, |ch| ch == '%');
+        let slash_col = |l: &str| col(l, |ch| ch == '/');
+
+        // A GPU host: cpu, mem and gpu0 start their bars and land their
+        // percentages in the same column; mem's slash sits under gpu0's.
+        let gpu: Vec<String> = panel_lines(&st, PANEL_ROWS, 100)
+            .iter()
+            .map(|l| strip_ansi(l))
+            .collect();
+        let (cpu, mem, gpu0) = (&gpu[1], &gpu[2], &gpu[3]);
+        assert!(gpu0.starts_with("gpu0"), "{gpu0:?}");
+        assert_eq!(bar_col(cpu), bar_col(mem), "{cpu:?} {mem:?}");
+        assert_eq!(bar_col(cpu), bar_col(gpu0), "{cpu:?} {gpu0:?}");
+        assert_eq!(pct_col(cpu), pct_col(gpu0), "{cpu:?} {gpu0:?}");
+        assert_eq!(slash_col(mem), slash_col(gpu0), "{mem:?} {gpu0:?}");
+
+        // A CPU-only host keeps the same grid, so the bars do not jump when
+        // the selection moves between the two; the spare row is the trend.
+        let mut m = st.msg.clone();
+        m.hosts[0].gpus.clear();
+        st.apply_msg(m);
+        let cpu_only: Vec<String> = panel_lines(&st, PANEL_ROWS, 100)
+            .iter()
+            .map(|l| strip_ansi(l))
+            .collect();
+        assert_eq!(bar_col(&cpu_only[1]), bar_col(cpu), "{:?}", cpu_only[1]);
+        assert!(cpu_only[3].starts_with("trend"), "{:?}", cpu_only[3]);
+        assert_eq!(
+            col(&cpu_only[3], |ch| ch == '▁'),
+            bar_col(cpu),
+            "the trend starts under the bars: {:?}",
+            cpu_only[3]
+        );
+
+        // Narrower panes still fit: the bar gives way first. (Below ~53
+        // columns the fixed text alone is wider than the pane, as before.)
+        for cols in [80, 60] {
+            for l in panel_lines(&st, PANEL_ROWS, cols) {
+                assert!(visible_width(&l) <= cols, "cols={cols} {l:?}");
+            }
         }
     }
 

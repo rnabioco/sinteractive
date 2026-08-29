@@ -18,7 +18,15 @@ and this project adheres to
   `partial_lines_wait_for_their_newline`, and a real miss for an agent whose
   wait began at the wrong moment. The starting point is now the beginning of
   any unterminated last line.
-
+- The monitor panel's rows line up. `gpu0` is a character longer than `cpu`
+  and `mem`, so on a GPU node its bar, its percentage and everything after
+  them sat one cell to the right of the rows above. The rows now share one
+  grid: a label column as wide as the widest label that can appear (so it
+  does not shift between a CPU job and a GPU job either), the bar, the
+  percentage, then `used / total` with the amount right-aligned so the
+  memory row's slash sits under the GPU rows', and the GPU extras padded so
+  the memory mini-bars line up too. The bar grew from 20 to 24 cells while
+  the pane has room, and the trend sparkline starts under the bars.
 - `sinteractive claude install` writes the absolute path of the binary that
   ran it — for the MCP server, both hooks and the statusline — rather than
   the bare `sinteractive`. Claude Code starts all four from a non-interactive
