@@ -695,7 +695,7 @@ pub fn merge_hooks(
 
 /// Drop a hook entry of ours that repeats an earlier one in the same event
 /// — the same commands, as the tree stands after migration. An install
-/// between 1.0.0 and 1.0.1 registered the build's own `.sinteractive-<sha>`
+/// between 1.0.0 and 1.1.0 registered the build's own `.sinteractive-<sha>`
 /// name without recognising it as itself, so every run appended another
 /// copy. The user's own entries are never touched, however alike.
 fn dedupe_our_hooks(settings: &mut Map<String, Value>) -> bool {
@@ -1028,7 +1028,7 @@ mod tests {
             hook_identity("sinteractive claude hook worktree-remove"),
             Some("worktree-remove")
         );
-        // A build's own name, which an install between 1.0.0 and 1.0.1 wrote.
+        // A build's own name, which an install between 1.0.0 and 1.1.0 wrote.
         assert_eq!(
             hook_identity("/home/me/.local/bin/.sinteractive-e7b8be47c3d6 claude hook prompt"),
             Some("prompt")
