@@ -27,6 +27,17 @@ and this project adheres to
 
 ### Fixed
 
+- `claude install` registers the hooks, statusline and MCP server under the
+  binary's stable name again. Since builds started landing at
+  `.sinteractive-<sha>` behind a `sinteractive` symlink, `current_exe()`
+  resolved to the build's own file, so an install wrote that into the
+  settings — a name a later install prunes once no session can be running
+  it, which would have left every hook pointing at nothing — and, not
+  recognising that spelling as its own, appended a second copy of each hook
+  on every run instead of replacing the first. It now writes the symlink
+  when one beside the binary points at it, treats `.sinteractive-<sha>` as
+  itself when migrating what an earlier install wrote, and folds duplicate
+  entries of its own into one.
 - The monitor panel lists the jobs launched from this session, and only
   those. It listed every running job the user owns, while the bar's
   `3R launched` count used Slurm's record of where a job was submitted

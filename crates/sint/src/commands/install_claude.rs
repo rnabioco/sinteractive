@@ -372,8 +372,48 @@ pub enum SettingsOutcome {
 fn exe_command() -> String {
     std::env::current_exe()
         .ok()
+        .map(|p| stable_exe(&p))
         .and_then(|p| p.to_str().map(str::to_owned))
         .unwrap_or_else(|| "sinteractive".into())
+}
+
+/// The name to register the running binary under. `current_exe()` resolves
+/// symlinks, and `make install` puts each build at `.sinteractive-<sha>`
+/// behind a `sinteractive` symlink — a build that a later install prunes
+/// once no session can be running it. A hook registered by the build's own
+/// name would die with it; the symlink is the name that outlives builds, so
+/// when the binary is one of those and the symlink beside it points here,
+/// that is what gets written.
+fn stable_exe(exe: &Path) -> PathBuf {
+    let Some(name) = exe.file_name().and_then(OsStr::to_str) else {
+        return exe.to_path_buf();
+    };
+    if !is_versioned_binary_name(name) {
+        return exe.to_path_buf();
+    }
+    let Some(dir) = exe.parent() else {
+        return exe.to_path_buf();
+    };
+    let link = dir.join("sinteractive");
+    match (fs::canonicalize(&link), fs::canonicalize(exe)) {
+        (Ok(a), Ok(b)) if a == b => link,
+        _ => exe.to_path_buf(),
+    }
+}
+
+/// `.sinteractive-<hex>`: the name `make install` gives one build.
+fn is_versioned_binary_name(name: &str) -> bool {
+    name.strip_prefix(".sinteractive-")
+        .is_some_and(|sha| sha.len() >= 6 && sha.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// Whether a command's program is this binary by one of its names: bare
+/// or by any path, `sinteractive` or a versioned `.sinteractive-<hex>`.
+fn is_our_binary(program: &str) -> bool {
+    Path::new(program)
+        .file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|n| n == "sinteractive" || is_versioned_binary_name(n))
 }
 
 /// The statusLine entry added when the user has none.
@@ -502,12 +542,14 @@ fn hook_scripts(v: &Value, out: &mut BTreeSet<String>) {
 /// spelling an earlier install wrote (`sinteractive hook …`) and the 0.x
 /// scripts (`…/sinteractive-session-context.sh`,
 /// `…/sinteractive-walltime-guard.sh`) all map to the same identity, so an
-/// upgrade replaces the old entry instead of adding a second hook.
+/// upgrade replaces the old entry instead of adding a second hook. The
+/// binary may be named by a build's own `.sinteractive-<sha>` file too — an
+/// install between 1.0.0 and this one wrote that.
 fn hook_identity(command: &str) -> Option<&'static str> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| {
         regex::Regex::new(
-            r"sinteractive(?:-session-context\.sh|-walltime-guard\.sh|\s+(?:claude\s+)?hook\s+(session-start|prompt|worktree-create|worktree-remove))\b",
+            r"sinteractive(?:-[0-9a-f]{6,})?(?:-session-context\.sh|-walltime-guard\.sh|\s+(?:claude\s+)?hook\s+(session-start|prompt|worktree-create|worktree-remove))\b",
         )
         .unwrap()
     });
@@ -534,7 +576,7 @@ fn renamed_command(command: &str, exe: &str) -> Option<String> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| {
         regex::Regex::new(
-            r"^\s*(?:\S*/)?sinteractive\s+(?:claude\s+)?(?<verb>hook\s+(?:session-start|prompt|worktree-create|worktree-remove)|statusline)\s*$",
+            r"^\s*(?:\S*/)?\.?sinteractive(?:-[0-9a-f]{6,})?\s+(?:claude\s+)?(?<verb>hook\s+(?:session-start|prompt|worktree-create|worktree-remove)|statusline)\s*$",
         )
         .unwrap()
     });
@@ -602,8 +644,10 @@ pub fn merge_hooks(
         return Ok(false);
     };
 
-    // Upgrade path: drop 0.x script entries so the native ones replace them.
+    // Upgrade path: drop 0.x script entries so the native ones replace them,
+    // and fold duplicates of ours into one.
     let mut changed = strip_legacy_hooks(settings);
+    changed |= dedupe_our_hooks(settings);
 
     let mut registered = BTreeSet::new();
     for doc in [settings as &Map<String, Value>, other] {
@@ -647,6 +691,45 @@ pub fn merge_hooks(
         changed = true;
     }
     Ok(changed)
+}
+
+/// Drop a hook entry of ours that repeats an earlier one in the same event
+/// — the same commands, as the tree stands after migration. An install
+/// between 1.0.0 and 1.0.1 registered the build's own `.sinteractive-<sha>`
+/// name without recognising it as itself, so every run appended another
+/// copy. The user's own entries are never touched, however alike.
+fn dedupe_our_hooks(settings: &mut Map<String, Value>) -> bool {
+    let Some(Value::Object(hooks)) = settings.get_mut("hooks") else {
+        return false;
+    };
+    let mut changed = false;
+    for entries in hooks.values_mut() {
+        let Value::Array(entries) = entries else {
+            continue;
+        };
+        let mut seen: Vec<Value> = Vec::new();
+        let before = entries.len();
+        entries.retain(|entry| {
+            let ours = entry
+                .get("hooks")
+                .and_then(Value::as_array)
+                .is_some_and(|hs| {
+                    !hs.is_empty()
+                        && hs.iter().all(|h| {
+                            h.get("command")
+                                .and_then(Value::as_str)
+                                .is_some_and(|c| hook_identity(c).is_some())
+                        })
+                });
+            if ours && seen.contains(entry) {
+                return false;
+            }
+            seen.push(entry.clone());
+            true
+        });
+        changed |= entries.len() != before;
+    }
+    changed
 }
 
 /// Remove hook entries whose every command is a 0.x `sinteractive-*.sh`
@@ -885,7 +968,7 @@ fn is_our_mcp_entry(entry: &Value) -> bool {
     let ours = entry
         .get("command")
         .and_then(Value::as_str)
-        .is_some_and(|c| Path::new(c).file_name() == Some(OsStr::new("sinteractive")));
+        .is_some_and(is_our_binary);
     let args = entry.get("args").and_then(Value::as_array);
     ours && args.is_some_and(|a| *a == [json!("claude"), json!("mcp")] || *a == [json!("mcp")])
 }
@@ -945,6 +1028,11 @@ mod tests {
             hook_identity("sinteractive claude hook worktree-remove"),
             Some("worktree-remove")
         );
+        // A build's own name, which an install between 1.0.0 and 1.0.1 wrote.
+        assert_eq!(
+            hook_identity("/home/me/.local/bin/.sinteractive-e7b8be47c3d6 claude hook prompt"),
+            Some("prompt")
+        );
         assert_eq!(hook_identity("sinteractive statusline"), None);
         assert_eq!(hook_identity("my-hook.sh"), None);
         assert!(is_legacy_hook(
@@ -1002,6 +1090,68 @@ mod tests {
     }
 
     #[test]
+    fn duplicates_of_our_own_hooks_are_folded_and_the_users_are_not() {
+        // What the versioned-name install left behind: two copies of each
+        // of ours, and two identical entries of the user's own.
+        let mut s = obj(r#"{"hooks":{
+            "SessionStart":[
+                {"hooks":[{"type":"command","command":"/x/.sinteractive-e7b8be47c3d6 claude hook session-start"}]},
+                {"hooks":[{"type":"command","command":"/x/.sinteractive-e7b8be47c3d6 claude hook session-start"}]},
+                {"hooks":[{"type":"command","command":"echo mine"}]},
+                {"hooks":[{"type":"command","command":"echo mine"}]}
+            ]
+        }}"#);
+        // As `register_settings` does: the snippet is spelled onto this
+        // binary first, then the settings are migrated and merged.
+        let mut sn = snippet();
+        migrate_commands(&mut sn, EXE);
+        assert!(migrate_commands(&mut s, EXE));
+        assert!(merge_hooks(&mut s, &sn, &Map::new()).unwrap());
+        let start = s["hooks"]["SessionStart"].as_array().unwrap();
+        let cmds: Vec<&str> = start
+            .iter()
+            .map(|e| e["hooks"][0]["command"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            cmds,
+            [
+                "/opt/bin/sinteractive claude hook session-start",
+                "echo mine",
+                "echo mine"
+            ]
+        );
+        // The other three events were added once each; a second run is a no-op.
+        assert_eq!(s["hooks"].as_object().unwrap().len(), 4);
+        assert!(!migrate_commands(&mut s, EXE));
+        assert!(!merge_hooks(&mut s, &sn, &Map::new()).unwrap());
+    }
+
+    #[test]
+    fn the_registered_name_is_the_symlink_not_the_build_behind_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let build = bin.join(".sinteractive-e7b8be47c3d6");
+        fs::write(&build, b"x").unwrap();
+        // No symlink yet: the build's own name is all there is.
+        assert_eq!(stable_exe(&build), build);
+        std::os::unix::fs::symlink(".sinteractive-e7b8be47c3d6", bin.join("sinteractive")).unwrap();
+        assert_eq!(stable_exe(&build), bin.join("sinteractive"));
+        // A symlink pointing at some other build is not this binary's name.
+        let other = bin.join(".sinteractive-0123456789ab");
+        fs::write(&other, b"y").unwrap();
+        assert_eq!(stable_exe(&other), other);
+        // A plain file keeps its name.
+        let plain = bin.join("sinteractive-dev");
+        fs::write(&plain, b"z").unwrap();
+        assert_eq!(stable_exe(&plain), plain);
+        assert!(is_our_binary("/a/b/.sinteractive-e7b8be47c3d6"));
+        assert!(is_our_binary("sinteractive"));
+        assert!(!is_our_binary("/a/b/.sinteractive-notahex"));
+        assert!(!is_our_binary("my-sinteractive"));
+    }
+
+    #[test]
     fn malformed_hooks_are_refused() {
         let mut s = obj(r#"{"hooks":"nope"}"#);
         assert!(merge_hooks(&mut s, &snippet(), &Map::new()).is_err());
@@ -1033,6 +1183,15 @@ mod tests {
         assert_eq!(
             renamed_command("/old/sinteractive  claude   statusline", EXE).as_deref(),
             Some("/opt/bin/sinteractive claude statusline")
+        );
+        // A build's own name: back onto the stable one.
+        assert_eq!(
+            renamed_command(
+                "/home/me/.local/bin/.sinteractive-e7b8be47c3d6 claude hook worktree-create",
+                EXE
+            )
+            .as_deref(),
+            Some("/opt/bin/sinteractive claude hook worktree-create")
         );
         // Already right, not ours, or carrying extra arguments: left alone.
         assert_eq!(
@@ -1119,6 +1278,12 @@ mod tests {
         // Another path and the pre-1.0 verb: both brought up to date.
         let mut d = obj(
             r#"{"mcpServers":{"sinteractive":{"command":"/old/sinteractive","args":["mcp"]}}}"#,
+        );
+        assert_eq!(merge_mcp(&mut d, EXE).unwrap(), McpMerge::Repointed);
+        assert_eq!(d["mcpServers"]["sinteractive"]["command"], EXE);
+        // A build's own name, from the install that wrote it: repointed too.
+        let mut d = obj(
+            r#"{"mcpServers":{"sinteractive":{"command":"/x/.sinteractive-e7b8be47c3d6","args":["claude","mcp"]}}}"#,
         );
         assert_eq!(merge_mcp(&mut d, EXE).unwrap(), McpMerge::Repointed);
         assert_eq!(d["mcpServers"]["sinteractive"]["command"], EXE);
