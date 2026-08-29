@@ -7,6 +7,7 @@
 //! ZELLIJ_SOCKET_DIR   $SINTERACTIVE_RUNTIME_DIR|/tmp / sint-<jobid>      (node-local)
 //! session name        sinteractive-<jobid>
 //! XDG_CACHE_HOME      <sinteractive cache>/xdg                          (shared FS)
+//! SINTERACTIVE_CACHE  <sinteractive cache>                              (shared FS)
 //! ready marker        <socket dir>/ready   — written by `__job` once the server is up
 //! ```
 //!
@@ -14,6 +15,12 @@
 //! session info) under `$XDG_CACHE_HOME/zellij`; pointing that at our cache
 //! dir keeps the permission pre-grant for the status plugin in one known
 //! place and keeps zellij out of `$HOME` on clusters where that is tiny.
+//!
+//! That override is inherited by every process in the session, `sinteractive`
+//! itself included, and `cache_dir_from_env` would then read job state from
+//! `<cache>/xdg/sinteractive/` — a directory nothing writes to. Exporting
+//! `SINTERACTIVE_CACHE`, which wins over `XDG_CACHE_HOME`, pins our own state
+//! dir to the real cache so in-session reads see what the watcher writes.
 //!
 //! Local use: [`ZellijEnv::command`] builds `current_exe() zellij ARGS…`
 //! with the environment set. Remote use (login node → compute node):
@@ -34,6 +41,7 @@ pub struct ZellijEnv {
     pub job_id: u64,
     pub socket_dir: PathBuf,
     pub xdg_cache_home: PathBuf,
+    pub cache_dir: PathBuf,
     pub exe: PathBuf,
 }
 
@@ -76,6 +84,7 @@ impl ZellijEnv {
             job_id,
             socket_dir: socket_dir(job_id),
             xdg_cache_home: xdg_cache_home(cfg),
+            cache_dir: cfg.cache_dir.clone(),
             exe: current_exe()?,
         })
     }
@@ -94,6 +103,10 @@ impl ZellijEnv {
             (
                 "XDG_CACHE_HOME".into(),
                 self.xdg_cache_home.to_string_lossy().into_owned(),
+            ),
+            (
+                "SINTERACTIVE_CACHE".into(),
+                self.cache_dir.to_string_lossy().into_owned(),
             ),
             ("ZELLIJ_SESSION_NAME".into(), self.session()),
         ]
@@ -186,6 +199,26 @@ mod tests {
         assert_eq!(socket_dir(42), PathBuf::from("/tmp/sint-42"));
         assert_eq!(ready_marker(42), PathBuf::from("/tmp/sint-42/ready"));
         assert_eq!(config_marker(42), PathBuf::from("/tmp/sint-42/config"));
+    }
+
+    /// The `XDG_CACHE_HOME` override is inherited by everything in the
+    /// session, `sinteractive` included, so the pairs must also pin our own
+    /// state dir back onto the real cache instead of `<cache>/xdg/sinteractive`.
+    #[test]
+    fn env_pairs_pin_the_state_dir_to_the_real_cache() {
+        let mut cfg = Config::defaults();
+        cfg.cache_dir = PathBuf::from("/c");
+        let env = ZellijEnv {
+            job_id: 7,
+            socket_dir: socket_dir(7),
+            xdg_cache_home: xdg_cache_home(&cfg),
+            cache_dir: cfg.cache_dir.clone(),
+            exe: PathBuf::from("/x/sinteractive"),
+        };
+        let pairs: std::collections::HashMap<String, String> =
+            env.env_pairs().into_iter().collect();
+        assert_eq!(pairs["XDG_CACHE_HOME"], "/c/xdg");
+        assert_eq!(pairs["SINTERACTIVE_CACHE"], "/c");
     }
 
     #[test]
