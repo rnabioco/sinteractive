@@ -29,6 +29,14 @@ TARGET_DIR ?= $(or $(CARGO_TARGET_DIR),target)
 BIN := $(TARGET_DIR)/release/sinteractive
 FEATURES ?= web_server_capability
 
+# The binary is never written over in place. Every running session is this
+# binary executing on a compute node, and on an NFS home (Alpine) unlinking
+# or renaming over a file another node is executing kills that process with
+# SIGBUS the next time it faults a page in. scripts/install-bin.sh puts each
+# build at <bindir>/.sinteractive-<sha> and swaps a symlink, pruning only
+# builds no queued or running job can be using.
+INSTALL_BIN := bash scripts/install-bin.sh
+
 # Every skill under skills/ ships, discovered rather than listed: adding one
 # is a matter of dropping a directory in, with no install target to update.
 # All .md files go, not just SKILL.md — the hpc-* skills keep per-cluster
@@ -75,7 +83,7 @@ endef
 
 install-user: $(BIN) man completions
 	mkdir -p $(PREFIX)
-	install -m 0755 $(BIN) $(PREFIX)/sinteractive
+	$(INSTALL_BIN) $(BIN) $(PREFIX)
 	mkdir -p $(MANDIR)
 	cp man/sinteractive.1 $(MANDIR)/sinteractive.1
 	mkdir -p $(COMPDIR) $(ZSHCOMPDIR) $(FISHCOMPDIR)
@@ -85,7 +93,7 @@ install-user: $(BIN) man completions
 	$(call install_share,$(SHAREDIR))
 
 install-system: $(BIN) man completions
-	install -m 0755 $(BIN) /usr/local/bin/sinteractive
+	$(INSTALL_BIN) $(BIN) /usr/local/bin
 	install -D -m 0644 man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1
 	install -D -m 0644 completions/sinteractive.bash /usr/local/share/bash-completion/completions/sinteractive
 	install -D -m 0644 completions/sinteractive.zsh /usr/local/share/zsh/site-functions/_sinteractive

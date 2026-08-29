@@ -70,7 +70,11 @@ As a regular user `make install` copies the binary, man page and shell
 completions to `~/.local/bin`, `~/.local/share/man` and
 `~/.local/share/{bash-completion,zsh/site-functions}` (make sure
 `~/.local/bin` is on your `$PATH`); as root it installs to `/usr/local`
-instead. `make install PREFIX=~/bin` picks another location.
+instead. `make install PREFIX=~/bin` picks another location. The binary
+itself lands as `.sinteractive-<sha>` beside a `sinteractive` symlink, and
+earlier builds stay until no session can be running them — reinstalling
+while sessions are up is safe, even on an NFS home where replacing the
+executable in place would kill them with SIGBUS.
 
 Building needs a Rust toolchain (`rust-toolchain.toml` pins stable and adds
 the `wasm32-wasip1` target, which the status plugin is built for), a C/C++
