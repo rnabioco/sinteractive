@@ -59,6 +59,11 @@ const BOLD: &str = "\x1b[1m";
 /// Back to normal intensity without dropping the colour (`RESET` would).
 const NOBOLD: &str = "\x1b[22m";
 
+/// The bar line's left inset. The rule spans the pane edge to edge, but the
+/// words sit one column in: hard against the terminal's left edge they read
+/// as if they had been clipped.
+const PAD: &str = " ";
+
 fn fg(c: (u8, u8, u8)) -> String {
     format!("\x1b[38;2;{};{};{}m", c.0, c.1, c.2)
 }
@@ -562,10 +567,13 @@ pub fn render_panel(st: &State, rows: usize, cols: usize) -> String {
 /// Render the bar pane: the bar line, then the panel when open and there is
 /// room (single-instance fallback).
 pub fn render(st: &State, rows: usize, cols: usize) -> String {
+    // The inset is the bar's, not each mode's: every mode line is built for
+    // the columns left after it.
+    let inner = cols.saturating_sub(PAD.len());
     let line = match st.mode {
-        BarMode::Status => status_line(st, cols),
-        BarMode::Notices { idx } => notices_line(st, idx, cols),
-        BarMode::Help { page } => help_line(st, page, cols),
+        BarMode::Status => status_line(st, inner),
+        BarMode::Notices { idx } => notices_line(st, idx, inner),
+        BarMode::Help { page } => help_line(st, page, inner),
     };
     // Row 0 is the rule whenever the bar has room for it. The bar is two rows
     // in both layouts, so with the panel open the region reads as a framed
@@ -575,7 +583,7 @@ pub fn render(st: &State, rows: usize, cols: usize) -> String {
     if rows > 1 {
         out.push(rule(cols, &colors(st.theme)));
     }
-    out.push(line);
+    out.push(format!("{PAD}{line}"));
     if st.panel_open && rows > out.len() {
         out.extend(panel_lines(st, rows - out.len(), cols));
     }
@@ -668,6 +676,27 @@ mod tests {
         let narrow = status_line(&st, 40);
         assert!(!narrow.contains("help"), "help hint dropped first");
         assert!(narrow.contains("left"), "remaining kept: {narrow}");
+    }
+
+    #[test]
+    fn the_bar_line_is_inset_from_the_left_edge() {
+        let mut st = state();
+        for mode in [
+            BarMode::Status,
+            BarMode::Notices { idx: 0 },
+            BarMode::Help { page: 0 },
+        ] {
+            st.mode = mode;
+            for cols in [40usize, 80, 200] {
+                let line = render(&st, 1, cols);
+                assert!(line.starts_with(' '), "{mode:?} at {cols}: {line:?}");
+                assert!(
+                    visible_width(&line) <= cols,
+                    "{mode:?} at {cols} width={}",
+                    visible_width(&line)
+                );
+            }
+        }
     }
 
     #[test]
