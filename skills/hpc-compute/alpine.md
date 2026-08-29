@@ -60,9 +60,16 @@ that is automatic for every repository: `EnterWorktree` creates
 moves the root), and `git worktree list` shows where a worktree is. Do not
 symlink a repository's `.claude/worktrees` onto scratch instead — Claude
 Code refuses to create a worktree through a symlink. Build output follows
-the same rule: `CARGO_TARGET_DIR=/scratch/alpine/$USER/.cache/cargo-target`
-(this user's shell sets it), and `make install` reads it, so the binary is
-found where cargo put it. A worktree that must move filesystems cannot be
+the same rule: this user's shell sets
+`CARGO_TARGET_DIR=/scratch/alpine/$USER/.cache/cargo-target`, and `make
+install` reads it, so the binary is found where cargo put it. **Give each
+project — and each agent building concurrently — its own target dir under
+it** (`env CARGO_TARGET_DIR=/scratch/alpine/$USER/.cache/cargo-target/<name>
+cargo …`, after the `srun … --`): two cargo runs from different nodes in one
+target dir clobber each other's fingerprints, and the build dies with
+`failed to write …/.fingerprint/…/invoked.timestamp` or `can't find crate`
+for a crate that is right there. Seen 2026-08-29 with two projects
+building at once. A worktree that must move filesystems cannot be
 `git worktree move`d across them: `cp -a` it, remove the old directory, then
 `git worktree repair NEWPATH`.
 
