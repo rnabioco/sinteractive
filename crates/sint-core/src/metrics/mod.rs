@@ -63,6 +63,49 @@ pub struct Scope {
     pub mem_alloc_mb: Option<u64>,
     /// GPU indices visible to the job; `None` = every GPU on the host.
     pub gpu_indices: Option<Vec<u32>>,
+    /// Where the job was launched from, read from its own processes'
+    /// environment on this host. `None` when none of them could be read
+    /// (nothing running yet — an allocation between steps — or not ours).
+    pub origin: Option<Origin>,
+}
+
+/// Where a job was launched from, as its own environment records it.
+///
+/// Slurm hands a job the environment of the shell that submitted it
+/// (`--export=ALL`, the default for `sbatch`, `srun` and `salloc`), and an
+/// sinteractive session exports `SINTERACTIVE_JOB_ID` into every shell it
+/// runs. So a job launched from a session carries that session's id for
+/// its whole life, in every one of its processes — long after the shell
+/// that submitted it has exited, which is where Slurm's own record of the
+/// submitter (`AllocSID`) goes blind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
+#[serde(default)]
+pub struct Origin {
+    /// The session the job was launched from; `None` for a job submitted
+    /// from a plain shell (or with `--export=NONE`).
+    pub session: Option<u64>,
+}
+
+impl Origin {
+    /// Parse one process's `/proc/<pid>/environ`.
+    pub fn from_environ(environ: &[u8]) -> Origin {
+        let session = environ
+            .split(|b| *b == 0)
+            .find_map(|kv| kv.strip_prefix(b"SINTERACTIVE_JOB_ID="))
+            .and_then(|v| std::str::from_utf8(v).ok())
+            .and_then(|v| v.trim().parse().ok());
+        Origin { session }
+    }
+
+    /// The origin of a job from the first of its processes whose
+    /// environment can be read — they all inherit the submitter's, so one
+    /// is enough. `None` when there is none to read.
+    fn of(cg: &JobCgroup) -> Option<Origin> {
+        cg.pids()
+            .into_iter()
+            .find_map(|pid| std::fs::read(format!("/proc/{pid}/environ")).ok())
+            .map(|e| Origin::from_environ(&e))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, schemars::JsonSchema)]
@@ -191,8 +234,27 @@ impl Scope {
             scope.cgroup = Some(cg.name.clone());
             scope.cpus_alloc = cg.cpus_alloc();
             scope.mem_alloc_mb = cg.mem_limit_mb();
+            scope.origin = Origin::of(&cg);
         }
         scope
+    }
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::Origin;
+
+    #[test]
+    fn the_environment_names_the_session_or_nothing() {
+        let from = |s: &str| Origin::from_environ(s.as_bytes());
+        assert_eq!(
+            from("HOME=/home/x\0SINTERACTIVE_JOB_ID=31818638\0PATH=/bin\0").session,
+            Some(31818638)
+        );
+        assert_eq!(from("HOME=/home/x\0PATH=/bin\0").session, None);
+        assert_eq!(from("SINTERACTIVE_JOB_ID=\0").session, None);
+        assert_eq!(from("SINTERACTIVE_JOB_ID=abc\0").session, None);
+        assert_eq!(from("").session, None);
     }
 }
 

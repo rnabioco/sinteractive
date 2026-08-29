@@ -199,6 +199,7 @@ mod tests {
                 cpus_alloc: Some(4),
                 mem_alloc_mb: Some(16384),
                 gpu_indices: Some(vec![0, 1]),
+                origin: None,
             },
             cpu: Cpu {
                 pct: 42.4,

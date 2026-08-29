@@ -164,11 +164,18 @@ pass through untouched. `Ctrl+b h` shows the same legend in the status bar.
 - `3R launched` counts the running (`R`) and pending (`PD`) jobs started
   *from this session* — not every job you own, which the session cannot do
   anything about. Slurm records the node a job was submitted from and the
-  session id of the process that submitted it, so a job counts when it was
-  submitted on this node and that process is either gone or names this
-  session. Absent when nothing has been launched, which is most of the time.
+  session id of the process that submitted it, so a job is a candidate when
+  it was submitted on this node and that process is either gone or names
+  this session. A running job then has the last word itself: Slurm gives a
+  job the environment of the shell that submitted it, and a session exports
+  `SINTERACTIVE_JOB_ID` into every shell it runs, so the job's own processes
+  say which session started it, however long ago that shell exited. A job
+  that a previous session on this node started is dropped on its first
+  sample; a pending job has no processes yet and stays on Slurm's word.
+  Absent when nothing has been launched, which is most of the time.
 - `▣ N jobs monitorable ^b m` appears when there is a host the monitor panel
-  could show and the panel is closed.
+  could show and the panel is closed. The panel shows the same jobs the
+  count counts — the ones launched from this session.
 - `⚠ N notices ^b n` appears when the session has something to say — a
   quota overage (red, shimmering), a walltime trimmed before a maintenance
   window, a hint to run `claude install` while Claude Code is running without
@@ -181,9 +188,11 @@ to go.
 ### The monitor panel
 
 `Ctrl+b m` opens a six-row panel between the shell and the bar: a strip of
-every job you can monitor, then bars for CPU and memory against the job's
-cgroup limits, and a row per GPU. A job with no GPU spends the spare row on
-where its load has been.
+every running job launched from this session (this one first), then bars
+for CPU and memory against the selected job's cgroup limits, and a row per
+GPU. A job with no GPU spends the spare row on where its load has been.
+Jobs on other nodes are sampled over ssh every ten seconds; one on this
+node is sampled here.
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
