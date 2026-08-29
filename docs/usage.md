@@ -46,7 +46,7 @@ A person at a prompt attaches; a script or an agent reaches in with these.
 |---|---|
 | `claude install` | Install the Claude Code skills, hooks, statusline and MCP server |
 | `claude context` | Brief a coding agent on the session it is running inside |
-| `claude hook session-start\|prompt` | Hook entry points (Claude Code runs these) |
+| `claude hook session-start\|prompt\|worktree-create\|worktree-remove` | Hook entry points (Claude Code runs these) |
 | `claude statusline` | statusLine command (Claude Code runs this) |
 | `claude mcp` | MCP server over stdio (Claude Code runs this) |
 
@@ -346,6 +346,7 @@ Set personal defaults in your `~/.bashrc`; explicit flags always win.
 | `SINTERACTIVE_POLL` | Seconds between scheduler re-checks in the session (floor 5) | `30` |
 | `SINTERACTIVE_MONITOR_SESSIONS` | Show your *other* sinteractive sessions in the monitor panel alongside your real jobs | `off` |
 | `SINTERACTIVE_AGENT_WARN` | Seconds left below which the Claude Code prompt hook warns | `1800` |
+| `SINTERACTIVE_WORKTREES` | Where the Claude Code worktree hook puts worktrees (`<here>/<repo>/<name>`) | `/scratch/alpine/$USER/worktrees` where that scratch exists, else `<repo>/.claude/worktrees` |
 | `SINTERACTIVE_QUOTA_POLL` | Seconds between storage-quota checks (floor 30) | `600` |
 | `SINTERACTIVE_QUOTA_FILE` | Pipe-delimited file of hard quotas | `/cluster/scripts/quota_current.txt` |
 | `SINTERACTIVE_QUOTA_HOSTS` | Quota daemons to sum usage across | Bodhi's `172.20.8.110-118` |

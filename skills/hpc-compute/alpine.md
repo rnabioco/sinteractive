@@ -50,6 +50,22 @@ not what the user's setup uses. `/home` is 2 GB, so the session state and
 the extracted zellij bundle belong on `/projects`:
 `SINTERACTIVE_CACHE=/projects/$USER/.cache/sinteractive`.
 
+## Worktrees and build trees live on scratch
+
+`/projects` is the small, backed-up tier, and a git worktree is a throwaway
+build tree, so worktrees belong on `/scratch/alpine/$USER`. With
+sinteractive's Claude Code hooks registered (`sinteractive claude install`)
+that is automatic for every repository: `EnterWorktree` creates
+`/scratch/alpine/$USER/worktrees/<repo>/<name>` (`SINTERACTIVE_WORKTREES`
+moves the root), and `git worktree list` shows where a worktree is. Do not
+symlink a repository's `.claude/worktrees` onto scratch instead — Claude
+Code refuses to create a worktree through a symlink. Build output follows
+the same rule: `CARGO_TARGET_DIR=/scratch/alpine/$USER/.cache/cargo-target`
+(this user's shell sets it), and `make install` reads it, so the binary is
+found where cargo put it. A worktree that must move filesystems cannot be
+`git worktree move`d across them: `cp -a` it, remove the old directory, then
+`git worktree repair NEWPATH`.
+
 There is no recurring all-node maintenance pattern to assume, but
 `scontrol show reservation` before long walltime still applies — the
 deferred-past-the-window trap in SKILL.md works identically wherever a
