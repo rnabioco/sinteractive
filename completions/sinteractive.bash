@@ -148,6 +148,12 @@ _sinteractive() {
             sinteractive__subcmd__claude__subcmd__help__subcmd__hook,session-start)
                 cmd="sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__session__subcmd__start"
                 ;;
+            sinteractive__subcmd__claude__subcmd__help__subcmd__hook,worktree-create)
+                cmd="sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__worktree__subcmd__create"
+                ;;
+            sinteractive__subcmd__claude__subcmd__help__subcmd__hook,worktree-remove)
+                cmd="sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__worktree__subcmd__remove"
+                ;;
             sinteractive__subcmd__claude__subcmd__hook,help)
                 cmd="sinteractive__subcmd__claude__subcmd__hook__subcmd__help"
                 ;;
@@ -157,6 +163,12 @@ _sinteractive() {
             sinteractive__subcmd__claude__subcmd__hook,session-start)
                 cmd="sinteractive__subcmd__claude__subcmd__hook__subcmd__session__subcmd__start"
                 ;;
+            sinteractive__subcmd__claude__subcmd__hook,worktree-create)
+                cmd="sinteractive__subcmd__claude__subcmd__hook__subcmd__worktree__subcmd__create"
+                ;;
+            sinteractive__subcmd__claude__subcmd__hook,worktree-remove)
+                cmd="sinteractive__subcmd__claude__subcmd__hook__subcmd__worktree__subcmd__remove"
+                ;;
             sinteractive__subcmd__claude__subcmd__hook__subcmd__help,help)
                 cmd="sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__help"
                 ;;
@@ -165,6 +177,12 @@ _sinteractive() {
                 ;;
             sinteractive__subcmd__claude__subcmd__hook__subcmd__help,session-start)
                 cmd="sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__session__subcmd__start"
+                ;;
+            sinteractive__subcmd__claude__subcmd__hook__subcmd__help,worktree-create)
+                cmd="sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__worktree__subcmd__create"
+                ;;
+            sinteractive__subcmd__claude__subcmd__hook__subcmd__help,worktree-remove)
+                cmd="sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__worktree__subcmd__remove"
                 ;;
             sinteractive__subcmd__gen,completions)
                 cmd="sinteractive__subcmd__gen__subcmd__completions"
@@ -301,6 +319,12 @@ _sinteractive() {
             sinteractive__subcmd__help__subcmd__claude__subcmd__hook,session-start)
                 cmd="sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__session__subcmd__start"
                 ;;
+            sinteractive__subcmd__help__subcmd__claude__subcmd__hook,worktree-create)
+                cmd="sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__worktree__subcmd__create"
+                ;;
+            sinteractive__subcmd__help__subcmd__claude__subcmd__hook,worktree-remove)
+                cmd="sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__worktree__subcmd__remove"
+                ;;
             sinteractive__subcmd__help__subcmd__gen,completions)
                 cmd="sinteractive__subcmd__help__subcmd__gen__subcmd__completions"
                 ;;
@@ -315,6 +339,12 @@ _sinteractive() {
                 ;;
             sinteractive__subcmd__help__subcmd__hook,session-start)
                 cmd="sinteractive__subcmd__help__subcmd__hook__subcmd__session__subcmd__start"
+                ;;
+            sinteractive__subcmd__help__subcmd__hook,worktree-create)
+                cmd="sinteractive__subcmd__help__subcmd__hook__subcmd__worktree__subcmd__create"
+                ;;
+            sinteractive__subcmd__help__subcmd__hook,worktree-remove)
+                cmd="sinteractive__subcmd__help__subcmd__hook__subcmd__worktree__subcmd__remove"
                 ;;
             sinteractive__subcmd__help__subcmd__session,ensure)
                 cmd="sinteractive__subcmd__help__subcmd__session__subcmd__ensure"
@@ -337,6 +367,12 @@ _sinteractive() {
             sinteractive__subcmd__hook,session-start)
                 cmd="sinteractive__subcmd__hook__subcmd__session__subcmd__start"
                 ;;
+            sinteractive__subcmd__hook,worktree-create)
+                cmd="sinteractive__subcmd__hook__subcmd__worktree__subcmd__create"
+                ;;
+            sinteractive__subcmd__hook,worktree-remove)
+                cmd="sinteractive__subcmd__hook__subcmd__worktree__subcmd__remove"
+                ;;
             sinteractive__subcmd__hook__subcmd__help,help)
                 cmd="sinteractive__subcmd__hook__subcmd__help__subcmd__help"
                 ;;
@@ -345,6 +381,12 @@ _sinteractive() {
                 ;;
             sinteractive__subcmd__hook__subcmd__help,session-start)
                 cmd="sinteractive__subcmd__hook__subcmd__help__subcmd__session__subcmd__start"
+                ;;
+            sinteractive__subcmd__hook__subcmd__help,worktree-create)
+                cmd="sinteractive__subcmd__hook__subcmd__help__subcmd__worktree__subcmd__create"
+                ;;
+            sinteractive__subcmd__hook__subcmd__help,worktree-remove)
+                cmd="sinteractive__subcmd__hook__subcmd__help__subcmd__worktree__subcmd__remove"
                 ;;
             sinteractive__subcmd__session,ensure)
                 cmd="sinteractive__subcmd__session__subcmd__ensure"
@@ -627,7 +669,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__claude__subcmd__help__subcmd__hook)
-            opts="session-start prompt"
+            opts="session-start prompt worktree-create worktree-remove"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -655,6 +697,34 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__session__subcmd__start)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__worktree__subcmd__create)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__worktree__subcmd__remove)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -711,7 +781,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__claude__subcmd__hook)
-            opts="-h --help session-start prompt help"
+            opts="-h --help session-start prompt worktree-create worktree-remove help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -725,7 +795,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__claude__subcmd__hook__subcmd__help)
-            opts="session-start prompt help"
+            opts="session-start prompt worktree-create worktree-remove help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -780,6 +850,34 @@ _sinteractive() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__worktree__subcmd__create)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__worktree__subcmd__remove)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sinteractive__subcmd__claude__subcmd__hook__subcmd__prompt)
             opts="-h --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
@@ -795,6 +893,34 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__claude__subcmd__hook__subcmd__session__subcmd__start)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__claude__subcmd__hook__subcmd__worktree__subcmd__create)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__claude__subcmd__hook__subcmd__worktree__subcmd__remove)
             opts="-h --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -1207,7 +1333,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__help__subcmd__claude__subcmd__hook)
-            opts="session-start prompt"
+            opts="session-start prompt worktree-create worktree-remove"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1235,6 +1361,34 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__session__subcmd__start)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__worktree__subcmd__create)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__worktree__subcmd__remove)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -1417,7 +1571,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__help__subcmd__hook)
-            opts="session-start prompt"
+            opts="session-start prompt worktree-create worktree-remove"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1445,6 +1599,34 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__help__subcmd__hook__subcmd__session__subcmd__start)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__hook__subcmd__worktree__subcmd__create)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__hook__subcmd__worktree__subcmd__remove)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -1739,7 +1921,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__hook)
-            opts="-h --help session-start prompt help"
+            opts="-h --help session-start prompt worktree-create worktree-remove help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1753,7 +1935,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__hook__subcmd__help)
-            opts="session-start prompt help"
+            opts="session-start prompt worktree-create worktree-remove help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1808,6 +1990,34 @@ _sinteractive() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sinteractive__subcmd__hook__subcmd__help__subcmd__worktree__subcmd__create)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__hook__subcmd__help__subcmd__worktree__subcmd__remove)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sinteractive__subcmd__hook__subcmd__prompt)
             opts="-h --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -1823,6 +2033,34 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__hook__subcmd__session__subcmd__start)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__hook__subcmd__worktree__subcmd__create)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__hook__subcmd__worktree__subcmd__remove)
             opts="-h --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

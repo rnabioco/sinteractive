@@ -297,6 +297,18 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(worktree-create)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(worktree-remove)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sinteractive__subcmd__claude__subcmd__hook__subcmd__help_commands" \
@@ -314,6 +326,14 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (prompt)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(worktree-create)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(worktree-remove)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -378,6 +398,14 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (prompt)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(worktree-create)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(worktree-remove)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -571,6 +599,18 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(worktree-create)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(worktree-remove)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sinteractive__subcmd__hook__subcmd__help_commands" \
@@ -588,6 +628,14 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (prompt)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(worktree-create)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(worktree-remove)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -784,6 +832,14 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(worktree-create)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(worktree-remove)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -873,6 +929,14 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (prompt)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(worktree-create)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(worktree-remove)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1039,6 +1103,8 @@ _sinteractive__subcmd__claude__subcmd__help__subcmd__hook_commands() {
     local commands; commands=(
 'session-start:SessionStart\: print the agent briefing' \
 'prompt:UserPromptSubmit\: warn when walltime is short' \
+'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
+'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
     )
     _describe -t commands 'sinteractive claude help hook commands' commands "$@"
 }
@@ -1051,6 +1117,16 @@ _sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__prompt_comman
 _sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__session-start_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive claude help hook session-start commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__worktree-create_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__worktree-create_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude help hook worktree-create commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__worktree-remove_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__worktree-remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude help hook worktree-remove commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__claude__subcmd__help__subcmd__install_commands] )) ||
 _sinteractive__subcmd__claude__subcmd__help__subcmd__install_commands() {
@@ -1072,6 +1148,8 @@ _sinteractive__subcmd__claude__subcmd__hook_commands() {
     local commands; commands=(
 'session-start:SessionStart\: print the agent briefing' \
 'prompt:UserPromptSubmit\: warn when walltime is short' \
+'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
+'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive claude hook commands' commands "$@"
@@ -1081,6 +1159,8 @@ _sinteractive__subcmd__claude__subcmd__hook__subcmd__help_commands() {
     local commands; commands=(
 'session-start:SessionStart\: print the agent briefing' \
 'prompt:UserPromptSubmit\: warn when walltime is short' \
+'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
+'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive claude hook help commands' commands "$@"
@@ -1100,6 +1180,16 @@ _sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__session-start
     local commands; commands=()
     _describe -t commands 'sinteractive claude hook help session-start commands' commands "$@"
 }
+(( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__worktree-create_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__worktree-create_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude hook help worktree-create commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__worktree-remove_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__worktree-remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude hook help worktree-remove commands' commands "$@"
+}
 (( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__prompt_commands] )) ||
 _sinteractive__subcmd__claude__subcmd__hook__subcmd__prompt_commands() {
     local commands; commands=()
@@ -1109,6 +1199,16 @@ _sinteractive__subcmd__claude__subcmd__hook__subcmd__prompt_commands() {
 _sinteractive__subcmd__claude__subcmd__hook__subcmd__session-start_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive claude hook session-start commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__worktree-create_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__hook__subcmd__worktree-create_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude hook worktree-create commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__worktree-remove_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__hook__subcmd__worktree-remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude hook worktree-remove commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__claude__subcmd__install_commands] )) ||
 _sinteractive__subcmd__claude__subcmd__install_commands() {
@@ -1287,6 +1387,8 @@ _sinteractive__subcmd__help__subcmd__claude__subcmd__hook_commands() {
     local commands; commands=(
 'session-start:SessionStart\: print the agent briefing' \
 'prompt:UserPromptSubmit\: warn when walltime is short' \
+'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
+'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
     )
     _describe -t commands 'sinteractive help claude hook commands' commands "$@"
 }
@@ -1299,6 +1401,16 @@ _sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__prompt_comman
 _sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__session-start_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive help claude hook session-start commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__worktree-create_commands] )) ||
+_sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__worktree-create_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help claude hook worktree-create commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__worktree-remove_commands] )) ||
+_sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__worktree-remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help claude hook worktree-remove commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__help__subcmd__claude__subcmd__install_commands] )) ||
 _sinteractive__subcmd__help__subcmd__claude__subcmd__install_commands() {
@@ -1369,6 +1481,8 @@ _sinteractive__subcmd__help__subcmd__hook_commands() {
     local commands; commands=(
 'session-start:SessionStart\: print the agent briefing' \
 'prompt:UserPromptSubmit\: warn when walltime is short' \
+'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
+'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
     )
     _describe -t commands 'sinteractive help hook commands' commands "$@"
 }
@@ -1381,6 +1495,16 @@ _sinteractive__subcmd__help__subcmd__hook__subcmd__prompt_commands() {
 _sinteractive__subcmd__help__subcmd__hook__subcmd__session-start_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive help hook session-start commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__hook__subcmd__worktree-create_commands] )) ||
+_sinteractive__subcmd__help__subcmd__hook__subcmd__worktree-create_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help hook worktree-create commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__hook__subcmd__worktree-remove_commands] )) ||
+_sinteractive__subcmd__help__subcmd__hook__subcmd__worktree-remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help hook worktree-remove commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__help__subcmd__install-claude_commands] )) ||
 _sinteractive__subcmd__help__subcmd__install-claude_commands() {
@@ -1492,6 +1616,8 @@ _sinteractive__subcmd__hook_commands() {
     local commands; commands=(
 'session-start:SessionStart\: print the agent briefing' \
 'prompt:UserPromptSubmit\: warn when walltime is short' \
+'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
+'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive hook commands' commands "$@"
@@ -1501,6 +1627,8 @@ _sinteractive__subcmd__hook__subcmd__help_commands() {
     local commands; commands=(
 'session-start:SessionStart\: print the agent briefing' \
 'prompt:UserPromptSubmit\: warn when walltime is short' \
+'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
+'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive hook help commands' commands "$@"
@@ -1520,6 +1648,16 @@ _sinteractive__subcmd__hook__subcmd__help__subcmd__session-start_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive hook help session-start commands' commands "$@"
 }
+(( $+functions[_sinteractive__subcmd__hook__subcmd__help__subcmd__worktree-create_commands] )) ||
+_sinteractive__subcmd__hook__subcmd__help__subcmd__worktree-create_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive hook help worktree-create commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__hook__subcmd__help__subcmd__worktree-remove_commands] )) ||
+_sinteractive__subcmd__hook__subcmd__help__subcmd__worktree-remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive hook help worktree-remove commands' commands "$@"
+}
 (( $+functions[_sinteractive__subcmd__hook__subcmd__prompt_commands] )) ||
 _sinteractive__subcmd__hook__subcmd__prompt_commands() {
     local commands; commands=()
@@ -1529,6 +1667,16 @@ _sinteractive__subcmd__hook__subcmd__prompt_commands() {
 _sinteractive__subcmd__hook__subcmd__session-start_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive hook session-start commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__hook__subcmd__worktree-create_commands] )) ||
+_sinteractive__subcmd__hook__subcmd__worktree-create_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive hook worktree-create commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__hook__subcmd__worktree-remove_commands] )) ||
+_sinteractive__subcmd__hook__subcmd__worktree-remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive hook worktree-remove commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__install-claude_commands] )) ||
 _sinteractive__subcmd__install-claude_commands() {
