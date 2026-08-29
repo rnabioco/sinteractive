@@ -10,6 +10,18 @@ and this project adheres to
 
 ### Fixed
 
+- `sinteractive claude install` writes the absolute path of the binary that
+  ran it — for the MCP server, both hooks and the statusline — rather than
+  the bare `sinteractive`. Claude Code starts all four from a non-interactive
+  shell, where an alias does not apply and PATH order does, so on a machine
+  with the 0.x script still in `/usr/local/bin` ahead of `~/.local/bin` the
+  MCP server was launched as `/usr/local/bin/sinteractive claude mcp`, which
+  took `claude mcp` for a job command and died in `sbatch`; the session then
+  had no `mcp__sinteractive__*` tools at all. Entries an earlier install
+  wrote are pointed at the new binary on the next install instead of being
+  left alone, so re-running it after an upgrade heals a configuration that
+  already has the bare name (an MCP entry's `env` and the user's own hooks
+  are kept as they are).
 - The `Ctrl+b q` popup says what it is and how to leave. `queue --watch`
   slept between redraws and read no keys, so the only way out of the floating
   pane was Ctrl-C; worse, the frame was as long as the recent history, so in

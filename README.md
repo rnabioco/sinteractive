@@ -372,7 +372,8 @@ session-start` briefs the agent on the session it is in; `sinteractive claude ho
 prompt` warns when walltime is short), the statusline (`sinteractive
 statusline`, which shows the model, context usage and the working directory
 under the input box; session state stays on the status bar) and the MCP server (`sinteractive claude mcp`, via `claude mcp
-add`). The merge is additive, idempotent and backed up; a `settings.json` that
+add`), each by the absolute path of the binary that ran the install, so PATH order in Claude Code's
+non-interactive shell cannot hand them to some other `sinteractive`. The merge is additive, idempotent and backed up; a `settings.json` that
 does not parse is left alone and the snippet printed instead. Old 0.x hook
 scripts are removed and their entries replaced.
 

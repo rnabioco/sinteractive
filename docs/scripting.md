@@ -279,14 +279,22 @@ instead of shelling out and parsing. `sinteractive claude install` registers
 it for Claude Code; by hand, the equivalent is
 
 ```bash
-claude mcp add --scope user sinteractive -- sinteractive claude mcp
+claude mcp add --scope user sinteractive -- ~/.local/bin/sinteractive claude mcp
 ```
 
 which lands in the Claude settings as
 
 ```json
-"mcpServers": { "sinteractive": { "type": "stdio", "command": "sinteractive", "args": ["claude", "mcp"] } }
+"mcpServers": { "sinteractive": { "type": "stdio", "command": "/home/you/.local/bin/sinteractive", "args": ["claude", "mcp"] } }
 ```
+
+The command is the absolute path of the binary that ran the install, and the
+hooks and statusline are written the same way. Claude Code starts all of them
+from a non-interactive shell, which has no aliases and may not have the PATH
+your login shell does; a bare `sinteractive` there resolves to whichever one
+comes first on that PATH — an older copy in `/usr/local/bin`, say — and the
+server fails to start. Re-running `sinteractive claude install` from a newly
+installed binary points the existing entries at it.
 
 Every tool calls the same code as the corresponding `--json` command and
 returns that command's JSON as the tool's structured content (with a matching
