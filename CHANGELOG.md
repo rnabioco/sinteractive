@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The monitor panel showed only `gpu0` and `gpu1` on a four-GPU node: the
+  panel is five rows, and the strip, cpu and mem take three. In a pane 122
+  columns or wider the resources now go two to a row — `cpu` beside `mem`,
+  then the GPUs in pairs — so all four fit with the trend row still spare.
+  Narrower panes keep the stacked layout, and its bars, as before.
+
 ## [1.1.0] - 2026-08-29
 
 ### Added

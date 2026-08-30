@@ -194,6 +194,11 @@ GPU. A job with no GPU spends the spare row on where its load has been.
 Jobs on other nodes are sampled over ssh every ten seconds; one on this
 node is sampled here.
 
+In a pane 122 columns or wider the resources go two to a row — `cpu`
+beside `mem`, then the GPUs in pairs — so a four-GPU node fits with a row
+to spare. Narrower than that the rows stack as below, and a third and
+fourth GPU fall off the bottom.
+
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 147845 mywork · 246422 sint-mods   1/2      ←→ job · t top · esc shell · x close
