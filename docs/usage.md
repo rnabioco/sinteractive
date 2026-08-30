@@ -190,7 +190,8 @@ to go.
 `Ctrl+b m` opens a six-row panel between the shell and the bar: a strip of
 every running job launched from this session (this one first), then bars
 for CPU and memory against the selected job's cgroup limits, and a row per
-GPU. A job with no GPU spends the spare row on where its load has been.
+GPU. A job with no GPU spends the spare row on where its load has been, a
+sparkline the width of the bars above it.
 Jobs on other nodes are sampled over ssh every ten seconds; one on this
 node is sampled here.
 

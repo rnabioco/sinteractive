@@ -15,6 +15,9 @@ and this project adheres to
   columns or wider the resources now go two to a row — `cpu` beside `mem`,
   then the GPUs in pairs — so all four fit with the trend row still spare.
   Narrower panes keep the stacked layout, and its bars, as before.
+- The panel's `trend` sparkline is the bars' width and sits under them —
+  the last 24 samples on a wide pane — instead of running out to wherever
+  the sixty-sample history ended, well past the rows above it.
 
 ## [1.1.0] - 2026-08-29
 

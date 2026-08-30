@@ -618,12 +618,15 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         out[1].push_str(&format!("  {}{}s old{RESET}", fg(c.warn), h.age_secs));
     }
     // A CPU-only job leaves rows over: spend them on where the load has
-    // been, which is the one thing a bar cannot say.
+    // been, which is the one thing a bar cannot say. The sparkline is the
+    // bars' width and sits under them, one more row of the same column,
+    // rather than running out past the rows above it to wherever the
+    // history happens to end.
     if out.len() < rows && h.cpu_history.len() > 1 {
         out.push(format!(
             "{} {}",
             label("trend"),
-            sparkline(&h.cpu_history, cols.saturating_sub(lw + 1))
+            sparkline(&h.cpu_history, bw)
         ));
     }
     out.truncate(rows);
@@ -928,6 +931,15 @@ mod tests {
             "the trend starts under the bars: {:?}",
             cpu_only[3]
         );
+        let mut m = st.msg.clone();
+        m.hosts[0].cpu_history = (0..60).map(|i| i % 100).collect();
+        st.apply_msg(m);
+        let trend = strip_ansi(&panel_lines(&st, PANEL_ROWS, 100)[3]);
+        assert_eq!(
+            visible_width(&trend),
+            bar_col(cpu) + MAX_BAR,
+            "the trend ends with the bars, however long the history: {trend:?}"
+        );
 
         // Narrower panes still fit: the bar gives way first. (Below ~53
         // columns the fixed text alone is wider than the pane, as before.)
@@ -1021,6 +1033,12 @@ mod tests {
         for l in &edge {
             assert!(visible_width(l) <= at, "{l:?}");
         }
+        assert_eq!(
+            visible_width(&edge[4]) - WIDEST_LABEL - 1,
+            MIN_WIDE_BAR.min(st.msg.hosts[0].cpu_history.len()),
+            "the trend shrinks with the bars: {:?}",
+            edge[4]
+        );
         let under = plain(&st, at - 1);
         assert!(
             under[3].starts_with("gpu0") && !under[2].contains("gpu"),
