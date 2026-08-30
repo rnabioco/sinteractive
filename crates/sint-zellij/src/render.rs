@@ -506,6 +506,12 @@ pub fn job_strip(st: &State, cols: usize) -> String {
 /// for, then the cpu trend if any row is still going spare. The process
 /// table is not here — `t` opens the full `sinteractive monitor` TUI in a
 /// floating pane, which scrolls and sorts the way a top does.
+///
+/// A wide pane lays the resources out two to a row — cpu beside mem, then
+/// the GPUs in pairs — so a four-GPU node fits its five rows with one to
+/// spare instead of losing gpu2 and gpu3 off the bottom. The threshold is
+/// the width at which both halves still get a bar worth reading
+/// (`MIN_WIDE_BAR` cells); below it the rows stack as before.
 pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
     let c = colors(st.theme);
     let mut out = Vec::new();
@@ -520,20 +526,33 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         return out;
     };
     out.push(job_strip(st, cols));
+    let per_row = if cols >= 2 * (WIDEST_LABEL + 1 + MIN_WIDE_BAR + ROW_TAIL) + GUTTER {
+        2
+    } else {
+        1
+    };
+    // cpu and mem come first; the GPUs get whatever rows are left after
+    // them, `per_row` to each.
+    let gpu_slots = rows.saturating_sub(out.len() + 2usize.div_ceil(per_row)) * per_row;
+    let shown = &h.gpus[..h.gpus.len().min(gpu_slots)];
     // The resource rows share one grid — label, bar, percentage, then the
     // row's own detail — so a `gpu0` under `cpu` and `mem` does not set its
     // bar one cell to the right of theirs. The label column is as wide as
     // the widest label that can turn up (`trend`, or a two-digit GPU), not
     // the widest on this host, so the grid stays put as the selection moves
-    // between a CPU job and a GPU job.
-    let gpu_rows = h.gpus.len().min(rows.saturating_sub(out.len() + 2));
-    let lw = h.gpus[..gpu_rows]
+    // between a CPU job and a GPU job. Both halves of a paired row use the
+    // same grid, so mem's slash sits under gpu1's as it does under gpu0's
+    // when the rows stack.
+    let lw = shown
         .iter()
         .map(|g| format!("gpu{}", g.index).len())
-        .fold("trend".len(), usize::max);
-    // Everything after the bar, at its widest: ` 100%  31G / 40G  61°C 240W `
-    // and the GPU row's memory mini-bar.
-    let bw = 24usize.min(cols.saturating_sub(lw + 1 + 34 + GPU_MEM_BAR).max(5));
+        .fold(WIDEST_LABEL, usize::max);
+    let cw = if per_row == 2 {
+        (cols - GUTTER) / 2
+    } else {
+        cols
+    };
+    let bw = MAX_BAR.min(cw.saturating_sub(lw + 1 + ROW_TAIL).max(MIN_BAR));
     let label = |s: &str| format!("{}{s:<lw$}{RESET}", fg(c.dim));
     let pct = |p: u8| format!("{}{p:>3}%{RESET}", fg(c.text));
     // `used / total`, the amount right-aligned and the total padded on the
@@ -549,13 +568,8 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
             mb_to_g(total)
         )
     };
-    let stale = if h.age_secs > 30 {
-        format!("  {}{}s old{RESET}", fg(c.warn), h.age_secs)
-    } else {
-        String::new()
-    };
-    out.push(format!(
-        "{} {} {}  {}of{RESET} {}{}{RESET} {}·{RESET} {}load{RESET} {}{:.1}{RESET}{stale}",
+    let mut cells = vec![format!(
+        "{} {} {}  {}of{RESET} {}{}{RESET} {}·{RESET} {}load{RESET} {}{:.1}{RESET}",
         label("cpu"),
         bar(h.cpu_pct, bw, c.ok, c.track),
         pct(h.cpu_pct),
@@ -566,16 +580,16 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         fg(c.dim),
         fg(c.text),
         h.load1,
-    ));
+    )];
     let mem_pct = pct_of(h.mem_used_mb, h.mem_alloc_mb);
-    out.push(format!(
+    cells.push(format!(
         "{} {} {}  {}",
         label("mem"),
         bar(mem_pct, bw, c.accent, c.track),
         pct(mem_pct),
         used_of(h.mem_used_mb, h.mem_alloc_mb, 0)
     ));
-    for g in &h.gpus[..gpu_rows] {
+    for g in shown {
         let mem_pct = pct_of(g.mem_used_mb, g.mem_total_mb);
         let extra = [
             g.temp_c.map(|t| format!("{t}°C")),
@@ -585,7 +599,7 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
         .flatten()
         .collect::<Vec<_>>()
         .join(" ");
-        out.push(format!(
+        cells.push(format!(
             "{} {} {}  {}  {}{:<10}{RESET} {}",
             label(&format!("gpu{}", g.index)),
             bar(g.util_pct, bw, c.warn, c.track),
@@ -596,21 +610,65 @@ pub fn panel_lines(st: &State, rows: usize, cols: usize) -> Vec<String> {
             bar(mem_pct, GPU_MEM_BAR, c.accent, c.track)
         ));
     }
+    out.extend(cells.chunks(per_row).map(|pair| beside(pair, cw)));
+    // The sample's age rides on the first resource row: the cpu row when
+    // they stack, `cpu | mem` when they pair — either way the row with the
+    // least of its own to say.
+    if h.age_secs > 30 {
+        out[1].push_str(&format!("  {}{}s old{RESET}", fg(c.warn), h.age_secs));
+    }
     // A CPU-only job leaves rows over: spend them on where the load has
-    // been, which is the one thing a bar cannot say.
+    // been, which is the one thing a bar cannot say. The sparkline is the
+    // bars' width and sits under them, one more row of the same column,
+    // rather than running out past the rows above it to wherever the
+    // history happens to end.
     if out.len() < rows && h.cpu_history.len() > 1 {
         out.push(format!(
             "{} {}",
             label("trend"),
-            sparkline(&h.cpu_history, cols.saturating_sub(lw + 1))
+            sparkline(&h.cpu_history, bw)
         ));
     }
     out.truncate(rows);
     out
 }
 
+/// One or two resource cells as a row: the first padded to `cw`, then the
+/// gutter, then the second — so a bar in the right column starts in the
+/// same place on every row.
+fn beside(cells: &[String], cw: usize) -> String {
+    match cells {
+        [left, right] => {
+            let pad = cw.saturating_sub(visible_width(left)) + GUTTER;
+            format!("{left}{}{right}", " ".repeat(pad))
+        }
+        [one] => one.clone(),
+        _ => String::new(),
+    }
+}
+
+/// Widest label a resource row can carry: `trend`, or a two-digit GPU.
+const WIDEST_LABEL: usize = "trend".len();
+
+/// Everything after a resource row's bar, at its widest — the GPU row's
+/// ` 100%  31G / 40G  61°C 240W ` and its memory mini-bar.
+const ROW_TAIL: usize = 34 + GPU_MEM_BAR;
+
+/// The bar a resource row gets when there is room, and the least it is ever
+/// cut to when there is not.
+const MAX_BAR: usize = 24;
+const MIN_BAR: usize = 5;
+
+/// The bar each half of a paired row must be able to hold before the panel
+/// pairs rows at all: any thinner and the bars stop being readable, so a
+/// pane narrower than that stacks them and shows fewer GPUs instead.
+const MIN_WIDE_BAR: usize = 12;
+
 /// Width of the memory mini-bar at the end of a GPU row.
 const GPU_MEM_BAR: usize = 8;
+
+/// Columns between the two halves of a paired row.
+const GUTTER: usize = 2;
 
 /// Render the monitor-panel pane (the `view=monitor` instance): the rule and
 /// the panel rows, no status line.
@@ -873,6 +931,15 @@ mod tests {
             "the trend starts under the bars: {:?}",
             cpu_only[3]
         );
+        let mut m = st.msg.clone();
+        m.hosts[0].cpu_history = (0..60).map(|i| i % 100).collect();
+        st.apply_msg(m);
+        let trend = strip_ansi(&panel_lines(&st, PANEL_ROWS, 100)[3]);
+        assert_eq!(
+            visible_width(&trend),
+            bar_col(cpu) + MAX_BAR,
+            "the trend ends with the bars, however long the history: {trend:?}"
+        );
 
         // Narrower panes still fit: the bar gives way first. (Below ~53
         // columns the fixed text alone is wider than the pane, as before.)
@@ -881,6 +948,103 @@ mod tests {
                 assert!(visible_width(&l) <= cols, "cols={cols} {l:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_wide_pane_pairs_the_rows_so_four_gpus_fit() {
+        let mut st = state();
+        st.is_panel = true;
+        st.panel_open = true;
+        let mut m = st.msg.clone();
+        let g0 = m.hosts[0].gpus[0].clone();
+        m.hosts[0].gpus = (0..4)
+            .map(|i| GpuLine {
+                index: i,
+                util_pct: 20 * (i as u8 + 1),
+                ..g0.clone()
+            })
+            .collect();
+        st.apply_msg(m);
+        let plain = |st: &State, cols: usize| -> Vec<String> {
+            panel_lines(st, PANEL_ROWS, cols)
+                .iter()
+                .map(|l| strip_ansi(l))
+                .collect()
+        };
+
+        // Stacked, the panel runs out of rows at gpu1 and has no trend.
+        let narrow = plain(&st, 100);
+        assert_eq!(narrow.len(), PANEL_ROWS);
+        assert!(narrow[3].starts_with("gpu0") && narrow[4].starts_with("gpu1"));
+        assert!(!narrow.iter().any(|l| l.contains("gpu2")), "{narrow:?}");
+
+        // Paired, all four fit with a row left for the trend, and the right
+        // column is its own grid: mem, gpu1 and gpu3 start in one place.
+        let wide = plain(&st, 160);
+        assert_eq!(wide.len(), PANEL_ROWS, "{wide:?}");
+        assert!(
+            wide[1].starts_with("cpu") && wide[1].contains("mem"),
+            "{:?}",
+            wide[1]
+        );
+        assert!(
+            wide[2].starts_with("gpu0") && wide[2].contains("gpu1"),
+            "{:?}",
+            wide[2]
+        );
+        assert!(
+            wide[3].starts_with("gpu2") && wide[3].contains("gpu3"),
+            "{:?}",
+            wide[3]
+        );
+        assert!(wide[4].starts_with("trend"), "{:?}", wide[4]);
+        let right = |l: &str, label: &str| l[..l.find(label).unwrap()].chars().count();
+        assert_eq!(right(&wide[1], "mem"), right(&wide[2], "gpu1"));
+        assert_eq!(right(&wide[1], "mem"), right(&wide[3], "gpu3"));
+        let bars = |l: &str| l.match_indices(['█', '░']).count();
+        assert_eq!(bars(&wide[1]), 2 * MAX_BAR, "two full bars: {:?}", wide[1]);
+        for l in &wide {
+            assert!(visible_width(l) <= 160, "{l:?}");
+        }
+
+        // An odd GPU leaves the right half of its row empty, not padded.
+        let mut m = st.msg.clone();
+        m.hosts[0].gpus.truncate(3);
+        st.apply_msg(m);
+        let odd = plain(&st, 160);
+        assert!(
+            odd[3].starts_with("gpu2") && !odd[3].ends_with(' '),
+            "{:?}",
+            odd[3]
+        );
+        assert!(odd[4].starts_with("trend"), "{:?}", odd[4]);
+
+        // At the threshold the bars are the narrowest worth pairing; one
+        // column short of it the rows stack again, with room for a fat bar.
+        let at = 2 * (WIDEST_LABEL + 1 + MIN_WIDE_BAR + ROW_TAIL) + GUTTER;
+        let edge = plain(&st, at);
+        assert!(edge[2].contains("gpu1"), "{:?}", edge[2]);
+        assert_eq!(
+            bars(&edge[2]) - 2 * GPU_MEM_BAR,
+            2 * MIN_WIDE_BAR,
+            "{:?}",
+            edge[2]
+        );
+        for l in &edge {
+            assert!(visible_width(l) <= at, "{l:?}");
+        }
+        assert_eq!(
+            visible_width(&edge[4]) - WIDEST_LABEL - 1,
+            MIN_WIDE_BAR.min(st.msg.hosts[0].cpu_history.len()),
+            "the trend shrinks with the bars: {:?}",
+            edge[4]
+        );
+        let under = plain(&st, at - 1);
+        assert!(
+            under[3].starts_with("gpu0") && !under[2].contains("gpu"),
+            "{under:?}"
+        );
+        assert_eq!(bars(&under[1]), MAX_BAR, "{:?}", under[1]);
     }
 
     #[test]

@@ -24,7 +24,8 @@ pub enum ThemeMode {
 }
 
 /// Content rows the monitor panel draws below its accent rule: the job
-/// strip, cpu, mem, and whatever GPU or history rows fit after them. The
+/// strip, cpu, mem, and whatever GPU or history rows fit after them — two
+/// resources to a row when the pane is wide enough, so four GPUs fit. The
 /// pane itself is one row taller (see `layouts/sint-panel.kdl`).
 pub const PANEL_ROWS: usize = 5;
 
