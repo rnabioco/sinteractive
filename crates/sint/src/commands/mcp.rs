@@ -900,7 +900,14 @@ mod tests {
     }
 
     fn write_state(state: &StateDir, job_id: u64, remaining: Option<i64>) {
-        let now = now_epoch();
+        write_state_at(state, job_id, remaining, now_epoch());
+    }
+
+    /// `write_state` stamped with a caller-chosen clock, so a test that
+    /// asserts on the exact remaining seconds can observe with the same
+    /// `now` it wrote — a second ticking over between the two reads
+    /// `remaining - 1`, which is what made the walltime test flake in CI.
+    fn write_state_at(state: &StateDir, job_id: u64, remaining: Option<i64>, now: i64) {
         state
             .write_state(&StateFile {
                 job_id,
@@ -1029,39 +1036,40 @@ mod tests {
     #[test]
     fn synthetic_walltime_events_from_the_state_file() {
         let (_tmp, state) = dir();
-        write_state(&state, 7, Some(5000));
-        let mut watch = WalltimeWatch::new(&state, 7, T, now_epoch());
+        let now = now_epoch();
+        write_state_at(&state, 7, Some(5000), now);
+        let mut watch = WalltimeWatch::new(&state, 7, T, now);
         assert_eq!(watch.last, Some(5000));
 
         // Still plenty: nothing.
-        write_state(&state, 7, Some(3000));
-        assert_eq!(watch.observe(&state, 7, now_epoch()), None);
+        write_state_at(&state, 7, Some(3000), now);
+        assert_eq!(watch.observe(&state, 7, now), None);
 
         // Crossing the warning line.
-        write_state(&state, 7, Some(1800));
-        let ev = watch.observe(&state, 7, now_epoch()).expect("warn");
+        write_state_at(&state, 7, Some(1800), now);
+        let ev = watch.observe(&state, 7, now).expect("warn");
         assert_eq!(ev.kind, "walltime_warn");
         assert_eq!(ev.remaining_seconds, Some(1800));
         assert!(ev.to_value()["synthetic"].as_bool().unwrap());
 
         // Under it already: no repeat.
-        write_state(&state, 7, Some(1700));
-        assert_eq!(watch.observe(&state, 7, now_epoch()), None);
+        write_state_at(&state, 7, Some(1700), now);
+        assert_eq!(watch.observe(&state, 7, now), None);
 
         // Crossing red.
-        write_state(&state, 7, Some(599));
+        write_state_at(&state, 7, Some(599), now);
         assert_eq!(
-            watch.observe(&state, 7, now_epoch()).map(|e| e.kind),
+            watch.observe(&state, 7, now).map(|e| e.kind),
             Some("walltime_red")
         );
 
         // The session ends: the file goes, once.
         fs::remove_file(state.state_file(7)).unwrap();
         assert_eq!(
-            watch.observe(&state, 7, now_epoch()).map(|e| e.kind),
+            watch.observe(&state, 7, now).map(|e| e.kind),
             Some("session_ended")
         );
-        assert_eq!(watch.observe(&state, 7, now_epoch()), None);
+        assert_eq!(watch.observe(&state, 7, now), None);
     }
 
     #[test]

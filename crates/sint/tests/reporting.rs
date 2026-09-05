@@ -481,9 +481,18 @@ fn agent_context_briefing() {
         "(shown in full by `sinteractive status`)",
         "`sinteractive quota --check`",
         "be changed underneath you.\n\nStorage quota, while exceeded,",
+        "/tmp is this node's own disk",
+        "is itself submitted with sbatch",
     ] {
         assert!(out.contains(needle), "missing {needle:?} in:\n{out}");
     }
+    // The scratch named for cross-node files is the cluster's: with no
+    // /scratch/alpine/$USER on this host, that is ~/scratch.
+    let scratch = format!(
+        "under {}/scratch/<topic>/ named for the task",
+        fx.home_dir().display()
+    );
+    assert!(out.contains(&scratch), "missing {scratch:?} in:\n{out}");
     assert!(!out.contains("--status"), "{out}");
     assert!(!out.contains("--check-quota"), "{out}");
     assert!(!out.contains("OVER STORAGE QUOTA"), "{out}");

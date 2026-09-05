@@ -95,6 +95,44 @@ be satisfied — the job it waits on failed — is **killed rather than left
 pending forever**. A vanished downstream job usually means an upstream
 failure, so check that first with `sacct` rather than resubmitting.
 
+## A workflow controller
+
+`snakemake` and `nextflow` are schedulers of their own: one long-lived
+process that submits a job per rule and waits for it. That process is
+*itself* a job — never something run in an sinteractive session or in an
+`srun` held open from one, where it dies with the session and takes the
+rest of the pipeline with it. `sbatch` it with a couple of CPUs, a little
+memory, and walltime that covers the whole run:
+
+```bash
+#!/usr/bin/env bash
+#SBATCH --job-name=smk-rnaseq
+#SBATCH --comment=smk-rnaseq
+#SBATCH --partition=rna
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=8G
+#SBATCH --time=2-00:00:00
+#SBATCH --output=logs/%x-%j.out
+set -euo pipefail
+
+cd /beevol/home/$USER/devel/proj      # Snakefile, config and workdir on the shared filesystem
+snakemake --executor slurm --jobs 50
+```
+
+Snakemake's `slurm` executor (`snakemake-executor-plugin-slurm`) submits
+each rule as its own job, sized from the rule's `resources:` —
+`slurm_partition`, `mem_mb`, `runtime` — or a `--default-resources` line;
+nextflow does the same with `process.executor = 'slurm'` in its config. The
+controller's allocation holds only the controller, so what it needs is
+walltime, not CPUs: past the `normal` QOS's 3-day ceiling on Bodhi add
+`--qos=long`, and on Alpine use `cpu-long` for anything over 24h. Follow it
+with `squeue --me`; `scancel` the controller to stop the pipeline, then check
+the queue for rule jobs it had already submitted.
+
+Nothing staged on a session's `/tmp` reaches the controller or its jobs —
+the Snakefile, config and working directory sit on the shared filesystem
+(`hpc-compute` covers that boundary).
+
 ## Right-size from what actually happened
 
 Run one sample, then look at what it used before committing to hundreds:

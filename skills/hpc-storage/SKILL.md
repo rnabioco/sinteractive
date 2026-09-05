@@ -36,8 +36,15 @@ hundreds of gigabytes to shared storage — that is a decision about other
 people's work, not just theirs. If they are already over quota, say so
 before starting rather than after the writes fail.
 
-**Final artifacts go on storage every node can see** — anything staged on a
-node-local disk vanishes from the next job's point of view.
+**Only the shared filesystem is visible from more than one node.** `/tmp`
+is the node's own disk — `$TMPDIR` and an agent's scratchpad directory are
+under it — so a file written there in a session does not exist on the node
+an `srun` lands on, and a job's `/tmp` output is gone from the session's
+point of view. Before staging on `/tmp`, ask who has to read it: whatever
+crosses that line — a script for a job, its inputs, output wanted back,
+final artifacts — goes on the cluster's scratch, in a directory named for
+the task (each cluster's file says where). A job's own intermediates, made
+and consumed inside one allocation, are what node-local disk is for.
 
 Sizing an allocation for the job that does the writing is the `hpc-compute`
 skill; finding out which partition you may use is `slurm-discovery`.
