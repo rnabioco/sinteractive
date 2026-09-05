@@ -370,9 +370,9 @@ sinteractive claude install   # from any installed copy
 make claude-install           # equivalent, from a checkout
 ```
 
-This installs the eight skills (`hpc-compute`, `slurm-discovery`, `hpc-storage`,
-`hpc-software`, `slurm-batch`, `git-workflow`, and the forked `land` and
-`job-watch`, which run on a cheaper model) into `~/.claude/skills/`, then
+This installs the nine skills (`hpc-compute`, `slurm-discovery`, `hpc-storage`,
+`hpc-software`, `slurm-batch`, `git-workflow`, `model-routing`, and the forked
+`land` and `job-watch`, which run on a cheaper model) into `~/.claude/skills/`, then
 registers in your `settings.json` the four hooks (`sinteractive claude hook
 session-start` briefs the agent on the session it is in; `sinteractive claude hook
 prompt` warns when walltime is short; `sinteractive claude hook

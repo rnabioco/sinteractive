@@ -149,3 +149,4 @@ for an `salloc`, `sinteractive cancel JOBID|NAME` for a session.
 - `hpc-storage` — where work runs and output lands, per cluster.
 - `hpc-software` — check the module tree before building or installing.
 - `job-watch` — the wait, on a cheap model.
+- `model-routing` — which model and effort a piece of work deserves, and what to fork away.
