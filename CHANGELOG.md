@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-05
+
 ### Changed
 
 - The agent briefing and the `hpc-compute`, `hpc-storage` and `slurm-batch`
@@ -921,7 +923,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/rnabioco/sinteractive/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/rnabioco/sinteractive/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/rnabioco/sinteractive/compare/v0.7.0...v1.0.0
 [0.7.0]: https://github.com/rnabioco/sinteractive/compare/v0.6.0...v0.7.0
