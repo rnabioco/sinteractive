@@ -194,7 +194,9 @@ never fed the other one's partitions, paths, and quotas.
 
 `hpc-compute` covers cluster etiquette: neither the login node nor an
 sinteractive session is a compute target, real work goes into an allocation
-sized for it, reuse sessions rather than piling them up, check the time budget
+sized for it, nothing on a node's `/tmp` crosses into that allocation, a
+workflow controller is submitted as a job of its own so it outlives the
+session, reuse sessions rather than piling them up, check the time budget
 before long jobs, observe a session with `peek`/`send`, and clean up.
 
 `slurm-discovery` covers finding out what the cluster offers rather than
@@ -207,8 +209,9 @@ cluster so the survey is run once rather than every session.
 
 `hpc-storage` covers where data goes, on both clusters this tool runs on. On
 Bodhi, `/beevol` is one shared BeeGFS mount and the compute node's `/tmp` is
-a local disk, so inputs are read from the former and scratch is written to
-the latter and cleaned up on exit. On Alpine (CU Boulder), the layout is
+a local disk — that node's alone — so inputs are read from the former,
+a job's scratch is written to the latter and cleaned up on exit, and what has
+to cross between nodes goes under `~/scratch/<topic>/`. On Alpine (CU Boulder), the layout is
 tiered the other way around: a 2 GB `/home` that nothing may be written to,
 a small backed-up `/projects`, and a huge purged `/scratch/alpine` parallel
 filesystem where all work runs. It also warns that `du` on a home directory
@@ -223,9 +226,10 @@ shell, and never `pip install` into the system Python.
 
 `slurm-batch` covers work that is per-sample rather than a single command:
 `sbatch` scripts, arrays and why to throttle them with `%N`, dependency
-chains, and using `sacct` to size the next run from what the last one actually
-used — noting that `MaxRSS` lives on the step rows, where `sacct -X` will not
-show it.
+chains, submitting a snakemake or nextflow controller as a job of its own so
+it outlives the session, and using `sacct` to size the next run from what the
+last one actually used — noting that `MaxRSS` lives on the step rows, where
+`sacct -X` will not show it.
 
 `git-workflow` covers the git conventions, and is about the repository open in
 the session rather than the cluster: semantic versioning with annotated

@@ -48,8 +48,15 @@ cp "$work"/out.bam /beevol/home/$USER/results/
 The `trap` matters: `/tmp` on a shared node already has a couple of thousand
 entries, and an uncleaned job directory sits there until someone notices.
 
-Keep the *final* artifacts on `/beevol` — `/tmp` is node-local, so the next
-job in the pipeline probably lands somewhere else and cannot see it.
+That pattern holds *inside* one allocation. Across allocations `/tmp` is
+worthless: it is that node's disk, so the next job in the pipeline lands
+somewhere else and cannot see it, and nothing written to `/tmp` in an
+sinteractive session — `$TMPDIR` and an agent's scratchpad directory are
+under it — exists on the node an `srun` from that session lands on. What has
+to cross that line goes on `/beevol`: final artifacts under the repo's
+`results/`, and a task's working files — a script for a job to run, its
+inputs, output you want back — under `~/scratch/<topic>/`, named for the
+task so the next session finds it and a cleanup pass knows what it was.
 
 ## Checking space
 

@@ -103,6 +103,33 @@ restrict which accounts and QOS may submit, so the right `-p` can still be
 rejected — the `slurm-discovery` skill covers mapping that out, and reading
 the reason when a job is refused or stuck `PENDING`.
 
+### Nothing on `/tmp` crosses into an allocation
+
+`/tmp` is the node's own disk, and so is everything under it — `$TMPDIR`,
+and the scratchpad directory an agent is told to use for temporary files.
+An `srun` or `salloc` lands on some other node, which sees none of it, and
+the session sees nothing a job leaves on *its* `/tmp`. The failure reads as
+`No such file or directory` for a script written a minute ago.
+
+Before staging anything on `/tmp`, ask who has to read it. Whatever crosses
+the session/job line — a script the job runs, inputs it reads, output you
+want back — goes on the shared filesystem, in a directory named for the
+task: `~/scratch/<topic>/` on Bodhi, `/scratch/alpine/$USER/<topic>/` on
+Alpine (the briefing from `sinteractive claude context` names the one for
+the cluster it runs on). What a job writes and consumes inside one
+allocation still belongs on that node's `/tmp` — `hpc-storage` has the
+pattern.
+
+### A workflow controller is a job, not a session
+
+`snakemake`, `nextflow` and their kind sit for hours submitting jobs. Run in
+the session, or in an `srun` held open from it, the controller dies with the
+session — walltime, a `scancel`, a maintenance window — and the rest of the
+pipeline with it. Submit it with `sbatch` as a job of its own, so its
+lifetime is its own `-t` and nothing else, and have it drive the real work
+as Slurm jobs rather than running rules inline. `slurm-batch` has the
+script.
+
 ### Check for reservations before asking for walltime
 
 **A job asking for more walltime than remains before a maintenance

@@ -13,6 +13,16 @@
 //! resource numbers below are reported but never exported as environment
 //! variables — a `SINTERACTIVE_CPUS` in the environment is an invitation to
 //! run `make -j` here.
+//!
+//! Two more rules are here because agents kept getting them wrong. `/tmp` is
+//! node-local, and the scratchpad directory an agent is told to use sits
+//! under it, so a script staged there is "No such file" on the node an
+//! `srun` lands on — what crosses that line goes on the shared filesystem,
+//! and the briefing names the cluster's scratch for it. And a workflow
+//! controller (snakemake, nextflow) is submitted as a job of its own, so it
+//! outlives the session instead of dying with it.
+
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
 use sint_core::quota::{self, kb_to_size};
@@ -81,6 +91,11 @@ pub fn briefing(ctx: &Ctx) -> Result<String> {
 
     let node = &row.node;
     let partition = &row.partition;
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("~"));
+    let scratch = shared_scratch(&home, &std::env::var("USER").unwrap_or_default());
+    let scratch = scratch.display();
     Ok(format!(
         r#"You are inside an sinteractive zellij session on a compute node.
   {ident} on {node}, partition {partition} — {res}
@@ -112,6 +127,22 @@ work — send it to a compute partition instead. SLURM_* is stripped from this
 session, so srun and salloc create their own allocations rather than steps of
 this job — and work in them is bounded by their own -t, not by the budget above.
 
+/tmp is this node's own disk, and so is everything under it — $TMPDIR and
+the scratchpad directory you were told to use for temporary files included.
+An srun or salloc lands on some other node, which sees none of it, and this
+session sees nothing a job leaves on its /tmp. So before staging anything on
+/tmp, ask who has to read it: whatever crosses that line — a script the job
+runs, inputs it reads, output you want back — goes on the shared filesystem,
+under {scratch}/<topic>/ named for the task. A job's own intermediates,
+written and consumed inside one allocation, still belong on that node's /tmp.
+
+A workflow controller — snakemake, nextflow, anything that sits for hours
+submitting jobs — is itself submitted with sbatch, as a job of its own with
+a few CPUs and a long -t, and drives the real work as Slurm jobs (snakemake's
+slurm executor, nextflow's slurm executor). Run in this session, or in an
+srun held open from it, it dies with the session and the rest of the pipeline
+with it; as a job it is bounded by nothing but its own -t.
+
 Re-check this session with `sinteractive status --json` before long work;
 the number above was read when this briefing was generated, and a walltime can
 be changed underneath you.
@@ -123,4 +154,30 @@ deleting anything on the user's behalf — it refreshes every open session, so
 the warning clears immediately rather than up to ten minutes later.
 "#
     ))
+}
+
+/// The shared-filesystem scratch the briefing names for files that have to
+/// cross between nodes: Alpine's `/scratch/alpine/$USER` where that exists,
+/// else `~/scratch` — on a one-filesystem cluster such as Bodhi, home *is*
+/// the shared filesystem, and `~/scratch/<topic>/` is where throwaway
+/// working files go.
+fn shared_scratch(home: &Path, user: &str) -> PathBuf {
+    let alpine = Path::new("/scratch/alpine").join(user);
+    if alpine.is_dir() {
+        return alpine;
+    }
+    home.join("scratch")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scratch_is_under_home_where_there_is_no_alpine_scratch() {
+        assert_eq!(
+            shared_scratch(Path::new("/beevol/home/x"), "nobody-has-this-scratch-dir"),
+            PathBuf::from("/beevol/home/x/scratch")
+        );
+    }
 }

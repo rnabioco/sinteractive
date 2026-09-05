@@ -8,6 +8,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The agent briefing and the `hpc-compute`, `hpc-storage` and `slurm-batch`
+  skills say two more things. `/tmp` is the node's own disk — `$TMPDIR` and
+  the scratchpad directory an agent is told to use sit under it — so a
+  script staged there in a session does not exist on the node an `srun`
+  lands on, a failure that kept recurring as `No such file or directory`;
+  whatever crosses the session/job line goes on the shared filesystem
+  instead, under `~/scratch/<topic>/` on Bodhi and
+  `/scratch/alpine/$USER/<topic>/` on Alpine, and the briefing names the
+  path for the cluster it runs on. And a workflow controller — snakemake,
+  nextflow — is submitted with `sbatch` as a job of its own, so it outlives
+  the session rather than dying with it and taking the rest of the pipeline
+  along.
+
 ### Fixed
 
 - The monitor panel showed only `gpu0` and `gpu1` on a four-GPU node: the
