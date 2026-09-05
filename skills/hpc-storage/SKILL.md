@@ -1,6 +1,6 @@
 ---
 name: hpc-storage
-description: Where data lives on the Bodhi and Alpine (CU Boulder/CURC) clusters and where to write it — Bodhi's single shared /beevol BeeGFS versus Alpine's tiered /home (tiny), /projects (small, backed up), /scratch/alpine (huge, purged) layout, which one intermediates belong on, and how to check space without hanging the session. Use before writing large output, staging inputs, choosing a working directory for a job, or when a job is slow at I/O or the filesystem is full.
+description: Where data lives on the Bodhi and Alpine (CU Boulder/CURC) clusters and where to write it — Bodhi's one shared /beevol versus Alpine's tiered /home, /projects and purged /scratch/alpine — which tier intermediates belong on, the node-local /tmp boundary, and how to check space without hanging the session. Use before writing large output, staging inputs or choosing a job's working directory, and when a job is slow at I/O or the filesystem is full.
 ---
 
 # Where does it go?

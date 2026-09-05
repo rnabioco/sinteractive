@@ -8,6 +8,32 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Two skills that run as forked subagents on a cheaper model, so the
+  trivial end of a task does not replay the main conversation at the main
+  model's price. `land` (`model: sonnet`) commits the finished work with a
+  short Conventional Commit, pushes, opens the pull request and watches CI;
+  `job-watch` (`model: haiku`) waits for Slurm jobs and reports how they
+  ended — state, exit code, elapsed, peak memory against the request, the
+  log tail. The briefing and the MCP server's instructions tell the agent
+  to hand waits, status checks and landing off to them.
+
+### Changed
+
+- `git-workflow` is shorter and asks for short commit messages: most
+  commits are the subject line alone, and a body is two or three lines on
+  a why the diff cannot say, never a narrative. Releases tag the merge
+  commit on `main` after the pull request lands.
+- `hpc-compute` is half its length. The sinteractive CLI walkthrough it
+  carried — `list`, `session ensure`, the state file, `peek`/`send` — is
+  what the MCP server now exposes as tools, so the skill keeps the rules
+  and a five-line reference; the `/tmp` and controller sections point at
+  `hpc-storage` and `slurm-batch` instead of repeating them. The
+  per-cluster storage files tell the `/tmp` story once, and every skill's
+  description, which sits in the system prompt of every session, is
+  tightened.
+
 ## [1.2.0] - 2026-09-05
 
 ### Changed

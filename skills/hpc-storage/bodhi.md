@@ -20,8 +20,8 @@ df -h /beevol /tmp
 is a 377G tmpfs — RAM, so anything you put there counts against your job's
 `--mem` and disappears with the allocation.
 
-**The filesystem is 84% full and it is shared with everyone.** Space you free
-is space someone else's run does not fail for.
+**It is shared with everyone and usually close to full** (`df -h /beevol`
+says how close). Space you free is space someone else's run does not fail for.
 
 ## The rule
 
@@ -49,14 +49,10 @@ The `trap` matters: `/tmp` on a shared node already has a couple of thousand
 entries, and an uncleaned job directory sits there until someone notices.
 
 That pattern holds *inside* one allocation. Across allocations `/tmp` is
-worthless: it is that node's disk, so the next job in the pipeline lands
-somewhere else and cannot see it, and nothing written to `/tmp` in an
-sinteractive session — `$TMPDIR` and an agent's scratchpad directory are
-under it — exists on the node an `srun` from that session lands on. What has
-to cross that line goes on `/beevol`: final artifacts under the repo's
-`results/`, and a task's working files — a script for a job to run, its
-inputs, output you want back — under `~/scratch/<topic>/`, named for the
-task so the next session finds it and a cleanup pass knows what it was.
+that node's disk and nobody else's (SKILL.md has the rule): what has to
+cross between a session and a job, or between jobs, goes on `/beevol` — a
+task's working files under `~/scratch/<topic>/`, named for the task so the
+next session finds it, and final artifacts under the repo's `results/`.
 
 ## Checking space
 

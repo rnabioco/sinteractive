@@ -1,6 +1,6 @@
 ---
 name: slurm-discovery
-description: Find out what a Slurm cluster actually offers you — which partitions exist and how big they are, which accounts and QOS you hold, and which combinations you are allowed to submit. Use when choosing a partition or QOS, when sizing a job against the limits, when a submission is rejected, or when a job sits PENDING and the reason is unclear.
+description: What a Slurm cluster actually offers you — which partitions exist and how big they are, which accounts and QOS you hold, and which combinations you may submit. Use when choosing a partition or QOS, sizing a job against the limits, when a submission is rejected, or when a job sits PENDING for an unclear reason.
 ---
 
 # What can I actually run here?

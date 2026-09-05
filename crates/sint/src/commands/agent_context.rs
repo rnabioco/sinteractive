@@ -21,6 +21,11 @@
 //! and the briefing names the cluster's scratch for it. And a workflow
 //! controller (snakemake, nextflow) is submitted as a job of its own, so it
 //! outlives the session instead of dying with it.
+//!
+//! And one about cost: the wait for a job, a queue or quota check, and
+//! landing a branch are trivial, so the briefing sends them to a cheaper
+//! model (the forked `job-watch` and `land` skills, or a haiku subagent)
+//! rather than letting them replay the whole conversation at full price.
 
 use std::path::{Path, PathBuf};
 
@@ -142,6 +147,13 @@ a few CPUs and a long -t, and drives the real work as Slurm jobs (snakemake's
 slurm executor, nextflow's slurm executor). Run in this session, or in an
 srun held open from it, it dies with the session and the rest of the pipeline
 with it; as a job it is bounded by nothing but its own -t.
+
+Not every step needs the model you are running. Waiting on a job, checking
+the queue or the quota, and landing a finished branch are trivial: fork them
+onto a cheaper model — `/job-watch JOBID` waits and reports how a job ended,
+`/land "why"` commits, pushes and opens the pull request — or delegate to a
+subagent with model haiku. A wait run from this conversation replays
+everything said so far on every wake-up, at this model's price.
 
 Re-check this session with `sinteractive status --json` before long work;
 the number above was read when this briefing was generated, and a walltime can

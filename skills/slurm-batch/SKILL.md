@@ -1,6 +1,6 @@
 ---
 name: slurm-batch
-description: Running many jobs with sbatch on Bodhi and Alpine (CU Boulder/CURC) — job scripts, array jobs and their throttling, dependencies between stages, per-cluster memory defaults and array limits, and using sacct to right-size the next run from what the last one actually used. Use when the work is per-sample or per-file rather than a single command, when building a multi-stage pipeline, or when sizing memory and walltime for a batch.
+description: Many jobs with sbatch on Bodhi and Alpine (CU Boulder/CURC) — job scripts, arrays and their throttling, dependency chains, per-cluster memory defaults and array limits, workflow controllers as jobs, and sacct to right-size the next run from the last. Use when the work is per-sample or per-file, when building a multi-stage pipeline, or when sizing memory and walltime for a batch.
 ---
 
 # Many jobs, not one
