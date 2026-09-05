@@ -58,8 +58,10 @@ nodes. A session is an orchestration shell, not a compute target: it is a small 
 with the shell the user is typing in, so editing, git and scheduler queries belong there and \
 anything heavier gets its own srun/salloc allocation. Call session_status before long work to \
 read the remaining walltime, and wait_for_event (which blocks until something happens) instead \
-of polling. peek reads a session's screen; send types into the user's live shell, so only do that \
-when asked.";
+of polling. Waiting and status checks are trivial work: run them from a subagent on a cheaper \
+model (the job-watch skill, or an Agent call with model haiku) rather than the main \
+conversation, which replays everything said so far on every wake-up. peek reads a session's \
+screen; send types into the user's live shell, so only do that when asked.";
 
 /// Default and cap for `wait_for_event`'s timeout, in seconds.
 const WAIT_DEFAULT_SECS: u64 = 300;

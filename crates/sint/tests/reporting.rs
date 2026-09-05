@@ -483,6 +483,9 @@ fn agent_context_briefing() {
         "be changed underneath you.\n\nStorage quota, while exceeded,",
         "/tmp is this node's own disk",
         "is itself submitted with sbatch",
+        "Not every step needs the model you are running",
+        "`/job-watch JOBID`",
+        "`/land \"why\"`",
     ] {
         assert!(out.contains(needle), "missing {needle:?} in:\n{out}");
     }

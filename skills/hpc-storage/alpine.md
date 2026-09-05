@@ -40,11 +40,9 @@ notebooks, environments, and final small outputs — never for the working set
 of a running pipeline.
 
 Node-local `/tmp` on a compute node is only ~63 GB — fine for a tool's small
-temp files, too small for genomics intermediates. It is also that node's
-alone: a file written to `/tmp` in an sinteractive session — `$TMPDIR` and
-an agent's scratchpad directory are under it — does not exist on the node an
-`srun` lands on. The working directory for a job, and anything a job has to
-read or you have to read back from it, is scratch:
+temp files, too small for genomics intermediates — and it is that node's
+alone (SKILL.md has the rule). A job's working directory, and anything a job
+has to read or you have to read back, is scratch:
 `/scratch/alpine/$USER/<topic>/`, named for the task.
 
 ## Checking space

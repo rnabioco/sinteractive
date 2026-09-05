@@ -184,9 +184,9 @@ are removed when their `hpc-*` successor is installed. Exit codes: 0 done,
 1 no assets found, 2 a settings file was refused (everything else was still
 installed).
 
-**Six [skills](https://code.claude.com/docs/en/skills)** teach agents how work
+**Eight [skills](https://code.claude.com/docs/en/skills)** teach agents how work
 is done here. Skills load on demand from their descriptions, so an agent picks
-up the one the task calls for rather than carrying all six. The three `hpc-*`
+up the one the task calls for rather than carrying all eight. The three `hpc-*`
 skills go one step further: their SKILL.md holds the rules shared by both
 clusters this tool runs on and delegates the rest to an `alpine.md` or
 `bodhi.md` beside it, so the agent reads the system it is actually on and is
@@ -196,8 +196,9 @@ never fed the other one's partitions, paths, and quotas.
 sinteractive session is a compute target, real work goes into an allocation
 sized for it, nothing on a node's `/tmp` crosses into that allocation, a
 workflow controller is submitted as a job of its own so it outlives the
-session, reuse sessions rather than piling them up, check the time budget
-before long jobs, observe a session with `peek`/`send`, and clean up.
+session, the wait for a job is handed to a cheaper model, reuse sessions
+rather than piling them up, check the time budget before long jobs, and
+clean up.
 
 `slurm-discovery` covers finding out what the cluster offers rather than
 assuming it: what the partitions are and how big, which accounts and QOS you
@@ -233,9 +234,17 @@ last one actually used — noting that `MaxRSS` lives on the step rows, where
 
 `git-workflow` covers the git conventions, and is about the repository open in
 the session rather than the cluster: semantic versioning with annotated
-`vX.Y.Z` tags, Conventional Commit messages, one worktree per branch under
-`.claude/worktrees/`, landing work through a pull request rather than
+`vX.Y.Z` tags, Conventional Commit messages kept to a subject line, one
+worktree per branch, landing work through a pull request rather than
 committing to `main`, and running the repo's own CI gates before pushing.
+
+`land` and `job-watch` are the trivial ends of the two workflows above, and
+run as forked subagents on a cheaper model — `context: fork` with
+`model: sonnet` and `model: haiku` in their frontmatter — so that committing,
+pushing and watching CI, or waiting for a Slurm job and reporting how it
+ended, does not replay the main conversation at the main model's price. The
+briefing and the MCP server's instructions tell the agent to hand those
+steps off.
 
 **`sinteractive claude context`** prints a briefing on the current session —
 job, node, partition, allocation size, walltime remaining, and the rules

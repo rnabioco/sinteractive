@@ -1,6 +1,6 @@
 ---
 name: hpc-software
-description: How software is provided on the Bodhi and Alpine (CU Boulder/CURC) clusters — module trees (Tcl modules on Bodhi, Lmod on Alpine), Singularity containers, and user-level pixi/uv environments — and the order to try them in. Use before installing, building, or compiling anything, when a command is not found, or when choosing how to pin a tool version for a pipeline.
+description: How software is provided on the Bodhi and Alpine (CU Boulder/CURC) clusters — module trees (Tcl on Bodhi, Lmod on Alpine), Singularity containers, then user-level pixi/uv — and the order to try them in. Use before installing, building or compiling anything, when a command is not found, or when pinning a tool version for a pipeline.
 ---
 
 # Getting a tool

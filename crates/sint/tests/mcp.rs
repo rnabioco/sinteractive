@@ -160,6 +160,7 @@ fn handshake_tools_and_the_documented_contracts() {
         "{instructions}"
     );
     assert!(instructions.contains("wait_for_event"), "{instructions}");
+    assert!(instructions.contains("cheaper model"), "{instructions}");
 
     let tools = mcp.request("tools/list", json!({}));
     let mut names: Vec<&str> = tools["tools"]
