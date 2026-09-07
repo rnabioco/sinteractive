@@ -18,6 +18,11 @@ and this project adheres to
   ended — state, exit code, elapsed, peak memory against the request, the
   log tail. The briefing and the MCP server's instructions tell the agent
   to hand waits, status checks and landing off to them.
+- `sinteractive claude hook agent-guard`, a fifth hook `claude install`
+  registers (`PreToolUse` on `Agent`). Fable subagents tend to spin out of
+  control and burn tokens, so a launch with `model: fable` (or any
+  `claude-fable-*` id) now asks for explicit confirmation instead of
+  slipping through under auto mode.
 
 ### Changed
 

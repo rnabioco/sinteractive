@@ -46,7 +46,7 @@ A person at a prompt attaches; a script or an agent reaches in with these.
 |---|---|
 | `claude install` | Install the Claude Code skills, hooks, statusline and MCP server |
 | `claude context` | Brief a coding agent on the session it is running inside |
-| `claude hook session-start\|prompt\|worktree-create\|worktree-remove` | Hook entry points (Claude Code runs these) |
+| `claude hook session-start\|prompt\|worktree-create\|worktree-remove\|agent-guard` | Hook entry points (Claude Code runs these) |
 | `claude statusline` | statusLine command (Claude Code runs this) |
 | `claude mcp` | MCP server over stdio (Claude Code runs this) |
 
