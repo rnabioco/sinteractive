@@ -309,6 +309,12 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(agent-guard)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sinteractive__subcmd__claude__subcmd__hook__subcmd__help_commands" \
@@ -334,6 +340,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (worktree-remove)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(agent-guard)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -406,6 +416,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (worktree-remove)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(agent-guard)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -611,6 +625,12 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(agent-guard)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sinteractive__subcmd__hook__subcmd__help_commands" \
@@ -636,6 +656,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (worktree-remove)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(agent-guard)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -840,6 +864,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(agent-guard)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -937,6 +965,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (worktree-remove)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(agent-guard)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1105,8 +1137,14 @@ _sinteractive__subcmd__claude__subcmd__help__subcmd__hook_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
+'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
     )
     _describe -t commands 'sinteractive claude help hook commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__agent-guard_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__agent-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude help hook agent-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__prompt_commands] )) ||
 _sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__prompt_commands() {
@@ -1150,9 +1188,15 @@ _sinteractive__subcmd__claude__subcmd__hook_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
+'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive claude hook commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__agent-guard_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__hook__subcmd__agent-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude hook agent-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__help_commands] )) ||
 _sinteractive__subcmd__claude__subcmd__hook__subcmd__help_commands() {
@@ -1161,9 +1205,15 @@ _sinteractive__subcmd__claude__subcmd__hook__subcmd__help_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
+'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive claude hook help commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__agent-guard_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__agent-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude hook help agent-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__help_commands] )) ||
 _sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__help_commands() {
@@ -1389,8 +1439,14 @@ _sinteractive__subcmd__help__subcmd__claude__subcmd__hook_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
+'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
     )
     _describe -t commands 'sinteractive help claude hook commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__agent-guard_commands] )) ||
+_sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__agent-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help claude hook agent-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__prompt_commands] )) ||
 _sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__prompt_commands() {
@@ -1483,8 +1539,14 @@ _sinteractive__subcmd__help__subcmd__hook_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
+'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
     )
     _describe -t commands 'sinteractive help hook commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__hook__subcmd__agent-guard_commands] )) ||
+_sinteractive__subcmd__help__subcmd__hook__subcmd__agent-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help hook agent-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__help__subcmd__hook__subcmd__prompt_commands] )) ||
 _sinteractive__subcmd__help__subcmd__hook__subcmd__prompt_commands() {
@@ -1618,9 +1680,15 @@ _sinteractive__subcmd__hook_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
+'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive hook commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__hook__subcmd__agent-guard_commands] )) ||
+_sinteractive__subcmd__hook__subcmd__agent-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive hook agent-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__hook__subcmd__help_commands] )) ||
 _sinteractive__subcmd__hook__subcmd__help_commands() {
@@ -1629,9 +1697,15 @@ _sinteractive__subcmd__hook__subcmd__help_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
+'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive hook help commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__hook__subcmd__help__subcmd__agent-guard_commands] )) ||
+_sinteractive__subcmd__hook__subcmd__help__subcmd__agent-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive hook help agent-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__hook__subcmd__help__subcmd__help_commands] )) ||
 _sinteractive__subcmd__hook__subcmd__help__subcmd__help_commands() {
