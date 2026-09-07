@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-07
+
 ### Added
 
 - Two skills that run as forked subagents on a cheaper model, so the
@@ -956,7 +958,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/rnabioco/sinteractive/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/rnabioco/sinteractive/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/rnabioco/sinteractive/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/rnabioco/sinteractive/compare/v0.7.0...v1.0.0
