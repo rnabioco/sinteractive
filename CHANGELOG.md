@@ -19,10 +19,12 @@ and this project adheres to
   log tail. The briefing and the MCP server's instructions tell the agent
   to hand waits, status checks and landing off to them.
 - `sinteractive claude hook agent-guard`, a fifth hook `claude install`
-  registers (`PreToolUse` on `Agent`). Fable subagents tend to spin out of
-  control and burn tokens, so a launch with `model: fable` (or any
-  `claude-fable-*` id) now asks for explicit confirmation instead of
-  slipping through under auto mode.
+  registers (`PreToolUse` on `Agent`). Every subagent launch now needs an
+  explicit `model` — a missing or empty one is denied outright, with a
+  reason instructing the agent to pick the least expensive model capable of
+  the task and retry. Fable subagents also tend to spin out of control and
+  burn tokens, so `model: fable` (or any `claude-fable-*` id) additionally
+  asks for confirmation instead of slipping through under auto mode.
 
 ### Changed
 

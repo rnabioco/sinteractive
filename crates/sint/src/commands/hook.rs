@@ -25,13 +25,17 @@
 //! than `PreToolUse`: once per turn is the right cadence for "can this
 //! finish?", and it keeps the check off the path of every Bash call.
 //!
-//! `agent-guard` is a `PreToolUse` hook on the `Agent` tool: Fable subagents
-//! tend to spin out of control and burn tokens, so a launch with
-//! `model: fable` (or any `claude-fable-*` id) should be a deliberate,
-//! confirmed choice rather than something that slips through under auto
-//! mode. It writes a `permissionDecision: "ask"` JSON reply to stdout for a
-//! Fable model and stays silent — letting the normal permission flow decide
-//! — for anything else.
+//! `agent-guard` is a `PreToolUse` hook on the `Agent` tool: every subagent
+//! launch must name an explicit `model`, so the choice is deliberate rather
+//! than whatever the agent definition or a configured default happens to
+//! fall back to. Missing or empty is denied outright — a self-correction
+//! for the calling agent, not something the user needs to weigh in on — with
+//! a reason instructing it to pick the least expensive model capable of the
+//! task and retry. Fable subagents also tend to spin out of control and burn
+//! tokens, so `model: fable` (or any `claude-fable-*` id) additionally asks
+//! the user to confirm rather than silently allowing it through auto mode.
+//! Anything else is silent, leaving the decision to the normal permission
+//! flow.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -136,38 +140,56 @@ fn prompt() -> Result<i32> {
 
 // ---- agent guard --------------------------------------------------------------
 
-/// `PreToolUse` reply for a `model` field, or `None` to leave the decision to
-/// the normal permission flow. Matches `fable` and any `claude-fable-*` id,
-/// case-insensitively, by substring — the alias and every full model id both
-/// contain "fable" and nothing else does.
-fn fable_ask_reply(model: &str) -> Option<Value> {
-    if !model.to_lowercase().contains("fable") {
-        return None;
+/// `PreToolUse` reply for an `Agent` call's `model` field — `None` when the
+/// choice needs no comment. `None` for the field itself (the key was absent)
+/// and `Some("")` (present but empty) are the same case: no model was
+/// actually chosen. Denies that outright, unconditionally — `subagent_type:
+/// "fork"` included, even though its own model override is a no-op, so the
+/// habit of stating one stays uniform rather than quietly excepted. A model
+/// naming Fable, case-insensitively by substring (the alias and every full
+/// `claude-fable-*` id both contain "fable" and nothing else does), asks the
+/// user to confirm instead.
+fn agent_model_reply(model: Option<&str>) -> Option<Value> {
+    match model {
+        None | Some("") => Some(serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "Every subagent launch needs an explicit \
+                    `model` — pick the least expensive one capable of this task: `haiku` \
+                    for mechanical work that needs no judgment (queue checks, bulk greps, \
+                    waits), `sonnet` when it has to read code or decide something, \
+                    `opus`/`fable` only when the task is long-horizon, tool-heavy, or has \
+                    already failed at a cheaper model. Retry with a model set.",
+            }
+        })),
+        Some(m) if m.to_lowercase().contains("fable") => Some(serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask",
+                "permissionDecisionReason": "This subagent is set to launch on Fable. Fable \
+                    subagents tend to spin out of control and burn tokens — confirm this \
+                    specific task actually needs Fable rather than the default model.",
+            }
+        })),
+        Some(_) => None,
     }
-    Some(serde_json::json!({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "ask",
-            "permissionDecisionReason": "This subagent is set to launch on Fable. Fable \
-                subagents tend to spin out of control and burn tokens — confirm this \
-                specific task actually needs Fable rather than the default model.",
-        }
-    }))
 }
 
-/// `PreToolUse` on `Agent`: ask for confirmation before a Fable subagent
-/// launches instead of silently allowing it through auto mode.
+/// `PreToolUse` on `Agent`: require an explicit model on every launch, and
+/// ask for confirmation before a Fable one, instead of silently allowing
+/// either through auto mode.
 fn agent_guard() -> Result<i32> {
     let input = hook_input()?;
     if field(&input, "tool_name") != Some("Agent") {
         return Ok(0);
     }
-    let model = input
-        .get("tool_input")
-        .and_then(|t| t.get("model"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    if let Some(reply) = fable_ask_reply(model) {
+    let model = input.get("tool_input").and_then(|t| t.get("model"));
+    let model = match model {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(v.as_str().unwrap_or_default()),
+    };
+    if let Some(reply) = agent_model_reply(model) {
         println!("{}", reply);
     }
     Ok(0)
@@ -335,18 +357,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn missing_or_empty_model_is_denied() {
+        for model in [None, Some("")] {
+            let reply = agent_model_reply(model).unwrap_or_else(|| panic!("{model:?} should deny"));
+            assert_eq!(reply["hookSpecificOutput"]["permissionDecision"], "deny");
+            assert_eq!(reply["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+        }
+    }
+
+    #[test]
     fn fable_asks_by_alias_and_full_id() {
         for model in ["fable", "Fable", "claude-fable-5-1", "FABLE-preview"] {
-            let reply = fable_ask_reply(model).unwrap_or_else(|| panic!("{model} should ask"));
+            let reply =
+                agent_model_reply(Some(model)).unwrap_or_else(|| panic!("{model} should ask"));
             assert_eq!(reply["hookSpecificOutput"]["permissionDecision"], "ask");
             assert_eq!(reply["hookSpecificOutput"]["hookEventName"], "PreToolUse");
         }
     }
 
     #[test]
-    fn non_fable_models_pass_through() {
-        for model in ["sonnet", "opus", "haiku", "claude-sonnet-5", ""] {
-            assert!(fable_ask_reply(model).is_none(), "{model} should not ask");
+    fn other_models_pass_through() {
+        for model in ["sonnet", "opus", "haiku", "claude-sonnet-5"] {
+            assert!(
+                agent_model_reply(Some(model)).is_none(),
+                "{model} should not ask or deny"
+            );
         }
     }
 

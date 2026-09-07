@@ -381,8 +381,10 @@ creation so that every repository's worktrees land on the cluster's scratch
 filesystem — `/scratch/alpine/$USER/worktrees/<repo>/<name>` on Alpine,
 `SINTERACTIVE_WORKTREES/<repo>/<name>` where that is set, the stock
 `<repo>/.claude/worktrees` elsewhere; `sinteractive claude hook agent-guard`
-asks for confirmation before a subagent launches on Fable, which tends to
-run out of control and burn tokens), the statusline (`sinteractive
+denies a subagent launch that names no explicit `model`, so the choice is
+always deliberate rather than a fallback, and asks for confirmation before
+one launches on Fable, which tends to run out of control and burn tokens),
+the statusline (`sinteractive
 statusline`, which shows the model, context usage and the working directory
 under the input box; session state stays on the status bar) and the MCP server (`sinteractive claude mcp`, via `claude mcp
 add`), each by the absolute path of the binary that ran the install, so PATH order in Claude Code's
