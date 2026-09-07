@@ -1,4 +1,4 @@
-//! `sinteractive claude hook session-start|prompt|worktree-create|worktree-remove`
+//! `sinteractive claude hook session-start|prompt|worktree-create|worktree-remove|agent-guard`
 //! — Claude Code hook entry points.
 //!
 //! `session-start` and `prompt` are native replacements for
@@ -24,6 +24,14 @@
 //! the cache is missing or older than two minutes. `UserPromptSubmit` rather
 //! than `PreToolUse`: once per turn is the right cadence for "can this
 //! finish?", and it keeps the check off the path of every Bash call.
+//!
+//! `agent-guard` is a `PreToolUse` hook on the `Agent` tool: Fable subagents
+//! tend to spin out of control and burn tokens, so a launch with
+//! `model: fable` (or any `claude-fable-*` id) should be a deliberate,
+//! confirmed choice rather than something that slips through under auto
+//! mode. It writes a `permissionDecision: "ask"` JSON reply to stdout for a
+//! Fable model and stays silent — letting the normal permission flow decide
+//! — for anything else.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -43,6 +51,7 @@ pub fn run(args: HookArgs) -> Result<i32> {
         HookEvent::Prompt => prompt(),
         HookEvent::WorktreeCreate => worktree_create(),
         HookEvent::WorktreeRemove => worktree_remove(),
+        HookEvent::AgentGuard => agent_guard(),
     }
 }
 
@@ -121,6 +130,45 @@ fn prompt() -> Result<i32> {
     };
     if let Some(text) = walltime_warning(job_id, remaining, end_epoch, ctx.cfg.agent_warn) {
         print!("{text}");
+    }
+    Ok(0)
+}
+
+// ---- agent guard --------------------------------------------------------------
+
+/// `PreToolUse` reply for a `model` field, or `None` to leave the decision to
+/// the normal permission flow. Matches `fable` and any `claude-fable-*` id,
+/// case-insensitively, by substring — the alias and every full model id both
+/// contain "fable" and nothing else does.
+fn fable_ask_reply(model: &str) -> Option<Value> {
+    if !model.to_lowercase().contains("fable") {
+        return None;
+    }
+    Some(serde_json::json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": "This subagent is set to launch on Fable. Fable \
+                subagents tend to spin out of control and burn tokens — confirm this \
+                specific task actually needs Fable rather than the default model.",
+        }
+    }))
+}
+
+/// `PreToolUse` on `Agent`: ask for confirmation before a Fable subagent
+/// launches instead of silently allowing it through auto mode.
+fn agent_guard() -> Result<i32> {
+    let input = hook_input()?;
+    if field(&input, "tool_name") != Some("Agent") {
+        return Ok(0);
+    }
+    let model = input
+        .get("tool_input")
+        .and_then(|t| t.get("model"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if let Some(reply) = fable_ask_reply(model) {
+        println!("{}", reply);
     }
     Ok(0)
 }
@@ -285,6 +333,22 @@ fn worktree_remove() -> Result<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fable_asks_by_alias_and_full_id() {
+        for model in ["fable", "Fable", "claude-fable-5-1", "FABLE-preview"] {
+            let reply = fable_ask_reply(model).unwrap_or_else(|| panic!("{model} should ask"));
+            assert_eq!(reply["hookSpecificOutput"]["permissionDecision"], "ask");
+            assert_eq!(reply["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+        }
+    }
+
+    #[test]
+    fn non_fable_models_pass_through() {
+        for model in ["sonnet", "opus", "haiku", "claude-sonnet-5", ""] {
+            assert!(fable_ask_reply(model).is_none(), "{model} should not ask");
+        }
+    }
 
     #[test]
     fn worktrees_go_to_scratch_when_there_is_one() {

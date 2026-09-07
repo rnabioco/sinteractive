@@ -43,6 +43,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sinteractive claude hook agent-guard",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   },
   "statusLine": {

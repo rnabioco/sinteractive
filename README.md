@@ -143,7 +143,7 @@ A person at a prompt attaches; a script or an agent reaches in with these.
 |---|---|
 | `claude install` | Install the Claude Code skills, hooks, statusline and MCP server |
 | `claude context` | Brief a coding agent on the session it is running inside |
-| `claude hook session-start\|prompt\|worktree-create\|worktree-remove` | Hook entry points (Claude Code runs these) |
+| `claude hook session-start\|prompt\|worktree-create\|worktree-remove\|agent-guard` | Hook entry points (Claude Code runs these) |
 | `claude statusline` | statusLine command (Claude Code runs this) |
 | `claude mcp` | MCP server over stdio (Claude Code runs this) |
 
@@ -373,14 +373,16 @@ make claude-install           # equivalent, from a checkout
 This installs the nine skills (`hpc-compute`, `slurm-discovery`, `hpc-storage`,
 `hpc-software`, `slurm-batch`, `git-workflow`, `model-routing`, and the forked
 `land` and `job-watch`, which run on a cheaper model) into `~/.claude/skills/`, then
-registers in your `settings.json` the four hooks (`sinteractive claude hook
+registers in your `settings.json` the five hooks (`sinteractive claude hook
 session-start` briefs the agent on the session it is in; `sinteractive claude hook
 prompt` warns when walltime is short; `sinteractive claude hook
 worktree-create` / `worktree-remove` take over Claude Code's worktree
 creation so that every repository's worktrees land on the cluster's scratch
 filesystem — `/scratch/alpine/$USER/worktrees/<repo>/<name>` on Alpine,
 `SINTERACTIVE_WORKTREES/<repo>/<name>` where that is set, the stock
-`<repo>/.claude/worktrees` elsewhere), the statusline (`sinteractive
+`<repo>/.claude/worktrees` elsewhere; `sinteractive claude hook agent-guard`
+asks for confirmation before a subagent launches on Fable, which tends to
+run out of control and burn tokens), the statusline (`sinteractive
 statusline`, which shows the model, context usage and the working directory
 under the input box; session state stays on the status bar) and the MCP server (`sinteractive claude mcp`, via `claude mcp
 add`), each by the absolute path of the binary that ran the install, so PATH order in Claude Code's

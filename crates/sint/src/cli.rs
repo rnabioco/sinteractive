@@ -421,6 +421,8 @@ pub enum HookEvent {
     WorktreeCreate,
     /// WorktreeRemove: remove a worktree the create hook made
     WorktreeRemove,
+    /// PreToolUse (Agent): require confirmation before a Fable subagent
+    AgentGuard,
 }
 
 #[derive(Args, Debug, Clone, Default)]
