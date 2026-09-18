@@ -95,17 +95,18 @@ fn the_pre_grouping_names_still_resolve() {
 
 #[test]
 fn version_prints_the_workspace_version() {
+    let expected = format!("sinteractive {}\n", env!("CARGO_PKG_VERSION"));
     let fx = FakeSlurm::new();
     fx.sinteractive()
         .arg("--version")
         .assert()
         .success()
-        .stdout("sinteractive 1.2.0\n");
+        .stdout(expected.clone());
     fx.sinteractive()
         .arg("-V")
         .assert()
         .success()
-        .stdout("sinteractive 1.2.0\n");
+        .stdout(expected);
 }
 
 #[test]
