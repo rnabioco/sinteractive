@@ -280,15 +280,7 @@ pub fn render_status(info: &SessionInfo, p: &Palette) -> String {
         info.time_limit.as_deref().unwrap_or("")
     ));
     if let Some(remaining) = info.remaining_seconds {
-        // The one number worth reading at a glance, so it is coloured by
-        // how much of it is left rather than left the same shade all session.
-        let rem_c = if remaining < 900 {
-            &p.err
-        } else if remaining < 3600 {
-            &p.warn
-        } else {
-            &p.ok
-        };
+        let rem_c = remaining_colour(remaining, p);
         out.push_str(&format!(
             "{}{rem_c}{}{reset}\n",
             field("Remaining:"),
@@ -296,6 +288,30 @@ pub fn render_status(info: &SessionInfo, p: &Palette) -> String {
         ));
     }
     out
+}
+
+/// Colour for a remaining-time budget: red under 15 minutes, yellow under an
+/// hour, green otherwise — the one number worth reading at a glance, so it
+/// is coloured by how much of it is left rather than left the same shade all
+/// session. Shared by `status`'s `Remaining:` line and `list`'s REMAINING
+/// column.
+pub fn remaining_colour(remaining: i64, p: &Palette) -> &str {
+    if remaining < 900 {
+        &p.err
+    } else if remaining < 3600 {
+        &p.warn
+    } else {
+        &p.ok
+    }
+}
+
+/// Collapse a `$HOME` prefix to `~`, the way every path this tool shows a
+/// person does.
+pub fn tilde(path: &str) -> String {
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() && path.starts_with(&h) => format!("~{}", &path[h.len()..]),
+        _ => path.to_string(),
+    }
 }
 
 /// [`render_status`] on stdout, followed by the session's active notices —

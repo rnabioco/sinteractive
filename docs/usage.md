@@ -244,8 +244,11 @@ node:
 ```bash
 # List your running sessions
 sinteractive list
-#   JOBID       NAME                  NODE            PARTITION     ELAPSED     TIMELIMIT   CWD
-#   12345       rna-seq               compute01       cpu           01:23:45    1-00:00:00  ~/projects/rna-seq
+#   JOBID       NAME                  REMAINING   CWD
+#   12345       rna-seq               22h 36m     ~/projects/rna-seq
+
+# Node, partition, and elapsed/limit as well
+sinteractive list --full
 
 # Reattach
 sinteractive attach 12345

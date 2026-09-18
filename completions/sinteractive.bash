@@ -22,6 +22,9 @@ _sinteractive() {
             sinteractive,__job)
                 cmd="sinteractive__subcmd____job"
                 ;;
+            sinteractive,__pane-cwd)
+                cmd="sinteractive__subcmd____pane__subcmd__cwd"
+                ;;
             sinteractive,__popup)
                 cmd="sinteractive__subcmd____popup"
                 ;;
@@ -222,6 +225,9 @@ _sinteractive() {
                 ;;
             sinteractive__subcmd__help,__job)
                 cmd="sinteractive__subcmd__help__subcmd____job"
+                ;;
+            sinteractive__subcmd__help,__pane-cwd)
+                cmd="sinteractive__subcmd__help__subcmd____pane__subcmd__cwd"
                 ;;
             sinteractive__subcmd__help,__popup)
                 cmd="sinteractive__subcmd__help__subcmd____popup"
@@ -446,7 +452,7 @@ _sinteractive() {
 
     case "${cmd}" in
         sinteractive)
-            opts="-p -t -j -m -n -l -a -h -V --node --partition --time --threads --mem --name --mouse --no-mouse --detach --json --status --refresh --list --ensure --attach --cancel --check-quota --agent-context --install-claude --help --version launch attach list status cancel queue monitor quota doctor session claude gen ensure peek send events refresh snapshot agent-context hook statusline mcp install-claude completions man schema __job __attach __popup help"
+            opts="-p -t -j -m -n -l -a -h -V --node --partition --time --threads --mem --name --mouse --no-mouse --detach --json --status --refresh --list --ensure --attach --cancel --check-quota --agent-context --install-claude --help --version launch attach list status cancel queue monitor quota doctor session claude gen ensure peek send events refresh snapshot agent-context hook statusline mcp install-claude completions man schema __job __attach __popup __pane-cwd help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -556,6 +562,20 @@ _sinteractive() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd____pane__subcmd__cwd)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
                 *)
                     COMPREPLY=()
                     ;;
@@ -1270,7 +1290,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__help)
-            opts="launch attach list status cancel queue monitor quota doctor session claude gen ensure peek send events refresh snapshot agent-context hook statusline mcp install-claude completions man schema __job __attach __popup help"
+            opts="launch attach list status cancel queue monitor quota doctor session claude gen ensure peek send events refresh snapshot agent-context hook statusline mcp install-claude completions man schema __job __attach __popup __pane-cwd help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1298,6 +1318,20 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__help__subcmd____job)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd____pane__subcmd__cwd)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -2266,7 +2300,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__list)
-            opts="-h --json --help"
+            opts="-h --full --json --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

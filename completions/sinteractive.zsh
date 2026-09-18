@@ -85,6 +85,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (list)
 _arguments "${_arguments_options[@]}" : \
+'--full[Also show node, partition, and elapsed/limit]' \
 '--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -736,6 +737,13 @@ _arguments "${_arguments_options[@]}" : \
 '::job_id -- Defaults to `SINTERACTIVE_JOB_ID` (set in every session pane):_default' \
 && ret=0
 ;;
+(__pane-cwd)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+':job_id:_default' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sinteractive__subcmd__help_commands" \
@@ -1012,6 +1020,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(__pane-cwd)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1057,6 +1069,7 @@ _sinteractive_commands() {
 '__job:The batch job body\: starts zellij on the node and babysits it' \
 '__attach:Runs on the node over ssh\: attach the local zellij client' \
 '__popup:In-session floating views' \
+'__pane-cwd:Runs on the node over ssh\: the pane'\''s live working directory' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive commands' commands "$@"
@@ -1070,6 +1083,11 @@ _sinteractive__subcmd____attach_commands() {
 _sinteractive__subcmd____job_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive __job commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd____pane-cwd_commands] )) ||
+_sinteractive__subcmd____pane-cwd_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive __pane-cwd commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd____popup_commands] )) ||
 _sinteractive__subcmd____popup_commands() {
@@ -1382,6 +1400,7 @@ _sinteractive__subcmd__help_commands() {
 '__job:The batch job body\: starts zellij on the node and babysits it' \
 '__attach:Runs on the node over ssh\: attach the local zellij client' \
 '__popup:In-session floating views' \
+'__pane-cwd:Runs on the node over ssh\: the pane'\''s live working directory' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive help commands' commands "$@"
@@ -1395,6 +1414,11 @@ _sinteractive__subcmd__help__subcmd____attach_commands() {
 _sinteractive__subcmd__help__subcmd____job_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive help __job commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd____pane-cwd_commands] )) ||
+_sinteractive__subcmd__help__subcmd____pane-cwd_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help __pane-cwd commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__help__subcmd____popup_commands] )) ||
 _sinteractive__subcmd__help__subcmd____popup_commands() {

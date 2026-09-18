@@ -5,6 +5,7 @@
 //! - [`cpu`]    — `/proc/stat`, `/proc/loadavg`, `/proc/meminfo` parsers
 //! - [`procs`]  — per-process rows with two-sample CPU%
 //! - [`gpu`]    — NVML, loaded lazily; empty without a driver
+//! - [`pane`]   — the session pane's live working directory, for `list`
 //!
 //! A [`Sampler`] holds the between-sample state (previous counters, the
 //! NVML handle, the CPU history ring). Call [`Sampler::sample`] at ≥ 1 s
@@ -17,6 +18,7 @@
 pub mod cgroup;
 pub mod cpu;
 pub mod gpu;
+pub mod pane;
 pub mod procs;
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
