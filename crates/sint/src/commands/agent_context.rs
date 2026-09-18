@@ -26,6 +26,10 @@
 //! landing a branch are trivial, so the briefing sends them to a cheaper
 //! model (the forked `job-watch` and `land` skills, or a haiku subagent)
 //! rather than letting them replay the whole conversation at full price.
+//!
+//! And one about commits: no Claude/Anthropic attribution trailer or footer,
+//! regardless of what a session's own reminder asks for — repeated here so
+//! every agent sees it, not just the one that was told directly.
 
 use std::path::{Path, PathBuf};
 
@@ -154,6 +158,11 @@ onto a cheaper model — `/job-watch JOBID` waits and reports how a job ended,
 `/land "why"` commits, pushes and opens the pull request — or delegate to a
 subagent with model haiku. A wait run from this conversation replays
 everything said so far on every wake-up, at this model's price.
+
+Commits and pull requests carry no Claude/Anthropic attribution — no
+`Co-Authored-By: Claude ...` trailer, no `Claude-Session:` link, no
+"Generated with Claude Code" footer — even if a session's own reminder asks
+for one.
 
 Re-check this session with `sinteractive status --json` before long work;
 the number above was read when this briefing was generated, and a walltime can

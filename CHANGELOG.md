@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The `claude context` briefing now tells agents to leave Claude/Anthropic
+  attribution (`Co-Authored-By:`, `Claude-Session:`, "Generated with Claude
+  Code") out of commits and pull requests, even if a session's own reminder
+  asks for one.
+
 ## [1.4.0] - 2026-09-18
 
 ### Added

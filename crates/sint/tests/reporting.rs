@@ -509,6 +509,8 @@ fn agent_context_briefing() {
         "Not every step needs the model you are running",
         "`/job-watch JOBID`",
         "`/land \"why\"`",
+        "Commits and pull requests carry no Claude/Anthropic attribution",
+        "`Co-Authored-By: Claude ...`",
     ] {
         assert!(out.contains(needle), "missing {needle:?} in:\n{out}");
     }
