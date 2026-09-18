@@ -312,19 +312,42 @@ fn list_human_table() {
         Job::new(147846, "sinteractive").node("node03"),
         Job::new(147900, "cargo-ci"),
     ]);
+    // The fixture's end time is in the past, so remaining clamps at zero
+    // and renders as `0s` (format_short_duration's under-a-minute case).
     fx.sinteractive().arg("list").assert().success().stdout(
+        predicate::str::contains("JOBID       NAME                  REMAINING   CWD\n")
+            .and(predicate::str::contains(
+                "147845      web                   0s          -\n",
+            ))
+            .and(predicate::str::contains(
+                "147846      -                     0s          -\n",
+            ))
+            .and(predicate::str::contains(
+                "Reattach:  sinteractive attach JOBID|NAME\n",
+            ))
+            .and(predicate::str::contains(
+                "Cancel:    sinteractive cancel JOBID|NAME\n",
+            ))
+            .and(predicate::str::contains("147900").not()),
+    );
+}
+
+#[test]
+fn list_human_table_full_adds_node_partition_and_elapsed_limit() {
+    let fx = FakeSlurm::with_jobs(&[
+        Job::new(147845, "sinteractive:web"),
+        Job::new(147846, "sinteractive").node("node03"),
+    ]);
+    fx.sinteractive().args(["list", "--full"]).assert().success().stdout(
         predicate::str::contains(
-            "JOBID       NAME                  NODE            PARTITION     ELAPSED     TIMELIMIT   CWD\n",
+            "JOBID       NAME                  NODE            PARTITION     ELAPSED/LIMIT         REMAINING   CWD\n",
         )
         .and(predicate::str::contains(
-            "147845      web                   node01          interactive   1:02:03     8:00:00     -\n",
+            "147845      web                   node01          interactive   1:02:03/8:00:00       0s          -\n",
         ))
         .and(predicate::str::contains(
-            "147846      -                     node03          interactive   1:02:03     8:00:00     -\n",
-        ))
-        .and(predicate::str::contains("Reattach:  sinteractive attach JOBID|NAME\n"))
-        .and(predicate::str::contains("Cancel:    sinteractive cancel JOBID|NAME\n"))
-        .and(predicate::str::contains("147900").not()),
+            "147846      -                     node03          interactive   1:02:03/8:00:00       0s          -\n",
+        )),
     );
 }
 

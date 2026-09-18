@@ -74,6 +74,7 @@ pub fn dispatch(command: Command) -> Result<i32> {
         Command::Job(args) => job::run(args),
         Command::AttachLocal { session } => attach_local::run(&session),
         Command::Popup { view, job_id } => popup::run(view, job_id),
+        Command::PaneCwd { job_id } => list::run_pane_cwd(job_id),
     }
 }
 

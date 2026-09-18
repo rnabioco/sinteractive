@@ -22,6 +22,8 @@ use serde_json::Value;
 use sint_core::color::Palette;
 use sint_core::config::ColorMode;
 
+use super::common::tilde;
+
 /// How wide the working directory may be before it is shortened.
 const CWD_WIDTH: usize = 36;
 
@@ -56,14 +58,6 @@ pub fn parse_claude_status(json: &str) -> ClaudeStatus {
         context_pct,
         cwd,
         cost_usd,
-    }
-}
-
-/// Abbreviate `$HOME` to `~`.
-fn tilde(path: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(h) if !h.is_empty() && path.starts_with(&h) => format!("~{}", &path[h.len()..]),
-        _ => path.to_string(),
     }
 }
 

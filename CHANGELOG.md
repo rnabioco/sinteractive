@@ -8,6 +8,20 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `sinteractive list --full`, which adds node, partition and elapsed/limit
+  to the human table. The default now shows job id, name, time remaining
+  and cwd instead of node/partition/elapsed/timelimit/cwd, so the common
+  case fits without the columns most people never look up.
+
+### Fixed
+
+- `list`'s CWD column, which always showed `-`. It now reads the pane's
+  live working directory from `/proc/<pid>/cwd` on the session's node
+  (zellij, unlike tmux, has no built-in query for a pane's current
+  directory), fetched over ssh in parallel across sessions.
+
 ## [1.3.0] - 2026-09-07
 
 ### Added

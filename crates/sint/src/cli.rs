@@ -140,7 +140,7 @@ pub enum Command {
     /// Reattach to a session by JOBID or NAME (your only session when omitted)
     Attach(AttachArgs),
     /// List running sessions
-    List(JsonFlag),
+    List(ListArgs),
     /// Show one session's status
     Status(TargetArgs),
     /// Cancel a session
@@ -225,6 +225,9 @@ pub enum Command {
         /// Defaults to `SINTERACTIVE_JOB_ID` (set in every session pane)
         job_id: Option<u64>,
     },
+    /// Runs on the node over ssh: the pane's live working directory
+    #[command(name = "__pane-cwd", hide = true)]
+    PaneCwd { job_id: u64 },
 }
 
 /// `sinteractive session …` — the verbs that act on a session you are not
@@ -291,6 +294,16 @@ pub enum GenCommand {
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct JsonFlag {
+    /// Machine-readable JSON output
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct ListArgs {
+    /// Also show node, partition, and elapsed/limit
+    #[arg(long)]
+    pub full: bool,
     /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
@@ -465,7 +478,7 @@ impl Cli {
             return (cmd, false);
         }
         let cmd = if c.compat_list {
-            Command::List(JsonFlag { json })
+            Command::List(ListArgs { full: false, json })
         } else if let Some(t) = &c.compat_status {
             Command::Status(TargetArgs {
                 target: target(&Some(t.clone())),
@@ -926,11 +939,11 @@ mod tests {
     #[test]
     fn compat_list_and_flags() {
         let (cmd, _, dep) = parse(&["-l", "--json"]);
-        assert!(matches!(cmd, Command::List(JsonFlag { json: true })));
+        assert!(matches!(cmd, Command::List(ListArgs { json: true, .. })));
         assert!(dep);
         assert!(matches!(
             parse(&["--list"]).0,
-            Command::List(JsonFlag { json: false })
+            Command::List(ListArgs { json: false, .. })
         ));
         assert!(matches!(
             parse(&["--cancel", "web"]).0,
