@@ -5,6 +5,11 @@
 //! `status --json` shape and additionally carry `cwd`. `--full` adds node,
 //! partition and elapsed/limit to the human table; the default keeps to
 //! what fits at a glance: job id, name, time remaining, cwd.
+//!
+//! The human table's leading `#` is a 1-based position, not part of the
+//! frozen JSON contract — it exists so `attach`/`status`/`cancel` can take
+//! it back as a short target (`Ctx::resolve`, via `resolve_index`) instead
+//! of the job id or name.
 
 use std::thread;
 
@@ -124,23 +129,25 @@ pub fn run(args: ListArgs) -> Result<i32> {
     let p = ctx.palette(1);
     if args.full {
         println!(
-            "{}{:<10}  {:<20}  {:<14}  {:<12}  {:<20}  {:<10}  CWD{}",
-            p.dim, "JOBID", "NAME", "NODE", "PARTITION", "ELAPSED/LIMIT", "REMAINING", p.reset
+            "{}{:<3}  {:<10}  {:<20}  {:<14}  {:<12}  {:<20}  {:<10}  CWD{}",
+            p.dim, "#", "JOBID", "NAME", "NODE", "PARTITION", "ELAPSED/LIMIT", "REMAINING", p.reset
         );
     } else {
         println!(
-            "{}{:<10}  {:<20}  {:<10}  CWD{}",
-            p.dim, "JOBID", "NAME", "REMAINING", p.reset
+            "{}{:<3}  {:<10}  {:<20}  {:<10}  CWD{}",
+            p.dim, "#", "JOBID", "NAME", "REMAINING", p.reset
         );
     }
-    for (row, cwd) in rows.iter().zip(&cwds) {
+    for (i, (row, cwd)) in rows.iter().zip(&cwds).enumerate() {
         let info = SessionInfo::from_row(row, sint_core::now_epoch());
         let name = info.name.as_deref().unwrap_or("-");
         let cwd = cwd.as_deref().unwrap_or("-");
         let remaining = remaining_cell(info.remaining_seconds, 10, &p);
+        // The position `attach`/`status`/`cancel` will read back as "#N".
+        let idx = format!("{}{:<3}{}", p.dim, i + 1, p.reset);
         if args.full {
             println!(
-                "{}{:<10}{}  {}{:<20}{}  {}{:<14}{}  {:<12}  {:<20}  {remaining}  {}{}{}",
+                "{idx}  {}{:<10}{}  {}{:<20}{}  {}{:<14}{}  {:<12}  {:<20}  {remaining}  {}{}{}",
                 p.id,
                 row.job_id,
                 p.reset,
@@ -158,7 +165,7 @@ pub fn run(args: ListArgs) -> Result<i32> {
             );
         } else {
             println!(
-                "{}{:<10}{}  {}{:<20}{}  {remaining}  {}{}{}",
+                "{idx}  {}{:<10}{}  {}{:<20}{}  {remaining}  {}{}{}",
                 p.id, row.job_id, p.reset, p.bold, name, p.reset, p.dim, cwd, p.reset
             );
         }
@@ -166,11 +173,11 @@ pub fn run(args: ListArgs) -> Result<i32> {
 
     println!();
     println!(
-        "{}{:<10}{} sinteractive attach JOBID|NAME",
+        "{}{:<10}{} sinteractive attach JOBID|NAME|#",
         p.key, "Reattach:", p.reset
     );
     println!(
-        "{}{:<10}{} sinteractive cancel JOBID|NAME",
+        "{}{:<10}{} sinteractive cancel JOBID|NAME|#",
         p.key, "Cancel:", p.reset
     );
     Ok(0)

@@ -140,7 +140,11 @@ pub fn run(session: &str) -> Result<i32> {
     // terminal alone.
     let detached = detach_other_clients(&zellij, session);
     if detached > 0 {
-        let p = Palette::for_fd(ColorMode::from_env(), 2);
+        // No live terminal query here: the real zellij client is exec'd on
+        // this same terminal a few lines below, and a reply that arrives
+        // late would land as raw bytes in its freshly drawn pane instead of
+        // at a shell prompt.
+        let p = Palette::for_fd_no_query(ColorMode::from_env(), 2);
         let s = if detached == 1 { "" } else { "s" };
         eprintln!(
             "{}Detached {detached} other client{s} from this session.{}",

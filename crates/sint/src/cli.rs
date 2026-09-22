@@ -322,7 +322,7 @@ pub struct TargetArgs {
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct AttachArgs {
-    /// JOBID or NAME; with no target, your only session
+    /// JOBID, NAME, or list's #; with no target, your only session
     pub target: Option<String>,
     /// Attach over ssh -X (X11 forwarding) instead of srun --overlap
     #[arg(long)]
@@ -341,6 +341,7 @@ pub struct EnsureArgs {
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct CancelArgs {
+    /// JOBID, NAME, or list's #
     pub target: String,
     #[arg(long)]
     pub json: bool,

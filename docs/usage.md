@@ -244,20 +244,23 @@ node:
 ```bash
 # List your running sessions
 sinteractive list
-#   JOBID       NAME                  REMAINING   CWD
-#   12345       rna-seq               22h 36m     ~/projects/rna-seq
+#   #    JOBID       NAME                  REMAINING   CWD
+#   1    12345       rna-seq               22h 36m     ~/projects/rna-seq
 
 # Node, partition, and elapsed/limit as well
 sinteractive list --full
 
-# Reattach
+# Reattach — by job id, by name, or by the position `list` just printed
 sinteractive attach 12345
 sinteractive attach rna-seq
+sinteractive attach 1
 ```
 
 If you have only one session running, a bare `sinteractive attach` goes
 straight to it — no need to look up the job id first. With several running,
-it lists them with ready-to-run commands to pick from.
+it lists them with ready-to-run commands to pick from, each prefixed with
+the same position number `list` shows, so `sinteractive attach 1` works
+without retyping a job id or name.
 
 `attach` reconnects through Slurm (`srun --overlap`), which needs no SSH
 access to the node. `attach --ssh` uses `ssh -X` instead, which is the way

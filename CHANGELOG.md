@@ -14,6 +14,19 @@ and this project adheres to
   attribution (`Co-Authored-By:`, `Claude-Session:`, "Generated with Claude
   Code") out of commits and pull requests, even if a session's own reminder
   asks for one.
+- `list`'s human table gets a leading `#` column, a 1-based position; `attach`
+  and `cancel` now take that position in place of a JOBID or NAME
+  (`sinteractive attach 1`), read against a bare number that no running
+  session's job id actually matches.
+
+### Fixed
+
+- `attach` and launch-and-attach could leak raw escape bytes into the
+  freshly attached pane on a laggy reconnect: the theme-detection query they
+  ran for stderr narration shares the terminal with the zellij client
+  they're about to exec into, so a reply arriving after its 500ms timeout
+  landed as literal control characters in that pane instead of at a shell
+  prompt. That narration no longer queries the terminal live.
 
 ## [1.4.0] - 2026-09-18
 

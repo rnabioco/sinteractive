@@ -315,18 +315,18 @@ fn list_human_table() {
     // The fixture's end time is in the past, so remaining clamps at zero
     // and renders as `0s` (format_short_duration's under-a-minute case).
     fx.sinteractive().arg("list").assert().success().stdout(
-        predicate::str::contains("JOBID       NAME                  REMAINING   CWD\n")
+        predicate::str::contains("#    JOBID       NAME                  REMAINING   CWD\n")
             .and(predicate::str::contains(
-                "147845      web                   0s          -\n",
+                "1    147845      web                   0s          -\n",
             ))
             .and(predicate::str::contains(
-                "147846      -                     0s          -\n",
+                "2    147846      -                     0s          -\n",
             ))
             .and(predicate::str::contains(
-                "Reattach:  sinteractive attach JOBID|NAME\n",
+                "Reattach:  sinteractive attach JOBID|NAME|#\n",
             ))
             .and(predicate::str::contains(
-                "Cancel:    sinteractive cancel JOBID|NAME\n",
+                "Cancel:    sinteractive cancel JOBID|NAME|#\n",
             ))
             .and(predicate::str::contains("147900").not()),
     );
@@ -340,13 +340,13 @@ fn list_human_table_full_adds_node_partition_and_elapsed_limit() {
     ]);
     fx.sinteractive().args(["list", "--full"]).assert().success().stdout(
         predicate::str::contains(
-            "JOBID       NAME                  NODE            PARTITION     ELAPSED/LIMIT         REMAINING   CWD\n",
+            "#    JOBID       NAME                  NODE            PARTITION     ELAPSED/LIMIT         REMAINING   CWD\n",
         )
         .and(predicate::str::contains(
-            "147845      web                   node01          interactive   1:02:03/8:00:00       0s          -\n",
+            "1    147845      web                   node01          interactive   1:02:03/8:00:00       0s          -\n",
         ))
         .and(predicate::str::contains(
-            "147846      -                     node03          interactive   1:02:03/8:00:00       0s          -\n",
+            "2    147846      -                     node03          interactive   1:02:03/8:00:00       0s          -\n",
         )),
     );
 }
@@ -368,6 +368,21 @@ fn cancel_by_name_removes_the_job() {
     assert_eq!(scancel, vec![vec!["147845".to_string()]]);
     let ids: Vec<String> = fx.jobs().into_iter().map(|r| r[0].clone()).collect();
     assert_eq!(ids, vec!["147846", "147900"]);
+}
+
+#[test]
+fn cancel_by_index_resolves_lists_position() {
+    // `mixed_queue`'s only RUNNING sinteractive session is 147845 (147846
+    // is PENDING, 147900 is not a session), so position 1 is it.
+    let fx = mixed_queue();
+    fx.sinteractive()
+        .args(["cancel", "1"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "Cancelled session 147845 (web) on node01.",
+        ));
+    assert_eq!(fx.calls_to("scancel"), vec![vec!["147845".to_string()]]);
 }
 
 #[test]

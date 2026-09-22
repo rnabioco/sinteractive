@@ -199,18 +199,30 @@ impl Theme {
     /// never leaves the terminal in raw mode. Prints nothing except the query
     /// itself, which the terminal consumes.
     pub fn detect(fd: i32) -> Theme {
-        Theme::for_mode(detect_mode(fd))
+        Theme::for_mode(detect_mode(fd, true))
+    }
+
+    /// [`Theme::detect`], but never sending the live query — env override,
+    /// then `COLORFGBG`, then dark.
+    ///
+    /// For a caller about to exec into (or that just took the terminal back
+    /// from) an interactive zellij client: `query_background`'s up-to-500ms
+    /// window for a reply is exactly the window in which a late answer lands
+    /// as raw escape bytes in that client's freshly drawn pane, rather than
+    /// as harmless line noise at a shell prompt.
+    pub fn detect_no_query(fd: i32) -> Theme {
+        Theme::for_mode(detect_mode(fd, false))
     }
 }
 
-fn detect_mode(fd: i32) -> Mode {
+fn detect_mode(fd: i32, query: bool) -> Mode {
     if let Some(mode) = std::env::var("SINTERACTIVE_THEME")
         .ok()
         .and_then(|v| Mode::parse(&v))
     {
         return mode;
     }
-    if is_tty(fd) {
+    if query && is_tty(fd) {
         if let Some(bg) = background() {
             return Mode::from_background(bg);
         }
@@ -539,6 +551,28 @@ mod tests {
         std::env::remove_var("COLORFGBG");
         assert_eq!(Theme::detect(fd), Theme::DARK);
         assert_eq!(Theme::detect(-1), Theme::DARK);
+    }
+
+    #[test]
+    fn detect_no_query_follows_the_same_fallback_chain() {
+        // `is_tty` gates the live query in `detect_mode`, so a non-tty fd
+        // cannot show `detect_no_query` skipping a query `detect` would have
+        // sent (that needs a real pty, untestable here) — but it does prove
+        // the env-override/COLORFGBG/dark fallback chain underneath is the
+        // same for both.
+        let _g = lock();
+        let _r = EnvRestore::clean();
+        let file = tempfile::tempfile().expect("tempfile");
+        let fd = file.as_raw_fd();
+
+        std::env::set_var("SINTERACTIVE_THEME", "light");
+        assert_eq!(Theme::detect_no_query(fd), Theme::LIGHT);
+
+        std::env::set_var("SINTERACTIVE_THEME", "auto");
+        std::env::set_var("COLORFGBG", "0;15");
+        assert_eq!(Theme::detect_no_query(fd).mode, Mode::Light);
+        std::env::remove_var("COLORFGBG");
+        assert_eq!(Theme::detect_no_query(fd), Theme::DARK);
     }
 
     #[test]

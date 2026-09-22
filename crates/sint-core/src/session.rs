@@ -168,6 +168,19 @@ pub fn sessions_only(rows: &[JobRow]) -> Vec<&JobRow> {
         .collect()
 }
 
+/// A bare number given as a target, read as a 1-based position in `rows`
+/// (the order `list` prints its `#` column in) — but only when no row
+/// actually has that job id. Real Slurm job ids run into the hundreds of
+/// thousands, well past any realistic session count, so a literal job id
+/// always wins; this only ever engages for a small number nobody's job has.
+pub fn resolve_index(n: u64, rows: &[JobRow]) -> Option<u64> {
+    if rows.iter().any(|r| r.job_id == n) {
+        return None;
+    }
+    let idx = usize::try_from(n).ok()?.checked_sub(1)?;
+    rows.get(idx).map(|r| r.job_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,6 +390,26 @@ mod tests {
         ];
         let err = resolve_target(&Target::Name("dup".into()), &rows).unwrap_err();
         assert_eq!(err, "multiple sinteractive sessions named 'dup': 10 11");
+    }
+
+    #[test]
+    fn resolve_index_reads_position_when_no_job_has_it() {
+        let rows = vec![
+            row(147845, "sinteractive:web", "RUNNING"),
+            row(147846, "sinteractive", "RUNNING"),
+        ];
+        assert_eq!(resolve_index(1, &rows), Some(147845));
+        assert_eq!(resolve_index(2, &rows), Some(147846));
+        assert_eq!(resolve_index(3, &rows), None, "past the end");
+        assert_eq!(resolve_index(0, &rows), None, "1-based, no zeroth row");
+    }
+
+    #[test]
+    fn resolve_index_defers_to_a_real_job_id() {
+        // A running job actually numbered 1 is vanishingly unlikely, but if
+        // one exists it is the literal target, not "position 1".
+        let rows = vec![row(1, "sinteractive:web", "RUNNING")];
+        assert_eq!(resolve_index(1, &rows), None);
     }
 
     #[test]
