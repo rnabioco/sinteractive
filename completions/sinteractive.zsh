@@ -80,7 +80,7 @@ _arguments "${_arguments_options[@]}" : \
 '--ssh[Attach over ssh -X (X11 forwarding) instead of srun --overlap]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::target -- JOBID or NAME; with no target, your only session:_default' \
+'::target -- JOBID, NAME, or list'\''s #; with no target, your only session:_default' \
 && ret=0
 ;;
 (list)
@@ -105,7 +105,7 @@ _arguments "${_arguments_options[@]}" : \
 '--json[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-':target:_default' \
+':target -- JOBID, NAME, or list'\''s #:_default' \
 && ret=0
 ;;
 (queue)

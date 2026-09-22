@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-22
+
 ### Added
 
 - The `claude context` briefing now tells agents to leave Claude/Anthropic
@@ -994,7 +996,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/rnabioco/sinteractive/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/rnabioco/sinteractive/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/rnabioco/sinteractive/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/rnabioco/sinteractive/compare/v1.1.0...v1.2.0
