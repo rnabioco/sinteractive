@@ -37,6 +37,18 @@ impl Palette {
         Palette::from_theme(&Theme::detect(fd))
     }
 
+    /// [`Palette::for_fd`], but through [`Theme::detect_no_query`] — for
+    /// narration that sits right next to exec'ing into (or was just handed
+    /// the terminal back from) an interactive zellij client, where the live
+    /// query's late-reply risk would land in that client's pane instead of
+    /// at a shell prompt.
+    pub fn for_fd_no_query(mode: ColorMode, fd: i32) -> Self {
+        if !colour_wanted(mode, fd) {
+            return Palette::none();
+        }
+        Palette::from_theme(&Theme::detect_no_query(fd))
+    }
+
     /// Every code from `theme`, regardless of the fd.
     pub fn from_theme(theme: &Theme) -> Self {
         Palette {

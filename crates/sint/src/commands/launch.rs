@@ -549,7 +549,9 @@ pub(crate) fn launch(ctx: &Ctx, args: LaunchArgs, created: Option<bool>) -> Resu
         Launched::Failed(code) => return Ok(code),
         Launched::Ready { job_id, node } => (job_id, node),
     };
-    let p = ctx.palette(2);
+    // The interactive path below hands this same terminal to an ssh'd
+    // `__attach`, so no live terminal query — see `Ctx::palette_no_query`.
+    let p = ctx.palette_no_query(2);
     let (reset, bold, key, id, ok) = (&p.reset, &p.bold, &p.key, &p.id, &p.ok);
     let name = args.name.clone().filter(|n| !n.is_empty());
     let attach_target = name.unwrap_or_else(|| job_id.to_string());

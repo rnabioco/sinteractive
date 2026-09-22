@@ -39,7 +39,7 @@ pub fn cancel_job(ctx: &Ctx, job_id: u64) -> CancelResult {
 
 pub fn run(args: CancelArgs) -> Result<i32> {
     let ctx = Ctx::new();
-    let Some(job_id) = ctx.resolve_reporting(Some(&args.target))? else {
+    let Some(job_id) = ctx.resolve_reporting_with_index(Some(&args.target))? else {
         return Ok(1);
     };
 

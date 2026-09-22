@@ -88,6 +88,29 @@ fn attach_by_id_execs_srun_overlap() {
 }
 
 #[test]
+fn attach_by_index_resolves_lists_position() {
+    let fx = FakeSlurm::with_jobs(&[
+        Job::default(),
+        Job::new(147846, "sinteractive:worker").node("node02"),
+    ]);
+    let _ = fx.sinteractive().args(["attach", "2"]).assert();
+    let srun = fx.calls_to("srun");
+    assert_eq!(srun.len(), 1, "{srun:?}");
+    assert_eq!(srun[0][1], "--jobid=147846");
+}
+
+#[test]
+fn attach_prefers_a_real_job_id_over_the_position() {
+    // A running job actually numbered 2 is not realistic on a real
+    // cluster, but if one existed it must win over "position 2".
+    let fx = FakeSlurm::with_jobs(&[Job::new(2, "sinteractive:early")]);
+    let _ = fx.sinteractive().args(["attach", "2"]).assert();
+    let srun = fx.calls_to("srun");
+    assert_eq!(srun.len(), 1, "{srun:?}");
+    assert_eq!(srun[0][1], "--jobid=2");
+}
+
+#[test]
 fn attach_by_name_resolves_the_comment() {
     let fx = FakeSlurm::with_jobs(&[Job::default()]);
     let _ = fx.sinteractive().args(["attach", "web"]).assert();

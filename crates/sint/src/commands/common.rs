@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use anyhow::{anyhow, Result};
 use sint_core::color::Palette;
 use sint_core::config::{ColorMode, Config};
-use sint_core::session::{resolve_target, sessions_only, SessionInfo, Target};
+use sint_core::session::{resolve_index, resolve_target, sessions_only, SessionInfo, Target};
 use sint_core::slurm::squeue::JobRow;
 use sint_core::slurm::{Slurm, SlurmError};
 use sint_core::state::StateDir;
@@ -37,6 +37,17 @@ impl Ctx {
         Palette::for_fd(ColorMode::from_env(), fd)
     }
 
+    /// [`Ctx::palette`], but never risking the live terminal query (see
+    /// [`Palette::for_fd_no_query`]). For narration right before exec'ing
+    /// into an interactive zellij client (`attach`, launch-and-attach): a
+    /// late reply to the query would otherwise land as raw escape bytes in
+    /// that client's freshly drawn pane rather than at a shell prompt — the
+    /// "control characters right after attaching" a laggy reconnect can
+    /// trigger.
+    pub fn palette_no_query(&self, fd: i32) -> Palette {
+        Palette::for_fd_no_query(ColorMode::from_env(), fd)
+    }
+
     /// The user's RUNNING+PENDING sinteractive sessions.
     pub fn sessions(&self) -> Result<Vec<JobRow>> {
         let rows = self.slurm.my_jobs(&["RUNNING", "PENDING"])?;
@@ -58,6 +69,11 @@ impl Ctx {
 
     /// Resolve an optional CLI target: explicit JOBID/NAME, else the current
     /// session (`SINTERACTIVE_JOB_ID`), else an error naming the fix.
+    ///
+    /// A bare number passes through unchecked — deliberately no Slurm call,
+    /// so a command that only needs the id (`events`) stays Slurm-free.
+    /// [`Ctx::resolve_with_index`] is the variant that also reads a number
+    /// as a `list` position, for callers that touch Slurm anyway.
     pub fn resolve(&self, target: Option<&str>) -> Result<u64> {
         match target {
             Some(t) => {
@@ -75,11 +91,41 @@ impl Ctx {
         }
     }
 
+    /// [`Ctx::resolve`], but a bare number that no running session actually
+    /// has is read as a 1-based position in `list`'s order instead of a
+    /// literal job id (see [`resolve_index`]). Every caller here already
+    /// talks to Slurm for other reasons (`attach` checks the job is
+    /// RUNNING, `cancel` runs `scancel`), so the extra lookup adds no new
+    /// round trip class — unlike [`Ctx::resolve`], which callers such as
+    /// `events` rely on to stay Slurm-free for a bare job id.
+    pub fn resolve_with_index(&self, target: Option<&str>) -> Result<u64> {
+        if let Some(t) = target {
+            if let Target::JobId(id) = Target::parse(t) {
+                let running = self.running_sessions()?;
+                return Ok(resolve_index(id, &running).unwrap_or(id));
+            }
+        }
+        self.resolve(target)
+    }
+
     /// [`Ctx::resolve`], reporting a no-match or ambiguous name on stderr in
     /// the 0.x wording (script line 2152) and returning `Ok(None)`; the
     /// caller then exits 1. A Slurm failure is still an `Err`.
     pub fn resolve_reporting(&self, target: Option<&str>) -> Result<Option<u64>> {
-        match self.resolve(target) {
+        self.report_resolve(self.resolve(target))
+    }
+
+    /// [`Ctx::resolve_reporting`], but resolving through
+    /// [`Ctx::resolve_with_index`] so a bare number may also be a `list`
+    /// position.
+    pub fn resolve_reporting_with_index(&self, target: Option<&str>) -> Result<Option<u64>> {
+        self.report_resolve(self.resolve_with_index(target))
+    }
+
+    /// The error reporting shared by [`Ctx::resolve_reporting`] and
+    /// [`Ctx::resolve_reporting_with_index`].
+    fn report_resolve(&self, result: Result<u64>) -> Result<Option<u64>> {
+        match result {
             Ok(id) => Ok(Some(id)),
             Err(e) if e.downcast_ref::<SlurmError>().is_some() => Err(e),
             Err(e) => {

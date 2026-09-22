@@ -1,7 +1,9 @@
 //! `sinteractive attach [TARGET]` — reattach (script lines 2208-2258).
 //!
 //! No target: your only running session; with none, say how to start one;
-//! with several, print the ready-to-run choices and exit 1. The default
+//! with several, print the ready-to-run choices and exit 1, each prefixed
+//! with its position — TARGET can be that position, as printed in `list`'s
+//! `#` column, instead of the job id or name (`Ctx::resolve`). The default
 //! path goes through Slurm (`srun --overlap --jobid=ID --pty …`), which
 //! needs no ssh access to the node; `--ssh` forces `ssh -X -t NODE …`, the
 //! launch path's transport, for X11 forwarding.
@@ -17,7 +19,9 @@ use crate::cli::AttachArgs;
 
 pub fn run(args: AttachArgs) -> Result<i32> {
     let ctx = Ctx::new();
-    let p = ctx.palette(2);
+    // Narration right before exec'ing into the zellij client on this same
+    // terminal — no live query (see `Ctx::palette_no_query`).
+    let p = ctx.palette_no_query(2);
     let (reset, bold, dim, err, id, warn) = (&p.reset, &p.bold, &p.dim, &p.err, &p.id, &p.warn);
 
     // Attaching from inside a session would nest multiplexers.
@@ -46,13 +50,13 @@ pub fn run(args: AttachArgs) -> Result<i32> {
                         "{warn}{bold}sinteractive:{reset}{warn} you have {} running sessions — pick one:{reset}",
                         many.len()
                     );
-                    for r in many {
+                    for (i, r) in many.iter().enumerate() {
                         let name = parse_comment(&r.comment)
                             .flatten()
                             .unwrap_or_else(|| r.job_id.to_string());
                         eprintln!(
-                            "  sinteractive attach {id}{name:<18}{reset} {dim}# job {} on {}, up {}{reset}",
-                            r.job_id, r.node, r.elapsed
+                            "  {dim}{:>2}{reset}  sinteractive attach {id}{name:<18}{reset} {dim}# job {} on {}, up {}{reset}",
+                            i + 1, r.job_id, r.node, r.elapsed
                         );
                     }
                     return Ok(1);
@@ -61,7 +65,7 @@ pub fn run(args: AttachArgs) -> Result<i32> {
         }
     };
 
-    let job_id = match ctx.resolve(Some(&target)) {
+    let job_id = match ctx.resolve_with_index(Some(&target)) {
         Ok(id) => id,
         Err(e) => {
             eprintln!("{err}{bold}sinteractive:{reset}{err} {e}{reset}");

@@ -31,7 +31,7 @@ environment variables.
 | | `srun --pty bash` | `sinteractive` |
 |---|---|---|
 | Survives SSH disconnects | No — session is lost | Yes — the zellij server keeps it alive |
-| Reconnect to session | Not possible | `sinteractive attach JOBID\|NAME` |
+| Reconnect to session | Not possible | `sinteractive attach JOBID\|NAME\|#` |
 | Multiple panes | No | Yes — splits, zoom, scrollback (`Ctrl+b`) |
 | Mouse and copy | Terminal's own | Mouse on by default; select-to-copy lands in your local clipboard |
 | Status bar | None | Job id, node, walltime left, your queue, notices (`⚠ N notices`) |
