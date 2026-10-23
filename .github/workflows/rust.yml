@@ -46,7 +46,7 @@ jobs:
           target/release/sinteractive --version
           target/release/sinteractive zellij --version
           ldd target/release/sinteractive
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sinteractive-x86_64-linux-gnu-glibc2.28
           path: target/release/sinteractive
