@@ -21,7 +21,7 @@ jobs:
       matrix:
         toolchain: ["1.99", beta]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
