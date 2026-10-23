@@ -533,15 +533,17 @@ fn agent_context_briefing() {
         "{out}"
     );
     for needle in [
-        "srun -p PART -c N --mem SIZE -t TIME -J NAME --comment=NAME -- CMD",
-        "salloc --no-shell -p PART",
+        "The hpc-compute skill has the\nrecipes",
+        "`salloc --no-shell` plus",
+        "`--comment=NAME`",
         "`sinteractive status --json`",
         "(shown in full by `sinteractive status`)",
         "`sinteractive quota --check`",
         "be changed underneath you.\n\nStorage quota, while exceeded,",
-        "/tmp is this node's own disk",
-        "is itself submitted with sbatch",
-        "Not every step needs the model you are running",
+        "are this node's own disk",
+        "is an `sbatch` job of its own",
+        "`wait_for_jobs`",
+        "`run_in_session`",
         "`/job-watch JOBID`",
         "`/land \"why\"`",
         "Commits and pull requests carry no Claude/Anthropic attribution",
@@ -551,10 +553,7 @@ fn agent_context_briefing() {
     }
     // The scratch named for cross-node files is the cluster's: with no
     // /scratch/alpine/$USER on this host, that is ~/scratch.
-    let scratch = format!(
-        "under {}/scratch/<topic>/ named for the task",
-        fx.home_dir().display()
-    );
+    let scratch = format!("under {}/scratch/<topic>/", fx.home_dir().display());
     assert!(out.contains(&scratch), "missing {scratch:?} in:\n{out}");
     assert!(!out.contains("--status"), "{out}");
     assert!(!out.contains("--check-quota"), "{out}");
