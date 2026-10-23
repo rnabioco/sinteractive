@@ -54,6 +54,15 @@ pub fn runtime_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/tmp"))
 }
 
+/// `SINTERACTIVE_ZELLIJ`: a program to run in place of `<exe> zellij` for
+/// the remote (ssh) invocations. A test hook — the integration tests point
+/// it at a fake zellij, since a real server needs a whole session.
+fn zellij_override() -> Option<String> {
+    std::env::var("SINTERACTIVE_ZELLIJ")
+        .ok()
+        .filter(|v| !v.is_empty())
+}
+
 pub fn session_name(job_id: u64) -> String {
     format!("sinteractive-{job_id}")
 }
@@ -141,8 +150,13 @@ impl ZellijEnv {
         for (k, val) in self.env_pairs() {
             v.push(format!("{k}={}", shell_quote(&val)));
         }
-        v.push(shell_quote(&self.exe.to_string_lossy()));
-        v.push("zellij".into());
+        match zellij_override() {
+            Some(bin) => v.push(shell_quote(&bin)),
+            None => {
+                v.push(shell_quote(&self.exe.to_string_lossy()));
+                v.push("zellij".into());
+            }
+        }
         v.extend(args.into_iter().map(|a| shell_quote(a.as_ref())));
         v
     }

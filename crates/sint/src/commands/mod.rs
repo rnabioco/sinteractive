@@ -14,6 +14,7 @@ pub mod common;
 pub mod doctor;
 pub mod ensure;
 pub mod events;
+pub mod exec;
 pub mod hook;
 pub mod install_claude;
 pub mod job;
@@ -22,6 +23,7 @@ pub mod list;
 pub mod mcp;
 pub mod monitor;
 pub mod monitor_tui;
+pub mod pane;
 pub mod peek;
 pub mod popup;
 pub mod queue;
@@ -84,6 +86,8 @@ fn session(command: SessionCommand) -> Result<i32> {
         SessionCommand::Ensure(args) => ensure::run(args),
         SessionCommand::Peek(args) => peek::run(args),
         SessionCommand::Send(args) => send::run(args),
+        SessionCommand::Panes(args) => pane::run(args),
+        SessionCommand::Exec(args) => exec::run(args),
         SessionCommand::Events(args) => events::run(args),
     }
 }

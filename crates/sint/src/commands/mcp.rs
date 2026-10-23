@@ -407,7 +407,7 @@ impl SintServer {
             .blocking(move |ctx| {
                 let job_id = resolve(ctx, Some(&p.target))?;
                 let session = ctx.require_running(job_id)?;
-                let screen = dump_screen(ctx, &session)?;
+                let screen = dump_screen(ctx, &session, None)?;
                 let lines = tail_lines(&screen, p.lines.unwrap_or(100))
                     .into_iter()
                     .map(str::to_string)
@@ -438,7 +438,7 @@ impl SintServer {
             .blocking(move |ctx| {
                 let job_id = resolve(ctx, Some(&p.target))?;
                 let session = ctx.require_running(job_id)?;
-                send_command(ctx, &session, &p.command)?;
+                send_command(ctx, &session, &p.command, None)?;
                 Ok(SendResult { job_id, sent: true })
             })
             .await?;
