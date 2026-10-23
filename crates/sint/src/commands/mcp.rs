@@ -29,7 +29,7 @@ use rmcp::model::{
     CallToolResponse, CallToolResult, ContentBlock, ErrorData, Implementation,
     ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams,
     ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
-    ResourceContents, ResourceTemplate, ServerCapabilities, ServerInfo,
+    ResourceContents, ResourceTemplate, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::RequestContext;
 use rmcp::{tool, tool_handler, tool_router, RoleServer, ServerHandler, ServiceExt};
@@ -663,8 +663,8 @@ impl SintServer {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for SintServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
