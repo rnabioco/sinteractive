@@ -147,7 +147,7 @@ over ssh every 2 s.
 prints it; `--follow` keeps streaming as lines are appended, `--since EPOCH`
 starts from a point in time. The kinds are the ones the MCP server's
 `wait_for_event` matches on — `walltime_warn`, `walltime_red`,
-`session_ended` among them — and that tool reads this file.
+`ended` among them — and that tool reads this file.
 
 ## Claude Code integration
 
@@ -345,7 +345,7 @@ appended after the call started count, so it is a wait, not a replay. While
 the session has no event log, the state file stands in: `remaining_seconds`
 crossing 1800 or 600 (`SINTERACTIVE_AGENT_WARN` / `SINTERACTIVE_WARN_RED`)
 yields a synthetic `walltime_warn` / `walltime_red` event, and the state file
-disappearing yields `session_ended`; those carry `"synthetic": true`. Use it
+disappearing yields `ended`; those carry `"synthetic": true`. `session_ended` is accepted in `kinds` as an alias of `ended`. Use it
 in place of polling `session_status`.
 
 The server also exposes read-only resources: `sinteractive://sessions` (the
