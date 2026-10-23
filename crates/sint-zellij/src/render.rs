@@ -452,8 +452,13 @@ pub fn job_strip(st: &State, cols: usize) -> String {
     // the row past the pane and wrap it.
     let labels: Vec<String> = hosts
         .iter()
-        .map(|h| {
-            let l = job_label(h);
+        .enumerate()
+        .map(|(i, h)| {
+            let mut l = job_label(h);
+            // The selected job also says which node it runs on.
+            if i == st.host_idx && !h.host.is_empty() {
+                l = format!("{l} @{}", h.host);
+            }
             if visible_width(&l) > room && room > 1 {
                 let mut t: String = l.chars().take(room - 1).collect();
                 t.push('…');
@@ -484,7 +489,17 @@ pub fn job_strip(st: &State, cols: usize) -> String {
     let shown: Vec<String> = (start..end)
         .map(|i| {
             if i == st.host_idx {
-                format!("{}{BOLD}{}{RESET}", fg(c.accent), labels[i])
+                // The ` @host` tail is dimmed; the label proper stays lit.
+                match labels[i].rfind(" @") {
+                    Some(at) => format!(
+                        "{}{BOLD}{}{RESET}{}{}{RESET}",
+                        fg(c.accent),
+                        &labels[i][..at],
+                        fg(c.dim),
+                        &labels[i][at..]
+                    ),
+                    None => format!("{}{BOLD}{}{RESET}", fg(c.accent), labels[i]),
+                }
             } else {
                 format!("{}{}{RESET}", fg(c.dim), labels[i])
             }
@@ -881,6 +896,11 @@ mod tests {
         assert_eq!(visible_width(lines[0]), 100, "rule spans the pane");
         assert!(lines[1].contains("147845") && lines[1].contains("mywork"));
         assert!(lines[1].contains("1/1"));
+        assert!(
+            strip_ansi(lines[1]).contains(&format!("mywork @{}", st.msg.hosts[0].host)),
+            "the selected job names its node: {}",
+            lines[1]
+        );
         assert!(lines[2].contains("cpu") && lines[2].contains("34%"));
         assert!(lines[3].contains("mem") && lines[3].contains("37%"));
         assert!(lines[4].contains("gpu0") && lines[4].contains("87%"));
@@ -1065,7 +1085,8 @@ mod tests {
         let row = job_strip(&st, 80);
         assert!(visible_width(&row) <= 80, "{}", visible_width(&row));
         let plain = strip_ansi(&row);
-        assert!(plain.contains("207 job-number-7"), "{plain}");
+        assert!(plain.contains("207 job-number-7 @c3cpu-a7"), "{plain}");
+        assert!(!plain.contains("@c3cpu-a6"), "only the selection: {plain}");
         assert!(plain.contains('‹') && !plain.contains('›'), "{plain}");
         assert!(plain.contains("8/8"));
         st.host_idx = 0;
@@ -1074,7 +1095,7 @@ mod tests {
         // Every job fits on a wide bar, and none of it is cut.
         let plain = strip_ansi(&job_strip(&st, 200));
         assert!(!plain.contains('‹') && !plain.contains('›'), "{plain}");
-        assert!(plain.contains("200 job-number-0") && plain.contains("207 job-number-7"));
+        assert!(plain.contains("200 job-number-0 @c3cpu-a0") && plain.contains("207 job-number-7"));
     }
 
     #[test]
