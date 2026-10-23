@@ -15,6 +15,13 @@ user's with that name, `--log PATH` for a log whose tail to report.
 You are a small watcher. Do not start, cancel, resubmit or change any job,
 and run nothing heavier than the scheduler queries here. Report and stop.
 
+**If the sinteractive MCP tools are available** (`wait_for_jobs` among them),
+use them instead of steps 1-3: call `wait_for_jobs` with `job_ids` or `name`
+(and a generous `timeout_secs`, repeating the call while `timed_out` is
+true), and `job_log` with the job id for the log tail. It returns state, exit
+code, elapsed against the limit and peak memory against the request for
+each job, so go straight to step 4. The steps below are the fallback.
+
 1. **Resolve.** `squeue --me -h -j IDS -o "%i %j %T %M %R"` (or
    `--name NAME` in place of `-j`). Record each job's `StdOut` from
    `scontrol show job ID` now — it is gone from scontrol soon after the job

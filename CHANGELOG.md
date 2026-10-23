@@ -8,6 +8,26 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `session peek` and `session send` take `--pane ID|NAME|focused`, and the MCP
+  `peek` and `send` tools a `pane` argument; the default is still the
+  session's shell (`terminal_0`). `session panes [--json]` and the MCP
+  `list_panes` tool list a session's terminal panes.
+- `session exec` and the MCP `run_in_session` tool run a short command in a
+  new unfocused floating pane and return its exit code and output, closing the
+  pane afterwards unless `--keep`.
+- MCP `wait_for_jobs` (block until any of the user's Slurm jobs finish, by id
+  or name, and report state, exit code, elapsed, peak memory and stdout path)
+  and `job_log` (the tail of a job's stdout). The sampler's `job_done` event
+  now carries the same outcome fields.
+
+### Changed
+
+- The `claude context` briefing is shorter: the srun/salloc and `/tmp` recipes
+  are left to the hpc-compute skill, and it now points at the MCP tools. The
+  job-watch skill prefers `wait_for_jobs` when it is available.
+
 ## [1.5.0] - 2026-09-22
 
 ### Added

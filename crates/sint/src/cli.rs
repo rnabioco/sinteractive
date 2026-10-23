@@ -248,6 +248,10 @@ pub enum SessionCommand {
     Peek(PeekArgs),
     /// Type a command into a session's shell
     Send(SendArgs),
+    /// List a session's panes
+    Panes(PanesArgs),
+    /// Run a short command in a new pane and wait for its output
+    Exec(ExecArgs),
     /// Stream session events (NDJSON)
     Events(EventsArgs),
 }
@@ -414,6 +418,10 @@ pub struct PeekArgs {
     /// How many lines from the bottom of the screen
     #[arg(short = 'n', long, default_value_t = 100)]
     pub lines: usize,
+    /// Pane to read: an id (`terminal_3` or `3`), a pane name, or `focused`
+    /// (default `terminal_0`, the session's shell)
+    #[arg(long, value_name = "ID|NAME|focused")]
+    pub pane: Option<String>,
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -422,6 +430,37 @@ pub struct SendArgs {
     pub target: String,
     /// Typed into the session's shell, followed by Enter
     pub command: String,
+    /// Pane to type into: an id (`terminal_3` or `3`), a pane name, or
+    /// `focused` (default `terminal_0`, the session's shell)
+    #[arg(long, value_name = "ID|NAME|focused")]
+    pub pane: Option<String>,
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct PanesArgs {
+    pub target: String,
+    /// Machine-readable JSON output
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct ExecArgs {
+    pub target: String,
+    /// Run with `bash -lc` in a new pane of the session
+    pub command: String,
+    /// Working directory for the command
+    #[arg(long, value_name = "DIR")]
+    pub cwd: Option<String>,
+    /// Give up waiting after this many seconds (the pane is then closed)
+    #[arg(long, value_name = "SECS", default_value_t = 120)]
+    pub timeout: u64,
+    /// Leave the pane open afterwards
+    #[arg(long)]
+    pub keep: bool,
+    /// Machine-readable JSON output
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -1033,6 +1072,39 @@ mod tests {
         let (ours, sbatch) = split(&["session", "peek", "web", "-n", "5"]);
         assert_eq!(ours, v(&["session", "peek", "web", "-n", "5"]));
         assert!(sbatch.is_empty());
+    }
+
+    #[test]
+    fn pane_flag_is_optional_on_peek_and_send() {
+        match parse(&["session", "peek", "web"]) {
+            (Command::Session(s), _, false) => {
+                let SessionCommand::Peek(p) = s.command else {
+                    panic!("expected peek");
+                };
+                assert_eq!(p.pane, None);
+                assert_eq!(p.lines, 100);
+            }
+            other => panic!("expected session peek, got {other:?}"),
+        }
+        match parse(&["session", "send", "web", "ls", "--pane", "focused"]) {
+            (Command::Session(s), sbatch, false) => {
+                let SessionCommand::Send(a) = s.command else {
+                    panic!("expected send");
+                };
+                assert_eq!(a.pane.as_deref(), Some("focused"));
+                assert!(sbatch.is_empty());
+            }
+            other => panic!("expected session send, got {other:?}"),
+        }
+        match parse(&["session", "exec", "web", "ls", "--timeout", "5", "--keep"]) {
+            (Command::Session(s), _, false) => {
+                let SessionCommand::Exec(a) = s.command else {
+                    panic!("expected exec");
+                };
+                assert_eq!((a.timeout, a.keep), (5, true));
+            }
+            other => panic!("expected session exec, got {other:?}"),
+        }
     }
 
     #[test]

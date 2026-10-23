@@ -81,11 +81,27 @@ impl Slurm {
         parse_reservations(&out)
     }
 
+    /// The job's `StdOut` path from `scontrol show job -o`; `None` once
+    /// scontrol has forgotten the job (or never had a path for it).
+    pub fn job_stdout(&self, job_id: u64) -> Option<String> {
+        let id = job_id.to_string();
+        let out = self.run("scontrol", &["show", "job", &id, "-o"]).ok()?;
+        stdout_from_job(&out)
+    }
+
     /// `scontrol show config` → `ClusterName`, or `None` when unavailable.
     pub fn cluster_name(&self) -> Option<String> {
         let out = self.run("scontrol", &["show", "config"]).ok()?;
         cluster_name_from_config(&out)
     }
+}
+
+/// The `StdOut=` value of a `scontrol show job -o` line.
+fn stdout_from_job(line: &str) -> Option<String> {
+    line.split_whitespace()
+        .find_map(|t| t.strip_prefix("StdOut="))
+        .filter(|v| !v.is_empty() && *v != "(null)")
+        .map(str::to_string)
 }
 
 /// The `ClusterName = alpine` line of `scontrol show config`.
@@ -105,6 +121,14 @@ mod tests {
     use super::*;
 
     const MAINT_LINE: &str = "ReservationName=maint-2026-09 StartTime=2026-09-03T08:00:00 EndTime=2026-09-03T20:00:00 Duration=12:00:00 Nodes=ALL NodeCnt=6 CoreCnt=384 Features=(null) PartitionName=(null) Flags=MAINT,IGNORE_JOBS,SPEC_NODES,ALL_NODES TRES=cpu=384 Users=root Groups=(null) Accounts=(null) Licenses=(null) State=INACTIVE BurstBuffer=(null) MaxStartDelay=(null)";
+
+    #[test]
+    fn stdout_path_from_a_job_line() {
+        let line = "JobId=7 JobName=x StdErr=/h/e.err StdOut=/h/slurm-7.out Power=";
+        assert_eq!(stdout_from_job(line).as_deref(), Some("/h/slurm-7.out"));
+        assert_eq!(stdout_from_job("JobId=7 StdOut=(null)"), None);
+        assert_eq!(stdout_from_job("JobId=7"), None);
+    }
 
     #[test]
     fn parses_real_maint_line() {

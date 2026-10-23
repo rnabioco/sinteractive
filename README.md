@@ -133,8 +133,10 @@ A person at a prompt attaches; a script or an agent reaches in with these.
 | Command | What it does |
 |---|---|
 | `session ensure NAME` | Reuse the session named NAME, or launch it if absent (implies `--detach`) |
-| `session peek TARGET [-n LINES]` | Read the last lines of a session's screen |
-| `session send TARGET COMMAND` | Type a command into a session's shell |
+| `session peek TARGET [-n LINES] [--pane P]` | Read the last lines of a session's screen (`P`: pane id, name or `focused`) |
+| `session send TARGET COMMAND [--pane P]` | Type a command into a session's shell |
+| `session panes TARGET [--json]` | List a session's terminal panes |
+| `session exec TARGET COMMAND` | Run a short command in a new pane; print its output, exit with its code |
 | `session events [TARGET] [--follow] [--since EPOCH]` | Stream session events (NDJSON) |
 
 ### Claude Code

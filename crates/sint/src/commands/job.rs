@@ -63,6 +63,7 @@ use sint_core::metrics::{self, Origin, Sampler, Snapshot};
 use sint_core::notices::{self, Notice};
 use sint_core::now_epoch;
 use sint_core::quota::{self, QuotaSnapshot};
+use sint_core::slurm::sacct::JobOutcome;
 use sint_core::state::{StateDir, StateFile};
 use sint_core::theme::{Mode, Theme};
 use sint_core::time::{format_short_duration, slurm_timestamp_to_epoch};
@@ -203,6 +204,12 @@ pub trait Deps {
     /// `/proc/<sid>/environ` on this node. `None` when that process is gone
     /// or was not in a session — see [`launched_here`].
     fn submitter_session(&mut self, sid: u32) -> Option<u64>;
+    /// How a job that left the queue ended, from one `sacct`; `None` when
+    /// accounting does not answer (the `job_done` event then carries only
+    /// the id and name).
+    fn job_outcome(&mut self, _job_id: u64) -> Option<JobOutcome> {
+        None
+    }
     /// Which of those jobs are sinteractive sessions, by Comment.
     ///
     /// A session is an orchestration shell, so its CPU and memory are not
@@ -572,9 +579,7 @@ impl JobLoop {
             .collect();
         gone.sort_unstable_by_key(|(id, _)| *id);
         for (id, name) in gone {
-            let ev = Event::at(now, "job_done")
-                .with("job", id)
-                .with("name", name);
+            let ev = job_done_event(now, id, name, deps.job_outcome(id));
             deps.emit_event(&ev);
         }
         self.seen_jobs = present;
@@ -912,6 +917,24 @@ impl JobLoop {
 }
 
 // ---- pure helpers the driver uses ------------------------------------------
+
+/// `job_done` for job `id`: its name, and — when accounting answered — how
+/// it ended, so a waiter does not need a second query to learn the outcome.
+fn job_done_event(now: i64, id: u64, name: Option<String>, outcome: Option<JobOutcome>) -> Event {
+    let ev = Event::at(now, "job_done")
+        .with("job", id)
+        .with("name", name);
+    let Some(o) = outcome else {
+        return ev;
+    };
+    ev.with("state", o.state)
+        .with("exit_code", o.exit_code)
+        .with("elapsed", o.elapsed)
+        .with("time_limit", o.time_limit)
+        .with("max_rss_mb", o.max_rss_mb)
+        .with("req_mem_mb", o.req_mem_mb)
+        .with("stdout", o.stdout)
+}
 
 /// Whether `job` was launched from this session.
 ///
@@ -1395,6 +1418,11 @@ impl Deps for NodeDeps<'_> {
         submitter_session(sid)
     }
 
+    fn job_outcome(&mut self, job_id: u64) -> Option<JobOutcome> {
+        let outcomes = self.ctx.slurm.job_outcomes(&[job_id]).ok()?;
+        outcomes.into_iter().find(|o| o.job_id == job_id)
+    }
+
     fn session_ids(&mut self) -> HashSet<u64> {
         self.ctx.slurm.my_session_ids(&["RUNNING", "PENDING"])
     }
@@ -1699,6 +1727,8 @@ mod tests {
         /// absent stands for a submitter that has already exited.
         submitters: HashMap<u32, u64>,
         session_id_queries: usize,
+        /// What `job_outcome` answers, by job id.
+        outcomes: HashMap<u64, JobOutcome>,
     }
 
     impl Fake {
@@ -1736,6 +1766,9 @@ mod tests {
         }
         fn submitter_session(&mut self, sid: u32) -> Option<u64> {
             self.submitters.get(&sid).copied()
+        }
+        fn job_outcome(&mut self, job_id: u64) -> Option<JobOutcome> {
+            self.outcomes.get(&job_id).cloned()
         }
         fn session_ids(&mut self) -> HashSet<u64> {
             self.session_id_queries += 1;
@@ -2388,6 +2421,46 @@ mod tests {
         assert_eq!(f.events.len(), 3);
         lp.step(end + 7200 - 1700, &mut f);
         assert_eq!(f.kinds().last(), Some(&"walltime_warn"));
+    }
+
+    #[test]
+    fn job_done_carries_how_the_job_ended() {
+        let mut f = Fake::alive(Some(T0 + 7200));
+        f.queue = Some(vec![
+            qjob(4242, "RUNNING", "node01", Some("sint-t")),
+            qjob(9001, "RUNNING", "n2", Some("train")),
+        ]);
+        let mut lp = JobLoop::new(cfg());
+        lp.step(T0, &mut f);
+        f.outcomes.insert(
+            9001,
+            JobOutcome {
+                job_id: 9001,
+                name: "train".into(),
+                state: "OUT_OF_MEMORY".into(),
+                exit_code: Some(137),
+                elapsed: "00:10:00".into(),
+                time_limit: "01:00:00".into(),
+                max_rss_mb: Some(8000),
+                req_mem_mb: Some(4096),
+                node: "n2".into(),
+                stdout: Some("/h/slurm-9001.out".into()),
+            },
+        );
+        f.queue = Some(vec![qjob(4242, "RUNNING", "node01", Some("sint-t"))]);
+        lp.step(T0 + JOBS_EVERY, &mut f);
+        let done = f.events.last().unwrap();
+        assert_eq!(done.kind, "job_done");
+        assert_eq!(done.field_str("state"), Some("OUT_OF_MEMORY"));
+        assert_eq!(done.field_i64("exit_code"), Some(137));
+        assert_eq!(done.field_str("elapsed"), Some("00:10:00"));
+        assert_eq!(done.field_str("time_limit"), Some("01:00:00"));
+        assert_eq!(done.field_i64("max_rss_mb"), Some(8000));
+        assert_eq!(done.field_i64("req_mem_mb"), Some(4096));
+        assert_eq!(done.field_str("stdout"), Some("/h/slurm-9001.out"));
+        // Without an answer from accounting the event is the old one.
+        let bare = job_done_event(T0, 1, None, None);
+        assert_eq!(bare.fields.len(), 2);
     }
 
     #[test]

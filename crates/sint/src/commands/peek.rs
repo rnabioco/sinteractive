@@ -1,20 +1,24 @@
-//! `sinteractive peek TARGET [-n LINES]` — the last lines of a session's
-//! shell pane, read over one ssh with the embedded zellij's `dump-screen`.
+//! `sinteractive peek TARGET [-n LINES] [--pane P]` — the last lines of a
+//! session's shell pane (or another pane of it), read over one ssh with the embedded zellij's `dump-screen`.
 //! Replaces the 0.x `ssh NODE tmux capture-pane` recipe the hpc-compute
 //! skill used to document.
 
 use anyhow::{anyhow, Result};
 
 use super::common::{eprint_error, ssh_batch, Ctx, RunningSession};
+use super::pane::resolve_pane;
 use crate::cli::PeekArgs;
 use crate::zellij_cmd::ZellijEnv;
 
-/// The session's whole screen as text, read over one ssh. The error names
-/// the session, the node and the first line ssh or zellij had to say.
-pub fn dump_screen(ctx: &Ctx, session: &RunningSession) -> Result<String> {
+/// A pane's whole screen as text (`pane`: see
+/// [`resolve_pane`](super::pane::resolve_pane); `None` is the session's
+/// shell), read over one ssh. The error names the session, the node and the
+/// first line ssh or zellij had to say.
+pub fn dump_screen(ctx: &Ctx, session: &RunningSession, pane: Option<&str>) -> Result<String> {
     let env = ZellijEnv::new(&ctx.cfg, session.job_id)?;
+    let pane = resolve_pane(ctx, session, pane)?;
     let remote = env
-        .remote_argv(["action", "dump-screen", "-p", "terminal_0", "--full"])
+        .remote_argv(["action", "dump-screen", "-p", &pane, "--full"])
         .join(" ");
     let out = ssh_batch(&session.node, 10, &remote).output()?;
     if !out.status.success() {
@@ -44,7 +48,7 @@ pub fn run(args: PeekArgs) -> Result<i32> {
     let Some(session) = ctx.resolve_running(&args.target)? else {
         return Ok(1);
     };
-    let screen = match dump_screen(&ctx, &session) {
+    let screen = match dump_screen(&ctx, &session, args.pane.as_deref()) {
         Ok(screen) => screen,
         Err(e) => {
             eprint_error(&ctx.palette(2), &format!("{e:#}"));

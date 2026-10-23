@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Fake zellij. See README.md.
+#
+# Stands in for `sinteractive zellij ...` when SINTERACTIVE_ZELLIJ points at
+# it. Only the actions the pane tools use are modelled; anything else is an
+# error.
+#
+#   action list-panes [--json --all]   prints $FAKE_SLURM_DIR/panes.json
+#   action dump-screen -p ID [--full]  prints screen.ID, else screen
+#   action write-chars -p ID TEXT      logged
+#   action write -p ID BYTE...         logged
+#   action close-pane -p ID            logged
+#   run [--name N] [--cwd D] ... -- CMD...
+#       runs CMD in the background (in D), prints terminal_<next_pane> and
+#       bumps next_pane (default 5)
+
+# shellcheck source=tests/fake-slurm/lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+log_call zellij "$@"
+
+[[ ! -f "${FAKE_SLURM_DIR}/zellij.fail" ]] || die "$(cat "${FAKE_SLURM_DIR}/zellij.fail")"
+
+case "${1:-}" in
+action)
+  shift
+  verb=${1:-}
+  shift || true
+  pane=''
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    -p | --pane-id)
+      pane=$2
+      shift 2
+      ;;
+    *) shift ;;
+    esac
+  done
+  case "$verb" in
+  list-panes)
+    [[ -f "${FAKE_SLURM_DIR}/panes.json" ]] || die "There is no active session!"
+    cat_fixture panes.json
+    ;;
+  dump-screen)
+    if [[ -f "${FAKE_SLURM_DIR}/screen.${pane}" ]]; then
+      cat_fixture "screen.${pane}"
+    elif [[ -f "${FAKE_SLURM_DIR}/screen" ]]; then
+      cat_fixture screen
+    else
+      die "There is no active session!"
+    fi
+    ;;
+  write-chars | write | close-pane) ;;
+  *) die "zellij: unsupported action '$verb' (fake-slurm)" ;;
+  esac
+  ;;
+run)
+  shift
+  cwd=''
+  while [[ $# -gt 0 && "$1" != -- ]]; do
+    case "$1" in
+    --cwd)
+      cwd=$2
+      shift 2
+      ;;
+    -n | --name)
+      shift 2
+      ;;
+    *) shift ;;
+    esac
+  done
+  [[ "${1:-}" == -- ]] || die "zellij run: no command (fake-slurm)"
+  shift
+  n=$(cat "${FAKE_SLURM_DIR}/next_pane" 2>/dev/null || echo 5)
+  echo $((n + 1)) >"${FAKE_SLURM_DIR}/next_pane"
+  (
+    [[ -z "$cwd" ]] || cd "$cwd" || exit 1
+    exec "$@"
+  ) </dev/null >/dev/null 2>&1 &
+  echo "terminal_$n"
+  ;;
+*) die "zellij: unsupported command '${1:-}' (fake-slurm)" ;;
+esac

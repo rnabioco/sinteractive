@@ -20,6 +20,11 @@ so a test that drifts from the modelled surface fails loudly.
 | `sbatch.last`  | Written by `sbatch`: the submitted script and its arguments, one per line.                                   |
 | `reservations` | Output of `scontrol show reservation -o` (one reservation per line, `ReservationName=… StartTime=… …`).       |
 | `sacct`        | Output of `sacct` (any arguments).                                                                           |
+| `stdout.N`     | The `StdOut=` path `scontrol show job N` reports for job N (none when absent).                               |
+| `panes.json`   | Output of `zellij action list-panes --json --all`. Absent = "no active session" (error).                      |
+| `screen[.ID]`  | Output of `zellij action dump-screen -p ID`: `screen.ID`, else `screen`, else the "no active session" error. |
+| `next_pane`    | Number the next `zellij run` hands out as `terminal_N` (default `5`).                                        |
+| `zellij.fail`  | When present, every `zellij` call prints its contents to stderr and exits 1.                                 |
 | `qos`          | Output of `sacctmgr` (any arguments), e.g. `sacctmgr show qos … --parsable2 --noheader`.                     |
 | `sinfo`        | Output of `sinfo` (any arguments).                                                                           |
 | `calls.log`    | Appended by every shim (see above).                                                                          |
@@ -72,12 +77,18 @@ Other options are accepted and ignored. The first bare token is the script.
 `scontrol` — `update JobId=N Comment=X` rewrites the comment (`Name=`,
 `TimeLimit=` accepted and ignored; unknown job → error); `show reservation
 [-o]` prints `reservations`; `show config` prints `ClusterName = fake`; `show
-job N` prints a one-line summary.
+job N` prints a one-line summary (with `StdOut=` when `stdout.N` exists).
 
 `scancel [flags] N…` — removes the jobs; unknown id → real error text, exit 1.
 
 `sacct`, `sacctmgr`, `sinfo` — print the fixture file of the same name
 (`qos` for sacctmgr), or nothing.
+
+`zellij` — the embedded zellij's stand-in, used when `SINTERACTIVE_ZELLIJ`
+points at it (the remote invocations then run it instead of `sinteractive
+zellij`). `action list-panes`, `dump-screen`, `write-chars`, `write` and
+`close-pane` are fixtures or just logged; `run … -- CMD…` really runs `CMD…`
+in the background (in `--cwd`) and prints `terminal_N`.
 
 `srun [opts] [--] CMD…` — execs `CMD…` locally.
 
