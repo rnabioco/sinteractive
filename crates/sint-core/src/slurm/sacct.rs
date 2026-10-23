@@ -87,6 +87,103 @@ pub fn parse_sacct(output: &str) -> Result<Vec<AccountedJob>, SlurmError> {
     Ok(jobs)
 }
 
+/// How one job ended (or stands), from a single `sacct` call: what the
+/// `job_done` event and `wait_for_jobs` report.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
+pub struct JobOutcome {
+    pub job_id: u64,
+    pub name: String,
+    /// First word of sacct's state (`CANCELLED by 12` reads `CANCELLED`).
+    pub state: String,
+    /// The exit code; `128 + signal` when the job died on a signal with a
+    /// zero code. `None` while the job has not ended.
+    pub exit_code: Option<i32>,
+    pub elapsed: String,
+    pub time_limit: String,
+    /// Peak resident set over the job's steps, in MB.
+    pub max_rss_mb: Option<u64>,
+    pub req_mem_mb: Option<u64>,
+    pub node: String,
+    /// The job's stdout path as Slurm recorded it.
+    pub stdout: Option<String>,
+}
+
+const OUTCOME_FORMAT: &str =
+    "JobID,JobName,State,ExitCode,Elapsed,Timelimit,ReqMem,MaxRSS,NodeList,StdOut";
+const OUTCOME_FIELDS: usize = 10;
+
+/// `ExitCode` is `code:signal`.
+fn parse_exit_code(s: &str) -> Option<i32> {
+    let (code, sig) = s.split_once(':')?;
+    let (code, sig): (i32, i32) = (code.trim().parse().ok()?, sig.trim().parse().ok()?);
+    Some(if code == 0 && sig != 0 {
+        128 + sig
+    } else {
+        code
+    })
+}
+
+/// Parse `sacct -P -n --format=OUTCOME_FORMAT` output into one outcome per
+/// allocation, peak `MaxRSS` folded in from its steps. Array tasks
+/// (`JOBID_N`) are not addressable by a numeric id and are left out; blank
+/// lines are skipped and a short row is an error naming the line.
+pub fn parse_outcomes(output: &str) -> Result<Vec<JobOutcome>, SlurmError> {
+    let mut out: Vec<JobOutcome> = Vec::new();
+    for line in output.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.trim().is_empty() {
+            continue;
+        }
+        let fields: Vec<&str> = line.split('|').collect();
+        if fields.len() < OUTCOME_FIELDS {
+            return Err(SlurmError::Parse {
+                cmd: "sacct".into(),
+                reason: format!(
+                    "expected {OUTCOME_FIELDS} fields, got {}: {line:?}",
+                    fields.len()
+                ),
+            });
+        }
+        // A '|' in the job name (the only free text before the last column)
+        // shifts everything after it.
+        let extra = fields.len() - OUTCOME_FIELDS;
+        let f = |i: usize| fields[i + extra].trim();
+        let id = fields[0].trim();
+        let max_rss = mem_to_mb(f(7));
+        if let Some((parent, _step)) = id.split_once('.') {
+            if let Some(p) = parent
+                .parse::<u64>()
+                .ok()
+                .and_then(|n| out.iter_mut().rev().find(|j| j.job_id == n))
+            {
+                p.max_rss_mb = p.max_rss_mb.max(max_rss);
+            }
+            continue;
+        }
+        let Ok(job_id) = id.parse::<u64>() else {
+            continue;
+        };
+        let state = f(2).split_whitespace().next().unwrap_or("").to_string();
+        let ended = !matches!(
+            state.as_str(),
+            "PENDING" | "RUNNING" | "COMPLETING" | "SUSPENDED" | "REQUEUED" | "RESIZING"
+        );
+        out.push(JobOutcome {
+            job_id,
+            name: fields[1..=1 + extra].join("|"),
+            exit_code: if ended { parse_exit_code(f(3)) } else { None },
+            state,
+            elapsed: f(4).to_string(),
+            time_limit: f(5).to_string(),
+            max_rss_mb: max_rss,
+            req_mem_mb: mem_to_mb(f(6)),
+            node: f(8).to_string(),
+            stdout: Some(f(9)).filter(|s| !s.is_empty()).map(str::to_string),
+        });
+    }
+    Ok(out)
+}
+
 impl Slurm {
     /// Recent jobs for the user since `since` (`now-1day` style).
     /// Allocation rows only, with `max_rss` folded in from the job's steps:
@@ -104,6 +201,33 @@ impl Slurm {
         args.extend(["--starttime", since, &format]);
         let out = self.run("sacct", &args)?;
         Ok(fold_steps(parse_sacct(&out)?))
+    }
+
+    /// How `job_ids` stand or ended, one `sacct` call. Jobs accounting does
+    /// not know are simply absent from the answer.
+    pub fn job_outcomes(&self, job_ids: &[u64]) -> Result<Vec<JobOutcome>, SlurmError> {
+        if job_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids = job_ids
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let format = format!("--format={OUTCOME_FORMAT}");
+        let out = self.run("sacct", &["-P", "-n", "-j", &ids, &format])?;
+        parse_outcomes(&out)
+    }
+
+    /// Outcomes of the user's jobs named `name` since `since`.
+    pub fn outcomes_named(&self, name: &str, since: &str) -> Result<Vec<JobOutcome>, SlurmError> {
+        let format = format!("--format={OUTCOME_FORMAT}");
+        let user = std::env::var("USER").unwrap_or_default();
+        let mut args = vec!["-P", "-n", "--name", name, "--starttime", since, &format];
+        if !user.is_empty() {
+            args.extend(["-u", user.as_str()]);
+        }
+        parse_outcomes(&self.run("sacct", &args)?)
     }
 
     /// `sacctmgr -nP show qos NAME format=MaxJobsPerUser` → limit, `None` when
@@ -194,6 +318,42 @@ mod tests {
         assert_eq!(jobs[0].max_rss, "2000000K");
         assert_eq!(jobs[1].job_id, "101_3");
         assert_eq!(jobs[1].max_rss, "512M");
+    }
+
+    #[test]
+    fn outcomes_fold_steps_and_read_exit_codes() {
+        let rows = parse_outcomes(
+            "100|align|COMPLETED|0:0|00:01:00|02:00:00|4G||n01|/h/slurm-100.out\n\
+             100.batch|batch|COMPLETED|0:0|00:01:00|||123456K|n01|\n\
+             100.0|step|COMPLETED|0:0|00:00:30|||2097152K|n01|\n\
+             101|oom|CANCELLED by 12|137:0|00:00:10|01:00:00|1000Mn||n02|\n\
+             102|sig|FAILED|0:9|00:00:10|01:00:00|1G||n02|\n\
+             103|live|RUNNING|0:0|00:00:10|01:00:00|1G||n03|\n\
+             104_2|task|FAILED|1:0|00:00:10|01:00:00|1G||n03|\n\
+             105|a|b|FAILED|2:0|00:00:10|01:00:00|1G||n03|/x\n",
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 5);
+        let r = &rows[0];
+        assert_eq!(
+            (r.job_id, r.name.as_str(), r.state.as_str()),
+            (100, "align", "COMPLETED")
+        );
+        assert_eq!(r.exit_code, Some(0));
+        assert_eq!(r.max_rss_mb, Some(2048));
+        assert_eq!(r.req_mem_mb, Some(4096));
+        assert_eq!(r.time_limit, "02:00:00");
+        assert_eq!(r.stdout.as_deref(), Some("/h/slurm-100.out"));
+        assert_eq!(rows[1].state, "CANCELLED");
+        assert_eq!(rows[1].exit_code, Some(137));
+        assert_eq!(rows[1].req_mem_mb, Some(1000));
+        assert_eq!(rows[1].stdout, None);
+        assert_eq!(rows[2].exit_code, Some(137));
+        assert_eq!(rows[3].exit_code, None, "still running");
+        assert_eq!(rows[4].name, "a|b");
+        assert_eq!(rows[4].exit_code, Some(2));
+        assert_eq!(rows[4].stdout.as_deref(), Some("/x"));
+        assert!(parse_outcomes("1|a|b\n").is_err());
     }
 
     #[test]
