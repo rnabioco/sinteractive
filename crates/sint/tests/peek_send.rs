@@ -52,6 +52,22 @@ fn peek_reads_the_screen_over_ssh() {
 }
 
 #[test]
+fn peek_and_send_take_a_list_position() {
+    let fx = FakeSlurm::with_jobs(&[Job::new(147845, "sinteractive:web")]);
+    for verb in [&["peek", "1"][..], &["send", "1", "ls"][..]] {
+        cmd(&fx, verb).assert().code(1);
+    }
+    let calls = fx.calls_to("ssh");
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    for call in &calls {
+        assert!(
+            call.last().unwrap().contains("sinteractive-147845"),
+            "{call:?}"
+        );
+    }
+}
+
+#[test]
 fn peek_resolves_by_name_and_refuses_a_pending_session() {
     let fx = FakeSlurm::with_jobs(&[
         Job::new(147845, "sinteractive:web"),

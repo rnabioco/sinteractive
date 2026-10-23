@@ -95,6 +95,18 @@ fn status_by_name_and_by_id() {
 }
 
 #[test]
+fn status_takes_a_list_position() {
+    let fx = mixed_queue();
+    let v = json_of(
+        fx.sinteractive()
+            .args(["status", "1", "--json"])
+            .assert()
+            .success(),
+    );
+    assert_eq!(v["job_id"], 147845);
+}
+
+#[test]
 fn status_human_block() {
     let fx = mixed_queue();
     fx.sinteractive()
@@ -315,20 +327,28 @@ fn list_human_table() {
     // The fixture's end time is in the past, so remaining clamps at zero
     // and renders as `0s` (format_short_duration's under-a-minute case).
     fx.sinteractive().arg("list").assert().success().stdout(
-        predicate::str::contains("#    JOBID       NAME                  REMAINING   CWD\n")
-            .and(predicate::str::contains(
-                "1    147845      web                   0s          -\n",
-            ))
-            .and(predicate::str::contains(
-                "2    147846      -                     0s          -\n",
-            ))
-            .and(predicate::str::contains(
-                "Reattach:  sinteractive attach JOBID|NAME|#\n",
-            ))
-            .and(predicate::str::contains(
-                "Cancel:    sinteractive cancel JOBID|NAME|#\n",
-            ))
-            .and(predicate::str::contains("147900").not()),
+        predicate::str::contains(
+            "#    JOBID       NAME                  NODE            REMAINING   CWD\n",
+        )
+        .and(predicate::str::contains(
+            "1    147845      web                   node01          0s          -\n",
+        ))
+        .and(predicate::str::contains(
+            "2    147846      -                     node03          0s          -\n",
+        ))
+        .and(predicate::str::contains(
+            "Reattach:  sinteractive attach JOBID|NAME|#\n",
+        ))
+        .and(predicate::str::contains(
+            "Cancel:    sinteractive cancel JOBID|NAME|#\n",
+        ))
+        .and(predicate::str::contains(
+            "Monitor:   sinteractive monitor JOBID|NAME|#\n",
+        ))
+        .and(predicate::str::contains(
+            "Peek:      sinteractive peek JOBID|NAME|#\n",
+        ))
+        .and(predicate::str::contains("147900").not()),
     );
 }
 

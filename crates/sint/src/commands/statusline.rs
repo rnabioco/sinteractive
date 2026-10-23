@@ -34,7 +34,6 @@ pub struct ClaudeStatus {
     pub model: Option<String>,
     pub context_pct: Option<f64>,
     pub cwd: Option<String>,
-    pub cost_usd: Option<f64>,
 }
 
 pub fn parse_claude_status(json: &str) -> ClaudeStatus {
@@ -52,12 +51,10 @@ pub fn parse_claude_status(json: &str) -> ClaudeStatus {
         .or_else(|| v.pointer("/cwd"))
         .and_then(Value::as_str)
         .map(str::to_string);
-    let cost_usd = v.pointer("/cost/total_cost_usd").and_then(Value::as_f64);
     ClaudeStatus {
         model,
         context_pct,
         cwd,
-        cost_usd,
     }
 }
 
@@ -163,7 +160,6 @@ mod tests {
         assert_eq!(c.model.as_deref(), Some("Opus"));
         assert_eq!(c.context_pct, Some(42.4));
         assert_eq!(c.cwd.as_deref(), Some("/x/y"));
-        assert_eq!(c.cost_usd, Some(0.12));
         assert_eq!(parse_claude_status("not json"), ClaudeStatus::default());
     }
 
@@ -174,7 +170,6 @@ mod tests {
             model: Some("Opus".into()),
             context_pct: Some(42.0),
             cwd: Some("/proj".into()),
-            cost_usd: None,
         };
         assert_eq!(render(&c, &p), "⏺ Opus · ctx 42% · /proj");
         assert_eq!(

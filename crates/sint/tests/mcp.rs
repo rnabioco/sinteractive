@@ -352,6 +352,15 @@ fn queue_quota_context_and_snapshot() {
     assert!(text.starts_with("You are inside an sinteractive"), "{text}");
     assert!(text.contains("job 147845 (web) on node01"), "{text}");
     assert!(text.contains("OVER STORAGE QUOTA"), "{text}");
+    let ctx = payload(&r);
+    assert_eq!(ctx["job_id"], 147845);
+    assert_eq!(ctx["node"], "node01");
+    assert_eq!(ctx["quota_over"], true);
+    assert!(
+        ctx["scratch"].as_str().unwrap().ends_with("/scratch"),
+        "{ctx}"
+    );
+    assert!(ctx.get("partition").is_some() && ctx.get("remaining_seconds").is_some());
 
     // session_status with no target: the current session.
     let r = mcp.call("session_status", json!({}));
@@ -366,15 +375,18 @@ fn queue_quota_context_and_snapshot() {
     );
     std::fs::write(
         fx.cache_dir().join("147845.metrics.json"),
-        "{\"ts\":5,\"cpu\":{\"pct\":12.5},\"gpus\":[]}\n",
+        format!(
+            "{{\"ts\":{},\"cpu\":{{\"pct\":12.5}},\"gpus\":[]}}\n",
+            sint_core::now_epoch()
+        ),
     )
     .unwrap();
     let r = mcp.call("monitor_snapshot", json!({"target": "web"}));
     assert_ne!(r["isError"], json!(true), "{r}");
-    assert_eq!(
-        payload(&r),
-        json!({"ts": 5, "cpu": {"pct": 12.5}, "gpus": []})
-    );
+    let snap = payload(&r);
+    assert_eq!(snap["cpu"]["pct"], 12.5);
+    assert_eq!(snap["stale"], false, "{snap}");
+    assert!(snap["age_secs"].as_u64().unwrap() < 30, "{snap}");
 
     // wait_for_event: a line appended to the log after the call started.
     let log = fx.cache_dir().join("147845.events.ndjson");
@@ -439,7 +451,8 @@ fn queue_quota_context_and_snapshot() {
         json!({"uri": "sinteractive://sessions/147845/metrics"}),
     );
     let text: Value = serde_json::from_str(r["contents"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(text["ts"], 5);
+    assert_eq!(text["cpu"]["pct"], 12.5);
+    assert_eq!(text["stale"], false);
 
     mcp.finish();
 }

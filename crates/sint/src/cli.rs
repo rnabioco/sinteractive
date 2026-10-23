@@ -102,6 +102,7 @@ pub struct LaunchArgs {
     #[arg(long)]
     pub detach: bool,
     /// Machine-readable JSON output (with `--detach`)
+    /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
     /// Additional arguments passed straight to `sbatch` (filled by
@@ -295,15 +296,17 @@ pub enum GenCommand {
 #[derive(Args, Debug, Clone, Default)]
 pub struct JsonFlag {
     /// Machine-readable JSON output
+    /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
 }
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct ListArgs {
-    /// Also show node, partition, and elapsed/limit
+    /// Also show partition and elapsed/limit
     #[arg(long)]
     pub full: bool,
+    /// Machine-readable JSON output
     /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
@@ -311,11 +314,12 @@ pub struct ListArgs {
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct TargetArgs {
-    /// JOBID or NAME; defaults to the current session
+    /// JOBID, NAME, or list's #; defaults to the current session
     pub target: Option<String>,
     /// Re-check the time budget against Slurm now and update the cache
     #[arg(long)]
     pub refresh: bool,
+    /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
 }
@@ -343,6 +347,7 @@ pub struct EnsureArgs {
 pub struct CancelArgs {
     /// JOBID, NAME, or list's #
     pub target: String,
+    /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
 }
@@ -355,13 +360,14 @@ pub struct QueueArgs {
     /// Refresh continuously
     #[arg(long)]
     pub watch: bool,
+    /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
 }
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct MonitorArgs {
-    /// JOBID, NAME, or a hostname; defaults to the current session
+    /// JOBID, NAME, list's #, or a hostname; defaults to the current session
     pub target: Option<String>,
     /// Sample over ssh at 1 Hz instead of reading the shared snapshot
     #[arg(long)]
@@ -372,12 +378,14 @@ pub struct MonitorArgs {
     /// With --once and no TARGET: scope to this job's cgroup on this host
     #[arg(long, value_name = "JOBID", requires = "once")]
     pub job: Option<u64>,
+    /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
 }
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct SnapshotArgs {
+    /// Machine-readable JSON output
     /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
@@ -389,7 +397,9 @@ pub struct SnapshotArgs {
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct EventsArgs {
+    /// JOBID or NAME; defaults to the current session
     pub target: Option<String>,
+    /// Keep streaming as events are appended
     #[arg(long)]
     pub follow: bool,
     /// Only events after this epoch
@@ -399,14 +409,18 @@ pub struct EventsArgs {
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct PeekArgs {
+    /// JOBID, NAME, or list's #; must be RUNNING
     pub target: String,
+    /// How many lines from the bottom of the screen
     #[arg(short = 'n', long, default_value_t = 100)]
     pub lines: usize,
 }
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct SendArgs {
+    /// JOBID, NAME, or list's #; must be RUNNING
     pub target: String,
+    /// Typed into the session's shell, followed by Enter
     pub command: String,
 }
 
@@ -415,6 +429,7 @@ pub struct QuotaArgs {
     /// Probe now instead of reading the cache, and poke every running session
     #[arg(long)]
     pub check: bool,
+    /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
 }
@@ -435,7 +450,7 @@ pub enum HookEvent {
     WorktreeCreate,
     /// WorktreeRemove: remove a worktree the create hook made
     WorktreeRemove,
-    /// PreToolUse (Agent): require confirmation before a Fable subagent
+    /// PreToolUse (Agent): deny a subagent launched without a model; confirm Fable ones
     AgentGuard,
 }
 
@@ -444,6 +459,7 @@ pub struct DoctorArgs {
     /// Sweep every node from sinfo over ssh
     #[arg(long)]
     pub nodes: bool,
+    /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
 }
