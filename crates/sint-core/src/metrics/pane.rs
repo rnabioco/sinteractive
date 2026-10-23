@@ -87,6 +87,7 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
 
     fn cand(pid: u32, comm: &str, starttime: u64) -> ShellCandidate {
         ShellCandidate {
@@ -141,14 +142,39 @@ mod tests {
         fs::create_dir_all(&job_dir).unwrap();
         fs::write(job_dir.join("cgroup.procs"), format!("{pid}\n")).unwrap();
 
+        // `spawn` can return before the child has exec'd bash: until then
+        // `/proc/<pid>/comm` is the *spawning thread's* name (the test's own,
+        // truncated) and `session_cwd_in` rightly finds no shell. Wait for
+        // the exec, bounded, rather than racing it.
+        let comm_of = || {
+            procfs::process::Process::new(pid as i32)
+                .and_then(|p| p.stat())
+                .map(|s| s.comm)
+                .ok()
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while comm_of().as_deref() != Some(PANE_SHELL) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
         let cwd = session_cwd_in(cgroup_root.path(), 555, 0);
+        let diag = format!(
+            "pid {pid}: comm {:?}, cwd {:?}, cgroup listed {:?}",
+            comm_of(),
+            fs::read_link(format!("/proc/{pid}/cwd")),
+            JobCgroup::find(cgroup_root.path(), 555, 0).map(|c| c.pids()),
+        );
 
         // Tear down before asserting, so a failed assertion never leaks it.
         let _ = child.stdin.take().map(|mut s| s.write_all(b"\n"));
         let _ = child.kill();
         let _ = child.wait();
 
-        assert_eq!(cwd.as_deref(), work.path().canonicalize().unwrap().to_str());
+        assert_eq!(
+            cwd.as_deref(),
+            work.path().canonicalize().unwrap().to_str(),
+            "{diag}"
+        );
     }
 
     #[test]
