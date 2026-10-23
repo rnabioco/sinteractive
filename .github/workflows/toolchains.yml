@@ -1,0 +1,30 @@
+# Weekly check that the workspace still builds on the declared MSRV
+# (rust-version in Cargo.toml) and on beta, so a toolchain change or a
+# dependency that raises its MSRV shows up here rather than in a release.
+# rust.yml already covers stable on every push.
+name: Toolchains
+
+on:
+  schedule:
+    - cron: "43 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: ["1.99", beta]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --locked

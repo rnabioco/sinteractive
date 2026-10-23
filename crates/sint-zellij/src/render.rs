@@ -119,7 +119,7 @@ pub fn glyph(sev: Severity, frame: u64, c: &Colors) -> String {
     match sev {
         Severity::Ok => format!("{}{BOLD}●{RESET}", fg(c.accent)),
         Severity::Yellow => {
-            if frame % 2 == 0 {
+            if frame.is_multiple_of(2) {
                 format!("{}{BOLD}●{RESET}", fg(c.warn))
             } else {
                 format!("{}●{RESET}", fg(c.dim))
