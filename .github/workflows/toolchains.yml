@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        toolchain: ["1.85", beta]
+        toolchain: ["1.99", beta]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
