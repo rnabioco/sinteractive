@@ -220,7 +220,7 @@ impl State {
     /// A timer tick (~0.5 s). Returns true when a redraw is needed.
     pub fn tick(&mut self) -> bool {
         self.frame = self.frame.wrapping_add(1);
-        if self.frame % 2 == 0 {
+        if self.frame.is_multiple_of(2) {
             self.since_msg_secs += 1;
         }
         match self.mode {
@@ -231,7 +231,8 @@ impl State {
                 }
                 if self.mode_ttl == 0 {
                     self.mode = BarMode::Status;
-                } else if self.frame % NOTICE_CYCLE_TICKS as u64 == 0 && self.msg.notices.len() > 1
+                } else if self.frame.is_multiple_of(NOTICE_CYCLE_TICKS as u64)
+                    && self.msg.notices.len() > 1
                 {
                     self.mode = BarMode::Notices {
                         idx: (idx + 1) % self.msg.notices.len(),
