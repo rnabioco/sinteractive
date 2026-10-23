@@ -189,7 +189,7 @@ impl Ctx {
     /// Resolve `target` and require it to be RUNNING on a node. Anything
     /// else is reported on stderr and returns `Ok(None)`; the caller exits 1.
     pub fn resolve_running(&self, target: &str) -> Result<Option<RunningSession>> {
-        let Some(job_id) = self.resolve_reporting(Some(target))? else {
+        let Some(job_id) = self.resolve_reporting_with_index(Some(target))? else {
             return Ok(None);
         };
         match self.require_running(job_id) {

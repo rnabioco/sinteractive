@@ -222,6 +222,7 @@ sinteractive session peek build -n 40
 | `Ctrl+b n` | Read the notices (quota, trimmed end time, hints) one at a time; `Ctrl+b n` again for the next, `Ctrl+b Esc` closes |
 | `Ctrl+b m` | Focus the monitor panel (CPU, memory and GPU bars), opening it if it is closed; again to hand the focus back to the shell. In the panel: `←`/`→` job, `t` the full monitor TUI, `esc` back to the shell, `x` close |
 | `Ctrl+b ,` / `Ctrl+b .` | Previous / next job in the monitor panel, without focusing it |
+| `Ctrl+b $` | Rename the session (a floating prompt) |
 | `Ctrl+b q` | Your queue in a floating pane (`sinteractive queue --watch`) — running, pending and the last 24 h; `q` or `Esc` closes it, `r` refreshes (the pane says so on its second line) |
 | `Ctrl+b c` | New pane |
 | `Ctrl+b "` / `Ctrl+b %` | Split down / split right |
@@ -234,10 +235,10 @@ sinteractive session peek build -n 40
 | `Ctrl+b Ctrl+b` | Send a literal `Ctrl+b` |
 
 The status bar reads
-`● sint 31761255 · rusttest · c3cpu-a2-u3-4 · 22m left · jobs 3R · ^b h help`:
+`● sint 31761255 · rusttest · c3cpu-a2-u3-4 · 22m left · 3R launched · ^b h help`:
 the dot spins while the session is starting and turns yellow, then red, as
-the walltime runs down (`SINTERACTIVE_WARN_YELLOW`/`_RED`); `jobs` counts
-your running and pending jobs; a `⚠ N notices` counter appears when the
+the walltime runs down (`SINTERACTIVE_WARN_YELLOW`/`_RED`); `launched` counts
+the jobs you started from the session (`R` running, `PD` pending); a `⚠ N notices` counter appears when the
 session has something to say (red while a quota overage is among them).
 Segments drop from the right as the terminal narrows.
 
@@ -409,9 +410,8 @@ exactly what the agent is told.
   spelling still resolves; none of them show in `--help`.
 - **No tmux.** zellij is compiled in; `SINTERACTIVE_TMUX` is gone and nothing
   needs installing on the compute nodes. The `make tmux*` and `nodes-check`
-  targets are gone with it. Keys are the same `Ctrl+b` chords, except that
-  in-session rename (`Ctrl+b $`) is not available yet — name sessions at
-  launch with `-n`.
+  targets are gone with it. Keys are the same `Ctrl+b` chords, including
+  in-session rename (`Ctrl+b $`).
 - **Mouse is on by default.** `--no-mouse` or `SINTERACTIVE_MOUSE=off` to
   turn it off.
 - **Hooks are native.** `claude install` replaces the

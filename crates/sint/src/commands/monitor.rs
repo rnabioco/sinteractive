@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use sint_core::metrics::{self, Snapshot};
-use sint_core::session::{parse_comment, Target};
+use sint_core::session::{parse_comment, resolve_index, Target};
 use sint_core::slurm::SlurmError;
 use sint_core::state::StateDir;
 use sint_core::theme::{is_tty, Theme};
@@ -184,13 +184,25 @@ pub fn run(args: MonitorArgs) -> Result<i32> {
             }
         },
         Some(t) => match Target::parse(t) {
-            Target::JobId(id) => (
-                Source::Cache { job_id: id },
-                Label {
-                    job_id: Some(id),
-                    ..Default::default()
-                },
-            ),
+            Target::JobId(id) => {
+                // A number with no snapshot of its own may be a `list`
+                // position; a cached one is read without asking Slurm.
+                let id = if ctx.state.metrics_file(id).exists() {
+                    id
+                } else {
+                    ctx.running_sessions()
+                        .ok()
+                        .and_then(|rows| resolve_index(id, &rows))
+                        .unwrap_or(id)
+                };
+                (
+                    Source::Cache { job_id: id },
+                    Label {
+                        job_id: Some(id),
+                        ..Default::default()
+                    },
+                )
+            }
             Target::Name(name) => match ctx.resolve(Some(&name)) {
                 Ok(id) => (
                     Source::Cache { job_id: id },

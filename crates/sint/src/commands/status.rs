@@ -19,7 +19,7 @@ pub fn run(args: TargetArgs, refresh: bool) -> Result<i32> {
     if missing_target(&ctx, args.target.as_deref(), "status/refresh") {
         return Ok(1);
     }
-    let Some(job_id) = ctx.resolve_reporting(args.target.as_deref())? else {
+    let Some(job_id) = ctx.resolve_reporting_with_index(args.target.as_deref())? else {
         return Ok(1);
     };
 
