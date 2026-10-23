@@ -27,6 +27,11 @@
 //! model (the forked `job-watch` and `land` skills, or a haiku subagent)
 //! rather than letting them replay the whole conversation at full price.
 //!
+//! The recipes themselves (srun/salloc, job naming, the `/tmp` boundary) live
+//! in the hpc-compute skill; the briefing keeps the dynamic facts, the
+//! handful of rules and a pointer to the MCP tools that replace shell
+//! recipes (`wait_for_jobs`, `run_in_session`, …).
+//!
 //! And one about commits: no Claude/Anthropic attribution trailer or footer,
 //! regardless of what a session's own reminder asks for — repeated here so
 //! every agent sees it, not just the one that was told directly.
@@ -141,51 +146,31 @@ pub fn context(ctx: &Ctx) -> Result<AgentContext> {
 This session is an orchestration shell, NOT a compute target. Editing, git and
 scheduler queries belong here; anything heavier gets its own allocation, so it
 neither competes with the shell the user is typing in nor is squeezed into
-this session's small slice of CPU and memory.
+this session's small slice of CPU and memory. The hpc-compute skill has the
+recipes; the rules in short:
 
-  one-off     srun -p PART -c N --mem SIZE -t TIME -J NAME --comment=NAME -- CMD
-  sustained   salloc --no-shell -p PART -c N --mem SIZE -t TIME -J NAME --comment=NAME
-              srun --overlap --jobid=ID -- CMD                    # repeat as needed
-              scancel ID                                          # when done
+  - Heavy or long work: its own `srun` (one-off) or `salloc --no-shell` plus
+    `srun --overlap --jobid=ID` (sustained), never this session. SLURM_* is
+    stripped here, so they create their own allocations, bounded by their own
+    -t. Pick the partition with `sinfo`; interactive is for shells.
+  - Name every job twice, `-J NAME` and `--comment=NAME`, the same short
+    descriptive value ('bwa-align', not 'bash').
+  - /tmp, $TMPDIR and the scratchpad directory are this node's own disk. What
+    crosses nodes (a script a job runs, inputs, output you want back) goes on
+    the shared filesystem, under {scratch}/<topic>/.
+  - A workflow controller (snakemake, nextflow) is an `sbatch` job of its own
+    with a few CPUs and a long -t, not something run here, so it outlives the
+    session.
+  - Waiting on a job, checking the queue or quota, and landing a branch are
+    trivial: `/job-watch JOBID`, `/land "why"`, or a haiku subagent, not this
+    conversation, which replays everything said so far on every wake-up.
 
-Both stream output and propagate the command's exit code. salloc announces
-itself with "salloc: Granted job allocation ID" on stderr, not stdout, so
-capture it through 2>&1.
-
-Name every job in both fields — -J NAME and --comment=NAME, the same short
-descriptive value ('bwa-align', not 'bash') — so a shared queue says what is
-running and why; `squeue --me -o "%.10i %.20j %.20P %.10M %k"` shows the name
-in %j and the comment in %k. Both belong to the allocation, so naming the
-salloc covers its srun --overlap steps.
-
-Pick PART with `sinfo`; the interactive partition has few nodes, caps
-walltime and carries everyone's shells, so it is not the right target for
-work — send it to a compute partition instead. SLURM_* is stripped from this
-session, so srun and salloc create their own allocations rather than steps of
-this job — and work in them is bounded by their own -t, not by the budget above.
-
-/tmp is this node's own disk, and so is everything under it — $TMPDIR and
-the scratchpad directory you were told to use for temporary files included.
-An srun or salloc lands on some other node, which sees none of it, and this
-session sees nothing a job leaves on its /tmp. So before staging anything on
-/tmp, ask who has to read it: whatever crosses that line — a script the job
-runs, inputs it reads, output you want back — goes on the shared filesystem,
-under {scratch}/<topic>/ named for the task. A job's own intermediates,
-written and consumed inside one allocation, still belong on that node's /tmp.
-
-A workflow controller — snakemake, nextflow, anything that sits for hours
-submitting jobs — is itself submitted with sbatch, as a job of its own with
-a few CPUs and a long -t, and drives the real work as Slurm jobs (snakemake's
-slurm executor, nextflow's slurm executor). Run in this session, or in an
-srun held open from it, it dies with the session and the rest of the pipeline
-with it; as a job it is bounded by nothing but its own -t.
-
-Not every step needs the model you are running. Waiting on a job, checking
-the queue or the quota, and landing a finished branch are trivial: fork them
-onto a cheaper model — `/job-watch JOBID` waits and reports how a job ended,
-`/land "why"` commits, pushes and opens the pull request — or delegate to a
-subagent with model haiku. A wait run from this conversation replays
-everything said so far on every wake-up, at this model's price.
+If the sinteractive MCP tools are available, prefer them to shell recipes:
+`session_status` for the walltime left, `wait_for_event` and `wait_for_jobs`
+(which blocks and reports state, exit code, elapsed and peak memory) in place
+of polling or `/job-watch`, `job_log` for a job's stdout, and `peek`,
+`list_panes` and `run_in_session` (a short command in a new pane, output and
+exit code back) in place of `send`, which types into the user's live shell.
 
 Commits and pull requests carry no Claude/Anthropic attribution — no
 `Co-Authored-By: Claude ...` trailer, no `Claude-Session:` link, no
