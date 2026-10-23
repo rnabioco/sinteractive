@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-23
+
 ### Added
 
 - `session peek` and `session send` take `--pane ID|NAME|focused`, and the MCP
@@ -27,6 +29,25 @@ and this project adheres to
 - The `claude context` briefing is shorter: the srun/salloc and `/tmp` recipes
   are left to the hpc-compute skill, and it now points at the MCP tools. The
   job-watch skill prefers `wait_for_jobs` when it is available.
+- The monitor panel's job strip shows the selected job's compute node, and the
+  default `list` table has a NODE column.
+- `status`, `monitor`, `peek` and `send` accept a `list` position as a target,
+  as `attach` and `cancel` do. Blank `--help` lines are filled in.
+- MCP tools carry read-only/destructive annotations. `monitor_snapshot` returns
+  a typed result with `age_secs` and `stale`, `agent_context` returns
+  structured fields beside its text, and `list_resources` no longer fans out
+  over ssh.
+- The minimum supported Rust version is now 1.99.
+- Dependabot keeps the cargo and GitHub Actions dependencies current, and
+  scheduled workflows run `cargo audit` and build on beta Rust. `rustls` and
+  `rustls-webpki` are updated for RUSTSEC-2026-0285, -0346, -0348, -0349 and
+  -0382.
+
+### Fixed
+
+- The MCP `wait_for_event` tool's session-end event is `ended`, as in the
+  event log; `session_ended` is still accepted as an alias in `kinds`.
+- A flaky `metrics::pane` test no longer races the spawned shell's exec.
 
 ## [1.5.0] - 2026-09-22
 
@@ -1016,7 +1037,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/rnabioco/sinteractive/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/rnabioco/sinteractive/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/rnabioco/sinteractive/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/rnabioco/sinteractive/compare/v1.2.0...v1.3.0

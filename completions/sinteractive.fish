@@ -89,35 +89,37 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand launch" -l jso
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand launch" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand attach" -l ssh -d 'Attach over ssh -X (X11 forwarding) instead of srun --overlap'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand attach" -s h -l help -d 'Print help'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand list" -l full -d 'Also show node, partition, and elapsed/limit'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand list" -l json -d 'Machine-readable JSON output'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand list" -l full -d 'Also show partition and elapsed/limit'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand list" -l json -d 'Machine-readable JSON output Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand list" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand status" -l refresh -d 'Re-check the time budget against Slurm now and update the cache'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand status" -l json
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand status" -l json -d 'Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand status" -s h -l help -d 'Print help'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand cancel" -l json
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand cancel" -l json -d 'Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand cancel" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand queue" -l all -d 'Include every user\'s jobs in the partitions you can see'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand queue" -l watch -d 'Refresh continuously'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand queue" -l json
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand queue" -l json -d 'Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand queue" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand monitor" -l job -d 'With --once and no TARGET: scope to this job\'s cgroup on this host' -r
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand monitor" -l live -d 'Sample over ssh at 1 Hz instead of reading the shared snapshot'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand monitor" -l once -d 'Print one sample and exit instead of opening the live view'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand monitor" -l json
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand monitor" -l json -d 'Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand monitor" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota" -l check -d 'Probe now instead of reading the cache, and poke every running session'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota" -l json
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota" -l json -d 'Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand doctor" -l nodes -d 'Sweep every node from sinfo over ssh'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand doctor" -l json
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand doctor" -l json -d 'Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand doctor" -s h -l help -d 'Print help'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send events help" -s h -l help -d 'Print help'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send events help" -f -a "ensure" -d 'Reuse the session named NAME, or launch it if absent (implies --detach)'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send events help" -f -a "peek" -d 'Read the last lines of a session\'s screen'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send events help" -f -a "send" -d 'Type a command into a session\'s shell'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send events help" -f -a "events" -d 'Stream session events (NDJSON)'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send events help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send panes exec events help" -s h -l help -d 'Print help'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send panes exec events help" -f -a "ensure" -d 'Reuse the session named NAME, or launch it if absent (implies --detach)'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send panes exec events help" -f -a "peek" -d 'Read the last lines of a session\'s screen'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send panes exec events help" -f -a "send" -d 'Type a command into a session\'s shell'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send panes exec events help" -f -a "panes" -d 'List a session\'s panes'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send panes exec events help" -f -a "exec" -d 'Run a short command in a new pane and wait for its output'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send panes exec events help" -f -a "events" -d 'Stream session events (NDJSON)'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and not __fish_seen_subcommand_from ensure peek send panes exec events help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from ensure" -l node -d 'Request a specific compute node (`--nodelist`)' -r
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from ensure" -s p -l partition -d 'Slurm partition' -r
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from ensure" -s t -l time -d 'Wall time (`8h`, `30m`, `1d12h`, or Slurm `D-HH:MM:SS`)' -r
@@ -129,15 +131,26 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and _
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from ensure" -l detach -d 'Launch without attaching; print connection info and return'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from ensure" -l json -d 'Machine-readable JSON output (with `--detach`)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from ensure" -s h -l help -d 'Print help'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from peek" -s n -l lines -r
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from peek" -s n -l lines -d 'How many lines from the bottom of the screen' -r
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from peek" -l pane -d 'Pane to read: an id (`terminal_3` or `3`), a pane name, or `focused` (default `terminal_0`, the session\'s shell)' -r
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from peek" -s h -l help -d 'Print help'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from send" -l pane -d 'Pane to type into: an id (`terminal_3` or `3`), a pane name, or `focused` (default `terminal_0`, the session\'s shell)' -r
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from send" -s h -l help -d 'Print help'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from panes" -l json -d 'Machine-readable JSON output'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from panes" -s h -l help -d 'Print help'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from exec" -l cwd -d 'Working directory for the command' -r
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from exec" -l timeout -d 'Give up waiting after this many seconds (the pane is then closed)' -r
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from exec" -l keep -d 'Leave the pane open afterwards'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from exec" -l json -d 'Machine-readable JSON output'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from exec" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from events" -l since -d 'Only events after this epoch' -r
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from events" -l follow
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from events" -l follow -d 'Keep streaming as events are appended'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from events" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from help" -f -a "ensure" -d 'Reuse the session named NAME, or launch it if absent (implies --detach)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from help" -f -a "peek" -d 'Read the last lines of a session\'s screen'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from help" -f -a "send" -d 'Type a command into a session\'s shell'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from help" -f -a "panes" -d 'List a session\'s panes'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from help" -f -a "exec" -d 'Run a short command in a new pane and wait for its output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from help" -f -a "events" -d 'Stream session events (NDJSON)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand claude; and not __fish_seen_subcommand_from install context hook statusline mcp help" -s h -l help -d 'Print help'
@@ -154,7 +167,7 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand claude; and __
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand claude; and __fish_seen_subcommand_from hook" -f -a "prompt" -d 'UserPromptSubmit: warn when walltime is short'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand claude; and __fish_seen_subcommand_from hook" -f -a "worktree-create" -d 'WorktreeCreate: make the worktree on the cluster\'s scratch filesystem'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand claude; and __fish_seen_subcommand_from hook" -f -a "worktree-remove" -d 'WorktreeRemove: remove a worktree the create hook made'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand claude; and __fish_seen_subcommand_from hook" -f -a "agent-guard" -d 'PreToolUse (Agent): require confirmation before a Fable subagent'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand claude; and __fish_seen_subcommand_from hook" -f -a "agent-guard" -d 'PreToolUse (Agent): deny a subagent launched without a model; confirm Fable ones'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand claude; and __fish_seen_subcommand_from hook" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand claude; and __fish_seen_subcommand_from statusline" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand claude; and __fish_seen_subcommand_from mcp" -s h -l help -d 'Print help'
@@ -187,17 +200,19 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand ensure" -l no-
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand ensure" -l detach -d 'Launch without attaching; print connection info and return'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand ensure" -l json -d 'Machine-readable JSON output (with `--detach`)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand ensure" -s h -l help -d 'Print help'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand peek" -s n -l lines -r
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand peek" -s n -l lines -d 'How many lines from the bottom of the screen' -r
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand peek" -l pane -d 'Pane to read: an id (`terminal_3` or `3`), a pane name, or `focused` (default `terminal_0`, the session\'s shell)' -r
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand peek" -s h -l help -d 'Print help'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand send" -l pane -d 'Pane to type into: an id (`terminal_3` or `3`), a pane name, or `focused` (default `terminal_0`, the session\'s shell)' -r
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand send" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand events" -l since -d 'Only events after this epoch' -r
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand events" -l follow
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand events" -l follow -d 'Keep streaming as events are appended'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand events" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand refresh" -l refresh -d 'Re-check the time budget against Slurm now and update the cache'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand refresh" -l json
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand refresh" -l json -d 'Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand refresh" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand snapshot" -l job -d 'Scope to this job\'s cgroup on this host instead of the job this process runs in (what `__job` asks other nodes over ssh)' -r
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand snapshot" -l json -d 'Machine-readable JSON output'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand snapshot" -l json -d 'Machine-readable JSON output Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand snapshot" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand agent-context" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and not __fish_seen_subcommand_from session-start prompt worktree-create worktree-remove agent-guard help" -s h -l help -d 'Print help'
@@ -205,7 +220,7 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and not 
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and not __fish_seen_subcommand_from session-start prompt worktree-create worktree-remove agent-guard help" -f -a "prompt" -d 'UserPromptSubmit: warn when walltime is short'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and not __fish_seen_subcommand_from session-start prompt worktree-create worktree-remove agent-guard help" -f -a "worktree-create" -d 'WorktreeCreate: make the worktree on the cluster\'s scratch filesystem'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and not __fish_seen_subcommand_from session-start prompt worktree-create worktree-remove agent-guard help" -f -a "worktree-remove" -d 'WorktreeRemove: remove a worktree the create hook made'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and not __fish_seen_subcommand_from session-start prompt worktree-create worktree-remove agent-guard help" -f -a "agent-guard" -d 'PreToolUse (Agent): require confirmation before a Fable subagent'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and not __fish_seen_subcommand_from session-start prompt worktree-create worktree-remove agent-guard help" -f -a "agent-guard" -d 'PreToolUse (Agent): deny a subagent launched without a model; confirm Fable ones'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and not __fish_seen_subcommand_from session-start prompt worktree-create worktree-remove agent-guard help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and __fish_seen_subcommand_from session-start" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and __fish_seen_subcommand_from prompt" -s h -l help -d 'Print help'
@@ -216,7 +231,7 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and __fi
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and __fish_seen_subcommand_from help" -f -a "prompt" -d 'UserPromptSubmit: warn when walltime is short'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and __fish_seen_subcommand_from help" -f -a "worktree-create" -d 'WorktreeCreate: make the worktree on the cluster\'s scratch filesystem'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and __fish_seen_subcommand_from help" -f -a "worktree-remove" -d 'WorktreeRemove: remove a worktree the create hook made'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and __fish_seen_subcommand_from help" -f -a "agent-guard" -d 'PreToolUse (Agent): require confirmation before a Fable subagent'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and __fish_seen_subcommand_from help" -f -a "agent-guard" -d 'PreToolUse (Agent): deny a subagent launched without a model; confirm Fable ones'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand statusline" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand mcp" -s h -l help -d 'Print help'
@@ -265,6 +280,8 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and not 
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from session" -f -a "ensure" -d 'Reuse the session named NAME, or launch it if absent (implies --detach)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from session" -f -a "peek" -d 'Read the last lines of a session\'s screen'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from session" -f -a "send" -d 'Type a command into a session\'s shell'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from session" -f -a "panes" -d 'List a session\'s panes'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from session" -f -a "exec" -d 'Run a short command in a new pane and wait for its output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from session" -f -a "events" -d 'Stream session events (NDJSON)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from claude" -f -a "install" -d 'Install the skills, hooks, statusline and MCP server'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from claude" -f -a "context" -d 'Brief a coding agent on the session it is running inside'
@@ -278,4 +295,4 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fi
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from hook" -f -a "prompt" -d 'UserPromptSubmit: warn when walltime is short'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from hook" -f -a "worktree-create" -d 'WorktreeCreate: make the worktree on the cluster\'s scratch filesystem'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from hook" -f -a "worktree-remove" -d 'WorktreeRemove: remove a worktree the create hook made'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from hook" -f -a "agent-guard" -d 'PreToolUse (Agent): require confirmation before a Fable subagent'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from hook" -f -a "agent-guard" -d 'PreToolUse (Agent): deny a subagent launched without a model; confirm Fable ones'

@@ -373,6 +373,12 @@ _sinteractive() {
             sinteractive__subcmd__help__subcmd__session,events)
                 cmd="sinteractive__subcmd__help__subcmd__session__subcmd__events"
                 ;;
+            sinteractive__subcmd__help__subcmd__session,exec)
+                cmd="sinteractive__subcmd__help__subcmd__session__subcmd__exec"
+                ;;
+            sinteractive__subcmd__help__subcmd__session,panes)
+                cmd="sinteractive__subcmd__help__subcmd__session__subcmd__panes"
+                ;;
             sinteractive__subcmd__help__subcmd__session,peek)
                 cmd="sinteractive__subcmd__help__subcmd__session__subcmd__peek"
                 ;;
@@ -421,8 +427,14 @@ _sinteractive() {
             sinteractive__subcmd__session,events)
                 cmd="sinteractive__subcmd__session__subcmd__events"
                 ;;
+            sinteractive__subcmd__session,exec)
+                cmd="sinteractive__subcmd__session__subcmd__exec"
+                ;;
             sinteractive__subcmd__session,help)
                 cmd="sinteractive__subcmd__session__subcmd__help"
+                ;;
+            sinteractive__subcmd__session,panes)
+                cmd="sinteractive__subcmd__session__subcmd__panes"
                 ;;
             sinteractive__subcmd__session,peek)
                 cmd="sinteractive__subcmd__session__subcmd__peek"
@@ -436,8 +448,14 @@ _sinteractive() {
             sinteractive__subcmd__session__subcmd__help,events)
                 cmd="sinteractive__subcmd__session__subcmd__help__subcmd__events"
                 ;;
+            sinteractive__subcmd__session__subcmd__help,exec)
+                cmd="sinteractive__subcmd__session__subcmd__help__subcmd__exec"
+                ;;
             sinteractive__subcmd__session__subcmd__help,help)
                 cmd="sinteractive__subcmd__session__subcmd__help__subcmd__help"
+                ;;
+            sinteractive__subcmd__session__subcmd__help,panes)
+                cmd="sinteractive__subcmd__session__subcmd__help__subcmd__panes"
                 ;;
             sinteractive__subcmd__session__subcmd__help,peek)
                 cmd="sinteractive__subcmd__session__subcmd__help__subcmd__peek"
@@ -1934,7 +1952,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__help__subcmd__session)
-            opts="ensure peek send events"
+            opts="ensure peek send panes exec events"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1962,6 +1980,34 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__help__subcmd__session__subcmd__events)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__session__subcmd__exec)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__session__subcmd__panes)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -2360,7 +2406,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__peek)
-            opts="-n -h --lines --help"
+            opts="-n -h --lines --pane --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2371,6 +2417,10 @@ _sinteractive() {
                     return 0
                     ;;
                 -n)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --pane)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2438,12 +2488,16 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__send)
-            opts="-h --help"
+            opts="-h --pane --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --pane)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -2452,7 +2506,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__session)
-            opts="-h --help ensure peek send events help"
+            opts="-h --help ensure peek send panes exec events help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2541,8 +2595,30 @@ _sinteractive() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sinteractive__subcmd__session__subcmd__exec)
+            opts="-h --cwd --timeout --keep --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --cwd)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --timeout)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sinteractive__subcmd__session__subcmd__help)
-            opts="ensure peek send events help"
+            opts="ensure peek send panes exec events help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2583,7 +2659,35 @@ _sinteractive() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sinteractive__subcmd__session__subcmd__help__subcmd__exec)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sinteractive__subcmd__session__subcmd__help__subcmd__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__session__subcmd__help__subcmd__panes)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -2625,8 +2729,22 @@ _sinteractive() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sinteractive__subcmd__session__subcmd__panes)
+            opts="-h --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sinteractive__subcmd__session__subcmd__peek)
-            opts="-n -h --lines --help"
+            opts="-n -h --lines --pane --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2640,6 +2758,10 @@ _sinteractive() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --pane)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -2648,12 +2770,16 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__session__subcmd__send)
-            opts="-h --help"
+            opts="-h --pane --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --pane)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;

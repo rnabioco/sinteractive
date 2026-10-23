@@ -102,7 +102,6 @@ pub struct LaunchArgs {
     #[arg(long)]
     pub detach: bool,
     /// Machine-readable JSON output (with `--detach`)
-    /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
     /// Additional arguments passed straight to `sbatch` (filled by
