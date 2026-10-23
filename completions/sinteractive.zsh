@@ -85,8 +85,8 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (list)
 _arguments "${_arguments_options[@]}" : \
-'--full[Also show node, partition, and elapsed/limit]' \
-'--json[Machine-readable JSON output]' \
+'--full[Also show partition and elapsed/limit]' \
+'--json[Machine-readable JSON output Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -94,15 +94,15 @@ _arguments "${_arguments_options[@]}" : \
 (status)
 _arguments "${_arguments_options[@]}" : \
 '--refresh[Re-check the time budget against Slurm now and update the cache]' \
-'--json[]' \
+'--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::target -- JOBID or NAME; defaults to the current session:_default' \
+'::target -- JOBID, NAME, or list'\''s #; defaults to the current session:_default' \
 && ret=0
 ;;
 (cancel)
 _arguments "${_arguments_options[@]}" : \
-'--json[]' \
+'--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':target -- JOBID, NAME, or list'\''s #:_default' \
@@ -112,7 +112,7 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--all[Include every user'\''s jobs in the partitions you can see]' \
 '--watch[Refresh continuously]' \
-'--json[]' \
+'--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -122,16 +122,16 @@ _arguments "${_arguments_options[@]}" : \
 '--job=[With --once and no TARGET\: scope to this job'\''s cgroup on this host]:JOBID:_default' \
 '--live[Sample over ssh at 1 Hz instead of reading the shared snapshot]' \
 '--once[Print one sample and exit instead of opening the live view]' \
-'--json[]' \
+'--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::target -- JOBID, NAME, or a hostname; defaults to the current session:_default' \
+'::target -- JOBID, NAME, list'\''s #, or a hostname; defaults to the current session:_default' \
 && ret=0
 ;;
 (quota)
 _arguments "${_arguments_options[@]}" : \
 '--check[Probe now instead of reading the cache, and poke every running session]' \
-'--json[]' \
+'--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -139,7 +139,7 @@ _arguments "${_arguments_options[@]}" : \
 (doctor)
 _arguments "${_arguments_options[@]}" : \
 '--nodes[Sweep every node from sinfo over ssh]' \
-'--json[]' \
+'--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -182,28 +182,50 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (peek)
 _arguments "${_arguments_options[@]}" : \
-'-n+[]:LINES:_default' \
-'--lines=[]:LINES:_default' \
+'-n+[How many lines from the bottom of the screen]:LINES:_default' \
+'--lines=[How many lines from the bottom of the screen]:LINES:_default' \
+'--pane=[Pane to read\: an id (\`terminal_3\` or \`3\`), a pane name, or \`focused\` (default \`terminal_0\`, the session'\''s shell)]:ID|NAME|focused:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':target -- JOBID, NAME, or list'\''s #; must be RUNNING:_default' \
+&& ret=0
+;;
+(send)
+_arguments "${_arguments_options[@]}" : \
+'--pane=[Pane to type into\: an id (\`terminal_3\` or \`3\`), a pane name, or \`focused\` (default \`terminal_0\`, the session'\''s shell)]:ID|NAME|focused:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':target -- JOBID, NAME, or list'\''s #; must be RUNNING:_default' \
+':command -- Typed into the session'\''s shell, followed by Enter:_default' \
+&& ret=0
+;;
+(panes)
+_arguments "${_arguments_options[@]}" : \
+'--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':target:_default' \
 && ret=0
 ;;
-(send)
+(exec)
 _arguments "${_arguments_options[@]}" : \
+'--cwd=[Working directory for the command]:DIR:_default' \
+'--timeout=[Give up waiting after this many seconds (the pane is then closed)]:SECS:_default' \
+'--keep[Leave the pane open afterwards]' \
+'--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':target:_default' \
-':command:_default' \
+':command -- Run with `bash -lc` in a new pane of the session:_default' \
 && ret=0
 ;;
 (events)
 _arguments "${_arguments_options[@]}" : \
 '--since=[Only events after this epoch]:SINCE:_default' \
-'--follow[]' \
+'--follow[Keep streaming as events are appended]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::target:_default' \
+'::target -- JOBID or NAME; defaults to the current session:_default' \
 && ret=0
 ;;
 (help)
@@ -227,6 +249,14 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (send)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(panes)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(exec)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -541,43 +571,45 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (peek)
 _arguments "${_arguments_options[@]}" : \
-'-n+[]:LINES:_default' \
-'--lines=[]:LINES:_default' \
+'-n+[How many lines from the bottom of the screen]:LINES:_default' \
+'--lines=[How many lines from the bottom of the screen]:LINES:_default' \
+'--pane=[Pane to read\: an id (\`terminal_3\` or \`3\`), a pane name, or \`focused\` (default \`terminal_0\`, the session'\''s shell)]:ID|NAME|focused:_default' \
 '-h[Print help]' \
 '--help[Print help]' \
-':target:_default' \
+':target -- JOBID, NAME, or list'\''s #; must be RUNNING:_default' \
 && ret=0
 ;;
 (send)
 _arguments "${_arguments_options[@]}" : \
+'--pane=[Pane to type into\: an id (\`terminal_3\` or \`3\`), a pane name, or \`focused\` (default \`terminal_0\`, the session'\''s shell)]:ID|NAME|focused:_default' \
 '-h[Print help]' \
 '--help[Print help]' \
-':target:_default' \
-':command:_default' \
+':target -- JOBID, NAME, or list'\''s #; must be RUNNING:_default' \
+':command -- Typed into the session'\''s shell, followed by Enter:_default' \
 && ret=0
 ;;
 (events)
 _arguments "${_arguments_options[@]}" : \
 '--since=[Only events after this epoch]:SINCE:_default' \
-'--follow[]' \
-'-h[Print help]' \
-'--help[Print help]' \
-'::target:_default' \
-&& ret=0
-;;
-(refresh)
-_arguments "${_arguments_options[@]}" : \
-'--refresh[Re-check the time budget against Slurm now and update the cache]' \
-'--json[]' \
+'--follow[Keep streaming as events are appended]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '::target -- JOBID or NAME; defaults to the current session:_default' \
 && ret=0
 ;;
+(refresh)
+_arguments "${_arguments_options[@]}" : \
+'--refresh[Re-check the time budget against Slurm now and update the cache]' \
+'--json[Machine-readable JSON output]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'::target -- JOBID, NAME, or list'\''s #; defaults to the current session:_default' \
+&& ret=0
+;;
 (snapshot)
 _arguments "${_arguments_options[@]}" : \
 '--job=[Scope to this job'\''s cgroup on this host instead of the job this process runs in (what \`__job\` asks other nodes over ssh)]:JOBID:_default' \
-'--json[Machine-readable JSON output]' \
+'--json[Machine-readable JSON output Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -813,6 +845,14 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (send)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(panes)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(exec)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1155,7 +1195,7 @@ _sinteractive__subcmd__claude__subcmd__help__subcmd__hook_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
-'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
+'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
     )
     _describe -t commands 'sinteractive claude help hook commands' commands "$@"
 }
@@ -1206,7 +1246,7 @@ _sinteractive__subcmd__claude__subcmd__hook_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
-'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
+'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive claude hook commands' commands "$@"
@@ -1223,7 +1263,7 @@ _sinteractive__subcmd__claude__subcmd__hook__subcmd__help_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
-'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
+'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive claude hook help commands' commands "$@"
@@ -1463,7 +1503,7 @@ _sinteractive__subcmd__help__subcmd__claude__subcmd__hook_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
-'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
+'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
     )
     _describe -t commands 'sinteractive help claude hook commands' commands "$@"
 }
@@ -1563,7 +1603,7 @@ _sinteractive__subcmd__help__subcmd__hook_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
-'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
+'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
     )
     _describe -t commands 'sinteractive help hook commands' commands "$@"
 }
@@ -1658,6 +1698,8 @@ _sinteractive__subcmd__help__subcmd__session_commands() {
 'ensure:Reuse the session named NAME, or launch it if absent (implies --detach)' \
 'peek:Read the last lines of a session'\''s screen' \
 'send:Type a command into a session'\''s shell' \
+'panes:List a session'\''s panes' \
+'exec:Run a short command in a new pane and wait for its output' \
 'events:Stream session events (NDJSON)' \
     )
     _describe -t commands 'sinteractive help session commands' commands "$@"
@@ -1671,6 +1713,16 @@ _sinteractive__subcmd__help__subcmd__session__subcmd__ensure_commands() {
 _sinteractive__subcmd__help__subcmd__session__subcmd__events_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive help session events commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__session__subcmd__exec_commands] )) ||
+_sinteractive__subcmd__help__subcmd__session__subcmd__exec_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help session exec commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__session__subcmd__panes_commands] )) ||
+_sinteractive__subcmd__help__subcmd__session__subcmd__panes_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help session panes commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__help__subcmd__session__subcmd__peek_commands] )) ||
 _sinteractive__subcmd__help__subcmd__session__subcmd__peek_commands() {
@@ -1704,7 +1756,7 @@ _sinteractive__subcmd__hook_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
-'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
+'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive hook commands' commands "$@"
@@ -1721,7 +1773,7 @@ _sinteractive__subcmd__hook__subcmd__help_commands() {
 'prompt:UserPromptSubmit\: warn when walltime is short' \
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
-'agent-guard:PreToolUse (Agent)\: require confirmation before a Fable subagent' \
+'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive hook help commands' commands "$@"
@@ -1842,6 +1894,8 @@ _sinteractive__subcmd__session_commands() {
 'ensure:Reuse the session named NAME, or launch it if absent (implies --detach)' \
 'peek:Read the last lines of a session'\''s screen' \
 'send:Type a command into a session'\''s shell' \
+'panes:List a session'\''s panes' \
+'exec:Run a short command in a new pane and wait for its output' \
 'events:Stream session events (NDJSON)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
@@ -1857,12 +1911,19 @@ _sinteractive__subcmd__session__subcmd__events_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive session events commands' commands "$@"
 }
+(( $+functions[_sinteractive__subcmd__session__subcmd__exec_commands] )) ||
+_sinteractive__subcmd__session__subcmd__exec_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive session exec commands' commands "$@"
+}
 (( $+functions[_sinteractive__subcmd__session__subcmd__help_commands] )) ||
 _sinteractive__subcmd__session__subcmd__help_commands() {
     local commands; commands=(
 'ensure:Reuse the session named NAME, or launch it if absent (implies --detach)' \
 'peek:Read the last lines of a session'\''s screen' \
 'send:Type a command into a session'\''s shell' \
+'panes:List a session'\''s panes' \
+'exec:Run a short command in a new pane and wait for its output' \
 'events:Stream session events (NDJSON)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
@@ -1878,10 +1939,20 @@ _sinteractive__subcmd__session__subcmd__help__subcmd__events_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive session help events commands' commands "$@"
 }
+(( $+functions[_sinteractive__subcmd__session__subcmd__help__subcmd__exec_commands] )) ||
+_sinteractive__subcmd__session__subcmd__help__subcmd__exec_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive session help exec commands' commands "$@"
+}
 (( $+functions[_sinteractive__subcmd__session__subcmd__help__subcmd__help_commands] )) ||
 _sinteractive__subcmd__session__subcmd__help__subcmd__help_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive session help help commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__session__subcmd__help__subcmd__panes_commands] )) ||
+_sinteractive__subcmd__session__subcmd__help__subcmd__panes_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive session help panes commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__session__subcmd__help__subcmd__peek_commands] )) ||
 _sinteractive__subcmd__session__subcmd__help__subcmd__peek_commands() {
@@ -1892,6 +1963,11 @@ _sinteractive__subcmd__session__subcmd__help__subcmd__peek_commands() {
 _sinteractive__subcmd__session__subcmd__help__subcmd__send_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive session help send commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__session__subcmd__panes_commands] )) ||
+_sinteractive__subcmd__session__subcmd__panes_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive session panes commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__session__subcmd__peek_commands] )) ||
 _sinteractive__subcmd__session__subcmd__peek_commands() {
