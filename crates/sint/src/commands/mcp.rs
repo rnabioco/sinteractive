@@ -45,7 +45,10 @@ use super::agent_context::{context, AgentContext};
 use super::cancel::{cancel_job, CancelResult};
 use super::common::Ctx;
 use super::ensure::{ensure_data, Ensured};
+use super::exec::{run_in_session, ExecResult, TIMEOUT_DEFAULT_SECS, TIMEOUT_MAX_SECS};
+use super::jobwait::{self, JobLog, WaitedJobs};
 use super::list::{list_data, ListRow};
+use super::pane::{list_panes, PaneInfo};
 use super::peek::{dump_screen, tail_lines};
 use super::queue::{queue_data, QueueReport};
 use super::quota::quota_data;
@@ -62,7 +65,10 @@ read the remaining walltime, and wait_for_event (which blocks until something ha
 of polling. Waiting and status checks are trivial work: run them from a subagent on a cheaper \
 model (the job-watch skill, or an Agent call with model haiku) rather than the main \
 conversation, which replays everything said so far on every wake-up. peek reads a session's \
-screen; send types into the user's live shell, so only do that when asked.";
+screen (any pane; list_panes names them); run_in_session runs a short command in a new pane and \
+returns its output, which is the way to act in a session; send types into the user's live \
+shell, so only do that when asked. wait_for_jobs blocks until Slurm jobs finish and reports how \
+they ended; job_log reads a job's stdout.";
 
 /// Default and cap for `wait_for_event`'s timeout, in seconds.
 const WAIT_DEFAULT_SECS: u64 = 300;
@@ -166,14 +172,55 @@ pub struct PeekParams {
     pub target: String,
     /// How many lines from the bottom of the screen (default 100).
     pub lines: Option<usize>,
+    /// Pane to read: an id from `list_panes` (`terminal_3`), a pane title,
+    /// or `focused`. Default `terminal_0`, the session's shell.
+    pub pane: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SendParams {
     /// JOBID or session NAME; must be RUNNING.
     pub target: String,
-    /// Typed into the session's shell, followed by Enter.
+    /// Typed into the pane, followed by Enter.
     pub command: String,
+    /// Pane to type into: an id from `list_panes` (`terminal_3`), a pane
+    /// title, or `focused`. Default `terminal_0`, the session's shell.
+    pub pane: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct RunParams {
+    /// JOBID or session NAME; must be RUNNING.
+    pub target: String,
+    /// Run with `bash -lc` in a new pane.
+    pub command: String,
+    /// Working directory for the command.
+    pub cwd: Option<String>,
+    /// Give up after this long and close the pane (default 120, at most
+    /// 3600).
+    pub timeout_secs: Option<u64>,
+    /// Leave the pane open afterwards, for the user to look at.
+    pub keep: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct WaitJobsParams {
+    /// Slurm job ids to wait for (any of the user's jobs, not only
+    /// sessions).
+    pub job_ids: Option<Vec<u64>>,
+    /// Also wait for the user's live jobs with this name; when none are
+    /// live, report the last day's finished jobs of that name.
+    pub name: Option<String>,
+    /// Give up after this long (default 300, at most 3600).
+    pub timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct JobLogParams {
+    /// Slurm job id.
+    pub job_id: u64,
+    /// How many lines from the end of the log (default 50).
+    pub lines: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -207,6 +254,13 @@ pub struct PeekResult {
     pub job_id: u64,
     pub node: String,
     pub lines: Vec<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct PaneList {
+    pub job_id: u64,
+    pub node: String,
+    pub panes: Vec<PaneInfo>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -397,7 +451,7 @@ impl SintServer {
     #[tool(
         name = "peek",
         annotations(read_only_hint = true),
-        description = "The last lines of a RUNNING session's screen, read over ssh (`sinteractive session peek`)."
+        description = "The last lines of a RUNNING session's screen, read over ssh (`sinteractive session peek`). Reads the session's shell unless `pane` names another (see list_panes)."
     )]
     async fn peek(
         &self,
@@ -407,7 +461,7 @@ impl SintServer {
             .blocking(move |ctx| {
                 let job_id = resolve(ctx, Some(&p.target))?;
                 let session = ctx.require_running(job_id)?;
-                let screen = dump_screen(ctx, &session, None)?;
+                let screen = dump_screen(ctx, &session, p.pane.as_deref())?;
                 let lines = tail_lines(&screen, p.lines.unwrap_or(100))
                     .into_iter()
                     .map(str::to_string)
@@ -425,7 +479,7 @@ impl SintServer {
     #[tool(
         name = "send",
         annotations(destructive_hint = true),
-        description = "Type a command into a RUNNING session's shell and press Enter (`sinteractive session send`). This is the user's live shell: only when asked."
+        description = "Type a command into a RUNNING session's shell (or another `pane`) and press Enter (`sinteractive session send`). This is the user's live shell: only when asked; run_in_session is the way to run something yourself."
     )]
     async fn send(
         &self,
@@ -438,11 +492,113 @@ impl SintServer {
             .blocking(move |ctx| {
                 let job_id = resolve(ctx, Some(&p.target))?;
                 let session = ctx.require_running(job_id)?;
-                send_command(ctx, &session, &p.command, None)?;
+                send_command(ctx, &session, &p.command, p.pane.as_deref())?;
                 Ok(SendResult { job_id, sent: true })
             })
             .await?;
         Ok(Json(result))
+    }
+
+    #[tool(
+        name = "list_panes",
+        description = "The terminal panes of a RUNNING session (`sinteractive session panes --json`): id, title, command, cwd, focused, floating, exited and exit status, and tab. Pass an id or title as `pane` to peek or send."
+    )]
+    async fn list_panes(
+        &self,
+        Parameters(p): Parameters<RequiredTargetParams>,
+    ) -> Result<Json<PaneList>, ToolError> {
+        let result = self
+            .blocking(move |ctx| {
+                let job_id = resolve(ctx, Some(&p.target))?;
+                let session = ctx.require_running(job_id)?;
+                let panes = list_panes(ctx, &session)?;
+                Ok(PaneList {
+                    job_id,
+                    node: session.node,
+                    panes,
+                })
+            })
+            .await?;
+        Ok(Json(result))
+    }
+
+    #[tool(
+        name = "run_in_session",
+        description = "Run a short command (`bash -lc`) in a new unfocused floating pane of a RUNNING session, wait for it, and return its exit code and output (`sinteractive session exec`). Orchestration-sized work only (git, file edits, scheduler queries): the session is a small allocation shared with the user's shell, not a compute target, so anything heavy goes in its own srun/salloc allocation. A command that outlives `timeout_secs` is killed and reported `timed_out`. The pane is closed afterwards unless `keep`."
+    )]
+    async fn run_in_session(
+        &self,
+        Parameters(p): Parameters<RunParams>,
+    ) -> Result<Json<ExecResult>, ToolError> {
+        if p.command.trim().is_empty() {
+            return Err(ToolError::msg("nothing to run: command is empty"));
+        }
+        let timeout = p
+            .timeout_secs
+            .unwrap_or(TIMEOUT_DEFAULT_SECS)
+            .min(TIMEOUT_MAX_SECS);
+        let result = self
+            .blocking(move |ctx| {
+                let job_id = resolve(ctx, Some(&p.target))?;
+                let session = ctx.require_running(job_id)?;
+                Ok(run_in_session(
+                    ctx,
+                    &session,
+                    &p.command,
+                    p.cwd.as_deref(),
+                    timeout,
+                    p.keep.unwrap_or(false),
+                )?)
+            })
+            .await?;
+        Ok(Json(result))
+    }
+
+    #[tool(
+        name = "wait_for_jobs",
+        description = "Block until the given Slurm jobs (any of the user's, found by `job_ids` and/or `name`) have finished, then report each: state, exit_code, elapsed against time_limit, max_rss_mb against req_mem_mb, node and the stdout path. `timed_out` is true when some were still running after `timeout_secs`. Use this instead of polling squeue or running /job-watch."
+    )]
+    async fn wait_for_jobs(
+        &self,
+        Parameters(p): Parameters<WaitJobsParams>,
+    ) -> Result<Json<WaitedJobs>, ToolError> {
+        let timeout = Duration::from_secs(
+            p.timeout_secs
+                .unwrap_or(WAIT_DEFAULT_SECS)
+                .min(WAIT_MAX_SECS),
+        );
+        let waited = self
+            .blocking(move |ctx| {
+                Ok(jobwait::wait_for_jobs(
+                    &ctx.slurm,
+                    &p.job_ids.unwrap_or_default(),
+                    p.name.as_deref(),
+                    timeout,
+                    jobwait::POLL,
+                )?)
+            })
+            .await?;
+        Ok(Json(waited))
+    }
+
+    #[tool(
+        name = "job_log",
+        description = "The last `lines` (default 50) of a Slurm job's stdout file, found through scontrol while the job is live and sacct after, and read from the shared filesystem. `exists` is false when the file is not there (yet)."
+    )]
+    async fn job_log(
+        &self,
+        Parameters(p): Parameters<JobLogParams>,
+    ) -> Result<Json<JobLog>, ToolError> {
+        let log = self
+            .blocking(move |ctx| {
+                Ok(jobwait::job_log(
+                    &ctx.slurm,
+                    p.job_id,
+                    p.lines.unwrap_or(50),
+                )?)
+            })
+            .await?;
+        Ok(Json(log))
     }
 
     #[tool(

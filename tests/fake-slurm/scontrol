@@ -9,7 +9,8 @@
 #   scontrol show config
 #       prints "ClusterName = fake"
 #   scontrol show job N
-#       prints a one-line JobId=... Comment=... summary of the row
+#       prints a one-line JobId=... Comment=... summary of the row, with
+#       StdOut=<contents of stdout.N> when that fixture file exists
 
 # shellcheck source=tests/fake-slurm/lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
@@ -58,9 +59,13 @@ show)
   job)
     id=${3:-}
     job_exists "$id" || die "slurm_load_jobs error: Invalid job id specified"
-    read_jobs | awk -F'\t' -v id="$id" '$1 == id {
-      printf "JobId=%s JobName=%s Comment=%s Partition=%s JobState=%s Reason=%s NodeList=%s NumCPUs=%s TimeLimit=%s EndTime=%s\n",
-        $1, ($2 ~ /^sinteractive:/) ? "sint-" substr($2, 14) : "sinteractive", $2, $4, $11, $12, $3, $8, $6, $7 }'
+    stdout_path=''
+    [[ ! -f "${FAKE_SLURM_DIR}/stdout.${id}" ]] || stdout_path=$(cat "${FAKE_SLURM_DIR}/stdout.${id}")
+    read_jobs | awk -F'\t' -v id="$id" -v so="$stdout_path" '$1 == id {
+      printf "JobId=%s JobName=%s Comment=%s Partition=%s JobState=%s Reason=%s NodeList=%s NumCPUs=%s TimeLimit=%s EndTime=%s",
+        $1, ($2 ~ /^sinteractive:/) ? "sint-" substr($2, 14) : "sinteractive", $2, $4, $11, $12, $3, $8, $6, $7
+      if (so != "") printf " StdOut=%s", so
+      printf "\n" }'
     ;;
   *) die "scontrol: unsupported 'show ${2:-}' (fake-slurm)" ;;
   esac

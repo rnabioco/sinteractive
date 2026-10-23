@@ -176,14 +176,18 @@ fn handshake_tools_and_the_documented_contracts() {
             "agent_context",
             "cancel_session",
             "ensure_session",
+            "job_log",
+            "list_panes",
             "list_sessions",
             "monitor_snapshot",
             "peek",
             "queue",
             "quota",
+            "run_in_session",
             "send",
             "session_status",
             "wait_for_event",
+            "wait_for_jobs",
         ]
     );
     // Every tool has an object input schema; the JSON-returning ones an
@@ -213,6 +217,82 @@ fn handshake_tools_and_the_documented_contracts() {
         );
     }
     assert!(status_tool["inputSchema"]["properties"]["target"].is_object());
+
+    // The pane, exec and job tools: argument and result shapes.
+    let tool = |name: &str| {
+        tools["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("no tool {name}"))
+            .clone()
+    };
+    let keys = |v: &Value| -> Vec<String> {
+        let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+        k.sort();
+        k
+    };
+    let required = |t: &Value| -> Vec<String> {
+        let mut r: Vec<String> = t["inputSchema"]["required"]
+            .as_array()
+            .map(|a| a.iter().map(|v| v.as_str().unwrap().to_string()).collect())
+            .unwrap_or_default();
+        r.sort();
+        r
+    };
+    for name in ["peek", "send"] {
+        let t = tool(name);
+        assert!(t["inputSchema"]["properties"]["pane"].is_object(), "{name}");
+        assert!(!required(&t).contains(&"pane".to_string()), "{name}");
+    }
+    let t = tool("list_panes");
+    assert_eq!(required(&t), ["target"]);
+    assert_eq!(
+        keys(&t["outputSchema"]["properties"]),
+        ["job_id", "node", "panes"]
+    );
+    let t = tool("run_in_session");
+    assert_eq!(required(&t), ["command", "target"]);
+    assert_eq!(
+        keys(&t["inputSchema"]["properties"]),
+        ["command", "cwd", "keep", "target", "timeout_secs"]
+    );
+    assert_eq!(
+        keys(&t["outputSchema"]["properties"]),
+        [
+            "exit_code",
+            "job_id",
+            "node",
+            "output",
+            "pane_id",
+            "timed_out",
+            "truncated"
+        ]
+    );
+    assert!(
+        t["description"]
+            .as_str()
+            .unwrap()
+            .contains("not a compute target"),
+        "orchestration-sized work only"
+    );
+    let t = tool("wait_for_jobs");
+    assert!(required(&t).is_empty());
+    assert_eq!(
+        keys(&t["inputSchema"]["properties"]),
+        ["job_ids", "name", "timeout_secs"]
+    );
+    assert_eq!(
+        keys(&t["outputSchema"]["properties"]),
+        ["jobs", "timed_out"]
+    );
+    let t = tool("job_log");
+    assert_eq!(required(&t), ["job_id"]);
+    assert_eq!(
+        keys(&t["outputSchema"]["properties"]),
+        ["exists", "lines", "path"]
+    );
 
     // list_sessions: the seeded session with the documented fields; the
     // foreign job is not a session.
@@ -361,6 +441,23 @@ fn queue_quota_context_and_snapshot() {
         "{ctx}"
     );
     assert!(ctx.get("partition").is_some() && ctx.get("remaining_seconds").is_some());
+    for needle in [
+        "hpc-compute skill",
+        "session_status",
+        "wait_for_event",
+        "wait_for_jobs",
+        "job_log",
+        "run_in_session",
+        "`send`",
+        "--comment=NAME",
+        "no Claude/Anthropic attribution",
+    ] {
+        assert!(text.contains(needle), "briefing lacks {needle}: {text}");
+    }
+    assert!(
+        !text.contains("salloc: Granted job allocation"),
+        "the srun/salloc recipe lives in the skill now: {text}"
+    );
 
     // session_status with no target: the current session.
     let r = mcp.call("session_status", json!({}));
@@ -566,4 +663,208 @@ fn ensure_session_launches_then_reuses_with_a_clean_stdout() {
         stderr.contains("is ready on") || stderr.contains("bringing up"),
         "{stderr}"
     );
+}
+
+const PANES: &str = r#"[
+  {"id":0,"is_plugin":true,"is_focused":false,"is_floating":false,"title":"tab-bar","exited":false,"exit_status":null,"tab_name":"Tab #1"},
+  {"id":0,"is_plugin":false,"is_focused":true,"is_floating":false,"title":"Pane #1","exited":false,"exit_status":null,"terminal_command":null,"tab_name":"Tab #1","pane_command":"/bin/bash","pane_cwd":"/work"},
+  {"id":3,"is_plugin":false,"is_focused":false,"is_floating":true,"title":"build","exited":true,"exit_status":2,"terminal_command":"bash -lc make","tab_name":"Tab #1"}
+]"#;
+
+fn text_of(r: &Value) -> &str {
+    r["content"][0]["text"].as_str().unwrap()
+}
+
+#[test]
+fn pane_tools_and_run_in_session_over_the_fake_zellij() {
+    let fx = FakeSlurm::with_jobs(&[
+        Job::new(147845, "sinteractive:web"),
+        Job::new(147900, "sinteractive:queued")
+            .state("PENDING")
+            .node("")
+            .reason("Priority"),
+    ]);
+    fx.write("panes.json", PANES);
+    fx.write("screen.terminal_0", "shell\n");
+    fx.write("screen.terminal_3", "boom\nmake failed\n");
+    let runtime = fx.tmp.path().join("runtime");
+    std::fs::create_dir_all(runtime.join("sint-147845")).unwrap();
+    let fake = common::shims_dir().join("zellij").display().to_string();
+    let mut mcp = Mcp::spawn(
+        &fx,
+        &[
+            ("SINTERACTIVE_RUNTIME_DIR", runtime.display().to_string()),
+            ("SINTERACTIVE_ZELLIJ", fake),
+        ],
+    );
+    mcp.initialize();
+
+    let r = mcp.call("list_panes", json!({"target": "web"}));
+    assert_ne!(r["isError"], json!(true), "{r}");
+    let v = payload(&r);
+    assert_eq!(
+        (v["job_id"].clone(), v["node"].clone()),
+        (json!(147845), json!("node01"))
+    );
+    let panes = v["panes"].as_array().unwrap();
+    assert_eq!(panes.len(), 2);
+    assert_eq!(panes[1]["id"], "terminal_3");
+    assert_eq!(panes[1]["exit_status"], 2);
+    assert_eq!(panes[0]["cwd"], "/work");
+
+    // Default pane unchanged; named pane via the listing.
+    let r = mcp.call("peek", json!({"target": "web"}));
+    assert_eq!(payload(&r)["lines"], json!(["shell"]));
+    let r = mcp.call(
+        "peek",
+        json!({"target": "web", "pane": "build", "lines": 1}),
+    );
+    assert_eq!(payload(&r)["lines"], json!(["make failed"]));
+    let r = mcp.call("peek", json!({"target": "web", "pane": "terminal_3"}));
+    assert_eq!(payload(&r)["lines"], json!(["boom", "make failed"]));
+    let r = mcp.call(
+        "send",
+        json!({"target": "web", "command": "ls", "pane": "3"}),
+    );
+    assert_eq!(payload(&r), json!({"job_id": 147845, "sent": true}));
+    let r = mcp.call("peek", json!({"target": "web", "pane": "ghost"}));
+    assert_eq!(r["isError"], true);
+    assert!(text_of(&r).contains("no pane named 'ghost'"), "{r}");
+
+    // run_in_session.
+    let r = mcp.call(
+        "run_in_session",
+        json!({"target": "web", "command": "echo hi; exit 2", "timeout_secs": 20}),
+    );
+    assert_ne!(r["isError"], json!(true), "{r}");
+    let v = payload(&r);
+    assert_eq!(v["exit_code"], 2);
+    assert_eq!(v["output"], json!(["hi"]));
+    assert_eq!(v["pane_id"], "terminal_5");
+    assert_eq!(
+        (v["timed_out"].clone(), v["truncated"].clone()),
+        (json!(false), json!(false))
+    );
+    let zcalls = fx.calls_to("zellij");
+    assert!(zcalls
+        .iter()
+        .any(|c| c[0] == "run" && c.contains(&"--floating".to_string())));
+    assert!(zcalls
+        .iter()
+        .any(|c| c[..] == ["action", "close-pane", "-p", "terminal_5"]));
+
+    let r = mcp.call("run_in_session", json!({"target": "web", "command": "  "}));
+    assert_eq!(r["isError"], true);
+    let r = mcp.call(
+        "run_in_session",
+        json!({"target": "queued", "command": "ls"}),
+    );
+    assert_eq!(r["isError"], true);
+    assert!(
+        text_of(&r).contains("is not running (state: PENDING)"),
+        "{r}"
+    );
+    let r = mcp.call("list_panes", json!({"target": "queued"}));
+    assert_eq!(r["isError"], true);
+
+    mcp.finish();
+}
+
+#[test]
+fn wait_for_jobs_and_job_log() {
+    let fx = FakeSlurm::with_jobs(&[
+        Job::new(147845, "sinteractive:web"),
+        Job::new(147900, "cargo-ci").state("COMPLETED"),
+    ]);
+    let log = fx.tmp.path().join("cargo-147900.out");
+    std::fs::write(&log, "one\ntwo\nthree\n").unwrap();
+    fx.write(
+        "sacct",
+        &format!(
+            "147845|sint-web|RUNNING|0:0|01:00:00|08:00:00|16G||node01|\n\
+             147900|cargo-ci|OUT_OF_MEMORY|0:9|00:03:00|01:00:00|4G||node02|{}\n\
+             147900.batch|batch|OUT_OF_MEMORY|0:9|00:03:00|||5242880K|node02|\n\
+             147901|gone|COMPLETED|0:0|00:00:09|00:10:00|1000Mn||node03|{}/gone-%j.out\n",
+            fx.tmp.path().join("cargo-%j.out").display(),
+            fx.tmp.path().display(),
+        ),
+    );
+    fx.write("stdout.147845", "/nonexistent/slurm-147845.out\n");
+    let mut mcp = Mcp::spawn(&fx, &[]);
+    mcp.initialize();
+
+    // A job that already ended: reported at once, with its peak memory.
+    let r = mcp.call("wait_for_jobs", json!({"job_ids": [147900]}));
+    assert_ne!(r["isError"], json!(true), "{r}");
+    let v = payload(&r);
+    assert_eq!(v["timed_out"], false);
+    let j = &v["jobs"][0];
+    assert_eq!(j["job_id"], 147900);
+    assert_eq!(j["name"], "cargo-ci");
+    assert_eq!(j["state"], "OUT_OF_MEMORY");
+    assert_eq!(j["exit_code"], 137);
+    assert_eq!(j["elapsed"], "00:03:00");
+    assert_eq!(j["time_limit"], "01:00:00");
+    assert_eq!(j["max_rss_mb"], 5120);
+    assert_eq!(j["req_mem_mb"], 4096);
+    assert_eq!(j["node"], "node02");
+    assert!(j["stdout"].as_str().unwrap().ends_with("cargo-%j.out"));
+
+    // A running one is waited for until the timeout, then reported as it stands.
+    let t0 = std::time::Instant::now();
+    let r = mcp.call(
+        "wait_for_jobs",
+        json!({"job_ids": [147845], "timeout_secs": 1}),
+    );
+    assert!(t0.elapsed() < Duration::from_secs(4));
+    let v = payload(&r);
+    assert_eq!(v["timed_out"], true);
+    assert_eq!(v["jobs"][0]["state"], "RUNNING");
+    assert_eq!(v["jobs"][0]["exit_code"], Value::Null);
+
+    // By name: the live session job is `sint-web`.
+    let r = mcp.call(
+        "wait_for_jobs",
+        json!({"name": "sint-web", "timeout_secs": 1}),
+    );
+    let v = payload(&r);
+    assert_eq!(v["timed_out"], true);
+    assert_eq!(v["jobs"][0]["job_id"], 147845);
+
+    // Unknown to Slurm and to accounting: not waited for forever.
+    let r = mcp.call("wait_for_jobs", json!({"job_ids": [999999]}));
+    let v = payload(&r);
+    assert_eq!(v["timed_out"], false);
+    assert_eq!(v["jobs"][0]["state"], "UNKNOWN");
+
+    // Neither argument, or a name nobody has.
+    let r = mcp.call("wait_for_jobs", json!({}));
+    assert_eq!(r["isError"], true);
+    assert!(text_of(&r).contains("give job_ids or name"), "{r}");
+    let r = mcp.call("wait_for_jobs", json!({"name": "nobody"}));
+    assert_eq!(r["isError"], true);
+    assert!(text_of(&r).contains("no job named 'nobody'"), "{r}");
+
+    // job_log: sacct's path, %j expanded, tail of the file.
+    let r = mcp.call("job_log", json!({"job_id": 147900, "lines": 2}));
+    assert_ne!(r["isError"], json!(true), "{r}");
+    let v = payload(&r);
+    assert_eq!(v["lines"], json!(["two", "three"]));
+    assert_eq!(v["exists"], true);
+    assert_eq!(v["path"], log.display().to_string());
+    std::fs::write(fx.tmp.path().join("gone-147901.out"), "bye\n").unwrap();
+    let r = mcp.call("job_log", json!({"job_id": 147901}));
+    assert_eq!(payload(&r)["lines"], json!(["bye"]));
+    // scontrol's path for a live job; the file is not there yet.
+    let r = mcp.call("job_log", json!({"job_id": 147845}));
+    let v = payload(&r);
+    assert_eq!(v["path"], "/nonexistent/slurm-147845.out");
+    assert_eq!(v["exists"], false);
+    assert_eq!(v["lines"], json!([]));
+    // No path anywhere.
+    let r = mcp.call("job_log", json!({"job_id": 31337}));
+    assert_eq!(r["isError"], true);
+    assert!(text_of(&r).contains("no stdout path"), "{r}");
+
+    mcp.finish();
 }

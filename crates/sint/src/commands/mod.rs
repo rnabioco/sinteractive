@@ -18,6 +18,7 @@ pub mod exec;
 pub mod hook;
 pub mod install_claude;
 pub mod job;
+pub mod jobwait;
 pub mod launch;
 pub mod list;
 pub mod mcp;
