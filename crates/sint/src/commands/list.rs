@@ -4,7 +4,7 @@
 //! Only RUNNING sessions are listed, as in 0.x. The JSON rows share the
 //! `status --json` shape and additionally carry `cwd`. `--full` adds node,
 //! partition and elapsed/limit to the human table; the default keeps to
-//! what fits at a glance: job id, name, time remaining, cwd.
+//! what fits at a glance: job id, name, node, time remaining, cwd.
 //!
 //! The human table's leading `#` is a 1-based position, not part of the
 //! frozen JSON contract — it exists so `attach`/`status`/`cancel` can take
@@ -108,6 +108,22 @@ fn remaining_cell(remaining: Option<i64>, width: usize, p: &Palette) -> String {
     }
 }
 
+/// The human table's column header; the default view carries the node too,
+/// since where a session runs is the first thing `monitor` and `peek` need.
+fn header(full: bool, p: &Palette) -> String {
+    if full {
+        format!(
+            "{}{:<3}  {:<10}  {:<20}  {:<14}  {:<12}  {:<20}  {:<10}  CWD{}",
+            p.dim, "#", "JOBID", "NAME", "NODE", "PARTITION", "ELAPSED/LIMIT", "REMAINING", p.reset
+        )
+    } else {
+        format!(
+            "{}{:<3}  {:<10}  {:<20}  {:<14}  {:<10}  CWD{}",
+            p.dim, "#", "JOBID", "NAME", "NODE", "REMAINING", p.reset
+        )
+    }
+}
+
 pub fn run(args: ListArgs) -> Result<i32> {
     let ctx = Ctx::new();
     if args.json {
@@ -127,17 +143,7 @@ pub fn run(args: ListArgs) -> Result<i32> {
     // Colour goes outside every padded field, never inside it: an escape
     // counted as width would shift every column to its right.
     let p = ctx.palette(1);
-    if args.full {
-        println!(
-            "{}{:<3}  {:<10}  {:<20}  {:<14}  {:<12}  {:<20}  {:<10}  CWD{}",
-            p.dim, "#", "JOBID", "NAME", "NODE", "PARTITION", "ELAPSED/LIMIT", "REMAINING", p.reset
-        );
-    } else {
-        println!(
-            "{}{:<3}  {:<10}  {:<20}  {:<10}  CWD{}",
-            p.dim, "#", "JOBID", "NAME", "REMAINING", p.reset
-        );
-    }
+    println!("{}", header(args.full, &p));
     for (i, (row, cwd)) in rows.iter().zip(&cwds).enumerate() {
         let info = SessionInfo::from_row(row, sint_core::now_epoch());
         let name = info.name.as_deref().unwrap_or("-");
@@ -165,8 +171,19 @@ pub fn run(args: ListArgs) -> Result<i32> {
             );
         } else {
             println!(
-                "{idx}  {}{:<10}{}  {}{:<20}{}  {remaining}  {}{}{}",
-                p.id, row.job_id, p.reset, p.bold, name, p.reset, p.dim, cwd, p.reset
+                "{idx}  {}{:<10}{}  {}{:<20}{}  {}{:<14}{}  {remaining}  {}{}{}",
+                p.id,
+                row.job_id,
+                p.reset,
+                p.bold,
+                name,
+                p.reset,
+                p.id,
+                row.node,
+                p.reset,
+                p.dim,
+                cwd,
+                p.reset
             );
         }
     }
@@ -180,5 +197,33 @@ pub fn run(args: ListArgs) -> Result<i32> {
         "{}{:<10}{} sinteractive cancel JOBID|NAME|#",
         p.key, "Cancel:", p.reset
     );
+    println!(
+        "{}{:<10}{} sinteractive monitor JOBID|NAME|#",
+        p.key, "Monitor:", p.reset
+    );
+    println!(
+        "{}{:<10}{} sinteractive peek JOBID|NAME|#",
+        p.key, "Peek:", p.reset
+    );
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_default_table_has_a_node_column() {
+        let p = Palette::none();
+        let h = header(false, &p);
+        assert!(h.contains("NODE"), "{h}");
+        assert!(!h.contains("PARTITION"), "{h}");
+        let (name, node, rem) = (
+            h.find("NAME").unwrap(),
+            h.find("NODE").unwrap(),
+            h.find("REMAINING").unwrap(),
+        );
+        assert!(name < node && node < rem, "{h}");
+        assert!(header(true, &p).contains("PARTITION"));
+    }
 }
