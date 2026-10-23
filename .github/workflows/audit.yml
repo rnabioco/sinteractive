@@ -1,0 +1,24 @@
+# Check Cargo.lock against the RustSec advisory database. Runs weekly because
+# advisories land independently of any change here, and on PRs that touch the
+# lockfile so a vulnerable bump is caught before merge.
+name: Audit
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  pull_request:
+    paths: [Cargo.lock]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit
