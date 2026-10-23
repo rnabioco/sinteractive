@@ -34,8 +34,9 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
+use serde::Serialize;
 use sint_core::quota::{self, kb_to_size};
-use sint_core::session::parse_comment;
+use sint_core::session::{parse_comment, SessionInfo};
 use sint_core::time::{format_short_duration, slurm_timestamp_to_epoch};
 
 use super::common::{eprint_error, resources_line, Ctx};
@@ -54,9 +55,33 @@ pub fn run() -> Result<i32> {
     }
 }
 
+/// The briefing with the facts it states as fields, for the MCP tool.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct AgentContext {
+    /// The briefing, as `sinteractive claude context` prints it.
+    pub text: String,
+    pub job_id: u64,
+    pub node: Option<String>,
+    pub partition: Option<String>,
+    pub cpus: Option<u32>,
+    pub mem_mb: Option<u64>,
+    /// Walltime left when the briefing was generated.
+    pub remaining_seconds: Option<i64>,
+    /// The shared-filesystem scratch that files crossing nodes go under.
+    pub scratch: String,
+    /// The cached quota probe says the user is over; false when it is
+    /// under or nothing is cached.
+    pub quota_over: bool,
+}
+
 /// The briefing for the session this process runs inside. Errors outside
 /// a session and when the job has gone; the CLI prints either and exits 1.
 pub fn briefing(ctx: &Ctx) -> Result<String> {
+    Ok(context(ctx)?.text)
+}
+
+/// [`briefing`], plus the numbers it states as structured fields.
+pub fn context(ctx: &Ctx) -> Result<AgentContext> {
     let Some(job_id) = ctx.cfg.job_id else {
         return Err(anyhow!(
             "not inside an sinteractive session (SINTERACTIVE_JOB_ID unset)."
@@ -87,7 +112,9 @@ pub fn briefing(ctx: &Ctx) -> Result<String> {
     // every session start, so it reads the cache rather than probing nine
     // daemons — and says nothing at all when there is no cache or the user
     // is under.
-    let quota_line = match quota::cached(&ctx.state) {
+    let cached_quota = quota::cached(&ctx.state);
+    let quota_over = cached_quota.as_ref().is_some_and(|q| q.over);
+    let quota_line = match cached_quota {
         Some(q) if q.over => format!(
             "\nOVER STORAGE QUOTA: {} of {} used ({}%), over by {}.",
             kb_to_size(q.used_kb),
@@ -105,7 +132,8 @@ pub fn briefing(ctx: &Ctx) -> Result<String> {
         .unwrap_or_else(|| PathBuf::from("~"));
     let scratch = shared_scratch(&home, &std::env::var("USER").unwrap_or_default());
     let scratch = scratch.display();
-    Ok(format!(
+    let info = SessionInfo::from_row(&row, sint_core::now_epoch());
+    let text = format!(
         r#"You are inside an sinteractive zellij session on a compute node.
   {ident} on {node}, partition {partition} — {res}
   {budget} (the session self-terminates ~10s before the limit)
@@ -174,7 +202,18 @@ Check it with `sinteractive quota --check`, and run that again after
 deleting anything on the user's behalf — it refreshes every open session, so
 the warning clears immediately rather than up to ten minutes later.
 "#
-    ))
+    );
+    Ok(AgentContext {
+        text,
+        job_id,
+        node: info.node,
+        partition: info.partition,
+        cpus: info.cpus,
+        mem_mb: info.memory_mb,
+        remaining_seconds: info.remaining_seconds,
+        scratch: scratch.to_string(),
+        quota_over,
+    })
 }
 
 /// The shared-filesystem scratch the briefing names for files that have to

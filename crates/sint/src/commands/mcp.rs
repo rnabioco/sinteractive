@@ -35,12 +35,13 @@ use rmcp::service::RequestContext;
 use rmcp::{tool, tool_handler, tool_router, RoleServer, ServerHandler, ServiceExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sint_core::metrics::Snapshot;
 use sint_core::now_epoch;
 use sint_core::quota::QuotaSnapshot;
 use sint_core::session::SessionInfo;
 use sint_core::state::StateDir;
 
-use super::agent_context::briefing;
+use super::agent_context::{context, AgentContext};
 use super::cancel::{cancel_job, CancelResult};
 use super::common::Ctx;
 use super::ensure::{ensure_data, Ensured};
@@ -186,7 +187,7 @@ pub struct WaitParams {
     /// JOBID or session NAME; omitted means the current session.
     pub target: Option<String>,
     /// Event kinds to wait for (any kind when omitted or empty), e.g.
-    /// `walltime_warn`, `walltime_red`, `session_ended`.
+    /// `walltime_warn`, `walltime_red`, `ended` (`session_ended` is an alias).
     pub kinds: Option<Vec<String>>,
     /// Give up after this long (default 300, at most 3600).
     pub timeout_secs: Option<u64>,
@@ -214,9 +215,15 @@ pub struct SendResult {
     pub sent: bool,
 }
 
+/// `monitor_snapshot`: the sampler's snapshot, plus how old it is.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct Briefing {
-    pub text: String,
+pub struct SnapshotReport {
+    #[serde(flatten)]
+    pub snapshot: Snapshot,
+    /// Seconds since the snapshot was taken.
+    pub age_secs: u64,
+    /// Older than 30 s, the point at which `monitor` calls a snapshot gone.
+    pub stale: bool,
 }
 
 // ---- the server ---------------------------------------------------------
@@ -268,6 +275,7 @@ fn session_or_not_found(ctx: &Ctx, job_id: u64) -> ToolResult<SessionInfo> {
 impl SintServer {
     #[tool(
         name = "list_sessions",
+        annotations(read_only_hint = true),
         description = "The user's RUNNING sinteractive sessions (the `sinteractive list --json` rows)."
     )]
     async fn list_sessions(&self) -> Result<Json<SessionList>, ToolError> {
@@ -277,6 +285,7 @@ impl SintServer {
 
     #[tool(
         name = "session_status",
+        annotations(read_only_hint = true),
         description = "One session's status, including remaining walltime (`sinteractive status --json`). Errors with {\"job_id\",\"state\":\"NOT_FOUND\"} when Slurm no longer knows the job."
     )]
     async fn session_status(
@@ -294,6 +303,7 @@ impl SintServer {
 
     #[tool(
         name = "ensure_session",
+        annotations(idempotent_hint = true, destructive_hint = false),
         description = "Get-or-create: the RUNNING or PENDING session named NAME, else launch one detached under that name and wait until it is up. `created` says which happened."
     )]
     async fn ensure_session(
@@ -328,6 +338,7 @@ impl SintServer {
 
     #[tool(
         name = "cancel_session",
+        annotations(destructive_hint = true),
         description = "scancel a session by JOBID or NAME (`sinteractive cancel --json`)."
     )]
     async fn cancel_session(
@@ -353,6 +364,7 @@ impl SintServer {
 
     #[tool(
         name = "queue",
+        annotations(read_only_hint = true),
         description = "The user's job queue: running, pending (with reasons and estimated starts) and the last day's history (`sinteractive queue --json`)."
     )]
     async fn queue(
@@ -366,23 +378,25 @@ impl SintServer {
 
     #[tool(
         name = "monitor_snapshot",
-        description = "The latest resource snapshot of a session's node (CPU, memory, GPU, processes), as its in-session sampler last wrote it. Errors with `no snapshot yet` until the first sample lands."
+        annotations(read_only_hint = true),
+        description = "The latest resource snapshot of a session's node (CPU, memory, GPU, processes), as its in-session sampler last wrote it, with `age_secs` and `stale` (older than 30 s: the sampler may have stopped). Errors with `no snapshot yet` until the first sample lands."
     )]
     async fn monitor_snapshot(
         &self,
         Parameters(p): Parameters<TargetParams>,
-    ) -> ToolResult<CallToolResult> {
-        let snapshot = self
+    ) -> Result<Json<SnapshotReport>, ToolError> {
+        let report = self
             .blocking(move |ctx| {
                 let job_id = resolve(ctx, p.target.as_deref())?;
-                read_snapshot(&ctx.state, job_id)
+                snapshot_report(&ctx.state, job_id, now_epoch())
             })
             .await?;
-        Ok(CallToolResult::structured(snapshot))
+        Ok(Json(report))
     }
 
     #[tool(
         name = "peek",
+        annotations(read_only_hint = true),
         description = "The last lines of a RUNNING session's screen, read over ssh (`sinteractive session peek`)."
     )]
     async fn peek(
@@ -410,6 +424,7 @@ impl SintServer {
 
     #[tool(
         name = "send",
+        annotations(destructive_hint = true),
         description = "Type a command into a RUNNING session's shell and press Enter (`sinteractive session send`). This is the user's live shell: only when asked."
     )]
     async fn send(
@@ -432,15 +447,17 @@ impl SintServer {
 
     #[tool(
         name = "agent_context",
+        annotations(read_only_hint = true),
         description = "The briefing for an agent running inside a session: job, node, allocation, remaining walltime and the rules of the road (`sinteractive claude context`). Errors outside a session."
     )]
-    async fn agent_context(&self) -> Result<Json<Briefing>, ToolError> {
-        let text = self.blocking(|ctx| Ok(briefing(ctx)?)).await?;
-        Ok(Json(Briefing { text }))
+    async fn agent_context(&self) -> Result<Json<AgentContext>, ToolError> {
+        let context = self.blocking(|ctx| Ok(context(ctx)?)).await?;
+        Ok(Json(context))
     }
 
     #[tool(
         name = "quota",
+        annotations(read_only_hint = true),
         description = "Storage quota (`sinteractive quota --json`): the cached probe, or a fresh one with `check`. Errors with {\"error\":\"quota unavailable\"} when there is neither."
     )]
     async fn quota(
@@ -459,6 +476,7 @@ impl SintServer {
 
     #[tool(
         name = "wait_for_event",
+        annotations(read_only_hint = true),
         description = "Block until the session's next event (new lines of its event log, or walltime crossing the warning thresholds), then return it; {\"timed_out\":true} after `timeout_secs`. Use this instead of polling session_status."
     )]
     async fn wait_for_event(
@@ -508,16 +526,24 @@ impl ServerHandler for SintServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
+        // squeue rows only: the cwd `list` shows costs an ssh per node.
         let rows = self
-            .blocking(|ctx| Ok(list_data(ctx)?))
+            .blocking(|ctx| {
+                let now = now_epoch();
+                Ok(ctx
+                    .running_sessions()?
+                    .iter()
+                    .map(|row| SessionInfo::from_row(row, now))
+                    .collect::<Vec<_>>())
+            })
             .await
             .map_err(internal)?;
         let mut resources = vec![Resource::new(URI_SESSIONS, "sessions")
             .with_description("The user's running sessions (`sinteractive list --json`)")
             .with_mime_type("application/json")];
         for row in &rows {
-            let id = row.info.job_id;
-            let label = match &row.info.name {
+            let id = row.job_id;
+            let label = match &row.name {
                 Some(name) => format!("{id} ({name})"),
                 None => id.to_string(),
             };
@@ -642,7 +668,7 @@ fn read_resource_text(ctx: &Ctx, target: ResourceTarget) -> ToolResult<String> {
             serde_json::to_value(sint_core::notices::read(&ctx.state, job_id))
         }
         ResourceTarget::Session(job_id, SessionResource::Metrics) => {
-            Ok(read_snapshot(&ctx.state, job_id)?)
+            serde_json::to_value(snapshot_report(&ctx.state, job_id, now_epoch())?)
         }
     };
     value
@@ -680,6 +706,22 @@ fn read_snapshot(state: &StateDir, job_id: u64) -> ToolResult<Value> {
     Ok(value)
 }
 
+/// The cached snapshot, typed, with its age against `now`.
+fn snapshot_report(state: &StateDir, job_id: u64, now: i64) -> ToolResult<SnapshotReport> {
+    let value = read_snapshot(state, job_id)?;
+    let snapshot: Snapshot = serde_json::from_value(value).map_err(|e| {
+        ToolError::msg(format!(
+            "malformed snapshot {}: {e}",
+            state.metrics_file(job_id).display()
+        ))
+    })?;
+    Ok(SnapshotReport {
+        age_secs: snapshot.age_secs(now),
+        stale: snapshot.is_stale(now),
+        snapshot,
+    })
+}
+
 // ---- wait_for_event -----------------------------------------------------
 
 /// Remaining-walltime thresholds for the synthetic events, in seconds.
@@ -687,6 +729,15 @@ fn read_snapshot(state: &StateDir, job_id: u64) -> ToolResult<Value> {
 pub struct Thresholds {
     pub warn: i64,
     pub red: i64,
+}
+
+/// The event log's name for a kind: `session_ended` is an alias of `ended`.
+fn canonical_kind(kind: &str) -> &str {
+    if kind == "session_ended" {
+        "ended"
+    } else {
+        kind
+    }
 }
 
 /// Block until the next event for `job_id`, or `timeout` passes.
@@ -698,7 +749,7 @@ pub struct Thresholds {
 /// older than the log — the state file stands in: `remaining_seconds`
 /// crossing `thresholds.warn` / `thresholds.red` yields a synthetic
 /// `walltime_warn` / `walltime_red`, and the state file vanishing yields
-/// `session_ended`. Crossing means a transition since the call started, so
+/// `ended`, as the real log writes it. Crossing means a transition since the call started, so
 /// a session already under a threshold does not fire it again on every
 /// call. On timeout the result is `{"timed_out":true}`.
 ///
@@ -719,7 +770,7 @@ pub fn wait_for_event(
     timeout: Duration,
     poll: Duration,
 ) -> Value {
-    let wanted = |kind: &str| kinds.is_empty() || kinds.iter().any(|k| k == kind);
+    let wanted = |kind: &str| kinds.is_empty() || kinds.iter().any(|k| canonical_kind(k) == kind);
     let log = state.events_file(job_id);
     let deadline = Instant::now() + timeout;
     let mut offset = start_of_unfinished_line(&log);
@@ -849,7 +900,7 @@ impl WalltimeWatch {
                 self.had_state = false;
                 return Some(SyntheticEvent {
                     ts: now,
-                    kind: "session_ended",
+                    kind: "ended",
                     remaining_seconds: None,
                 });
             }
@@ -1067,11 +1118,35 @@ mod tests {
 
         // The session ends: the file goes, once.
         fs::remove_file(state.state_file(7)).unwrap();
-        assert_eq!(
-            watch.observe(&state, 7, now).map(|e| e.kind),
-            Some("session_ended")
-        );
+        assert_eq!(watch.observe(&state, 7, now).map(|e| e.kind), Some("ended"));
         assert_eq!(watch.observe(&state, 7, now), None);
+    }
+
+    #[test]
+    fn session_ended_is_an_alias_of_ended() {
+        let (_tmp, state) = dir();
+        let log = state.events_file(7);
+        fs::write(&log, "").unwrap();
+        let writer = {
+            let log = log.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(20));
+                let mut f = fs::OpenOptions::new().append(true).open(&log).unwrap();
+                f.write_all(b"{\"ts\":5,\"kind\":\"ended\",\"reason\":\"walltime\"}\n")
+                    .unwrap();
+            })
+        };
+        let got = wait_for_event(
+            &state,
+            7,
+            &kinds(&["session_ended"]),
+            T,
+            Duration::from_secs(5),
+            FAST,
+        );
+        writer.join().unwrap();
+        assert_eq!(got["kind"], "ended");
+        assert_eq!(got["reason"], "walltime");
     }
 
     #[test]
@@ -1206,6 +1281,48 @@ mod tests {
             read_snapshot(&state, 7).unwrap(),
             json!({"cpu": {"pct": 12}})
         );
+    }
+
+    #[test]
+    fn a_snapshot_report_carries_its_age_and_the_30s_staleness() {
+        let (_tmp, state) = dir();
+        fs::write(state.metrics_file(7), "{\"host\":\"n1\",\"ts\":1000}").unwrap();
+        let fresh = snapshot_report(&state, 7, 1030).unwrap();
+        assert_eq!((fresh.age_secs, fresh.stale), (30, false));
+        let old = snapshot_report(&state, 7, 1031).unwrap();
+        assert_eq!((old.age_secs, old.stale), (31, true));
+        let v = serde_json::to_value(&old).unwrap();
+        assert_eq!(v["host"], "n1");
+        assert_eq!(v["age_secs"], 31);
+        assert_eq!(v["stale"], true);
+        // A wrongly-typed field is a malformed snapshot, not a panic.
+        fs::write(state.metrics_file(7), "{\"ts\":\"soon\"}").unwrap();
+        assert!(snapshot_report(&state, 7, 1031).is_err());
+    }
+
+    #[test]
+    fn tools_carry_annotations() {
+        let tools = SintServer::new().tool_router.list_all();
+        let hints = |name: &str| {
+            let t = tools.iter().find(|t| t.name == name).expect(name);
+            t.annotations.clone().expect("annotations")
+        };
+        for ro in [
+            "list_sessions",
+            "session_status",
+            "queue",
+            "quota",
+            "monitor_snapshot",
+            "peek",
+            "wait_for_event",
+            "agent_context",
+        ] {
+            assert_eq!(hints(ro).read_only_hint, Some(true), "{ro}");
+        }
+        for d in ["cancel_session", "send"] {
+            assert_eq!(hints(d).destructive_hint, Some(true), "{d}");
+        }
+        assert_eq!(hints("ensure_session").idempotent_hint, Some(true));
     }
 
     #[test]
