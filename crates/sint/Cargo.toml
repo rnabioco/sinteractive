@@ -35,7 +35,7 @@ zellij-utils = "=0.45.1"
 dialoguer = { version = "0.12", default-features = false, features = ["password", "completion"] }
 miette = { version = "7", default-features = false, features = ["derive", "fancy"] }
 log = "0.4"
-isahc = { version = "1.7", default-features = false, features = ["http2", "text-decoding"], optional = true }
+isahc = { version = "2.0", default-features = false, features = ["http2", "text-decoding"], optional = true }
 serde.workspace = true
 serde_json.workspace = true
 clap.workspace = true
