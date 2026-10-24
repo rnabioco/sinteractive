@@ -185,6 +185,7 @@ fn handshake_tools_and_the_documented_contracts() {
             "quota",
             "quota_top",
             "run_in_session",
+            "scratch_new",
             "send",
             "session_status",
             "wait_for_event",
@@ -544,6 +545,37 @@ fn queue_quota_context_and_snapshot() {
     let r = mcp.call("wait_for_event", json!({"timeout_secs": 0}));
     assert_eq!(payload(&r), json!({"timed_out": true}));
 
+    mcp.finish();
+}
+
+#[test]
+fn scratch_new_makes_a_manifested_directory_and_is_idempotent() {
+    let fx = seeded();
+    let home = fx.tmp.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut mcp = Mcp::spawn(&fx, &[("HOME", home.display().to_string())]);
+    mcp.initialize();
+
+    let r = mcp.call(
+        "scratch_new",
+        json!({"topic": "ecoli-scan", "keep_for": "7d"}),
+    );
+    assert_ne!(r["isError"], json!(true), "{r}");
+    let d = payload(&r);
+    assert_eq!(d["created"], true);
+    let path = d["path"].as_str().unwrap();
+    assert!(path.ends_with("/scratch/ecoli-scan"), "{path}");
+    assert!(std::path::Path::new(path)
+        .join(".sint-scratch.json")
+        .is_file());
+
+    let r = mcp.call("scratch_new", json!({"topic": "ecoli-scan"}));
+    assert_eq!(payload(&r)["created"], false);
+
+    let r = mcp.call("scratch_new", json!({"topic": "../escape"}));
+    assert_eq!(r["isError"], true, "{r}");
+    let r = mcp.call("scratch_new", json!({"topic": "x", "keep_for": "soon"}));
+    assert_eq!(r["isError"], true, "{r}");
     mcp.finish();
 }
 

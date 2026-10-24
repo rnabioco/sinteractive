@@ -51,6 +51,7 @@ use super::pane::{list_panes, PaneInfo};
 use super::peek::{dump_screen, tail_lines};
 use super::queue::{queue_data, QueueReport};
 use super::quota::{quota_data, top_data};
+use super::scratch::{new_data, ScratchDir};
 use super::send::send_command;
 use crate::cli::LaunchArgs;
 
@@ -223,6 +224,14 @@ pub struct JobLogParams {
 pub struct QuotaParams {
     /// Probe the quota daemons now instead of reading the cache.
     pub check: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ScratchNewParams {
+    /// Letters, digits, `.`, `_`, `-`; names the directory.
+    pub topic: String,
+    /// Hold it against `scratch clean` for this long (`30d`, `36h`, `2w`).
+    pub keep_for: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -691,6 +700,21 @@ impl SintServer {
         let n = p.n.unwrap_or(15);
         let report = self.blocking(move |ctx| Ok(top_data(ctx, n)?)).await?;
         Ok(Json(report))
+    }
+
+    #[tool(
+        name = "scratch_new",
+        annotations(idempotent_hint = true, destructive_hint = false),
+        description = "Get-or-create a scratch directory `<scratch>/TOPIC/` with a manifest (owner, branch, session, created), so it can be listed and cleaned by age (`sinteractive scratch new TOPIC`). Use it for working files and throwaway results instead of the repo, a worktree or ~/.cache. Returns its `path`; `created` is false when it already existed."
+    )]
+    async fn scratch_new(
+        &self,
+        Parameters(p): Parameters<ScratchNewParams>,
+    ) -> Result<Json<ScratchDir>, ToolError> {
+        let dir = self
+            .blocking(move |ctx| Ok(new_data(ctx, &p.topic, p.keep_for.as_deref())?))
+            .await?;
+        Ok(Json(dir))
     }
 
     #[tool(

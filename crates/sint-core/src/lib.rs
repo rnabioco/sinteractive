@@ -13,6 +13,7 @@
 //! - [`events`]   — `<jobid>.events.ndjson`, the per-session event log
 //! - [`quota`]    — Bodhi quota daemons and `quota.json`
 //! - [`usage`]    — the cached index of what is using the quota
+//! - [`scratch`]  — manifested scratch directories, listed and cleaned by age
 //! - [`maint`]    — maintenance reservations and fitting a request before one
 //! - [`metrics`]  — host snapshots: CPU, memory, GPUs, processes, cgroup-scoped
 //! - [`joblimit`] — per-QOS concurrent job cap check
@@ -31,6 +32,7 @@ pub mod maint;
 pub mod metrics;
 pub mod notices;
 pub mod quota;
+pub mod scratch;
 pub mod session;
 pub mod slurm;
 pub mod state;

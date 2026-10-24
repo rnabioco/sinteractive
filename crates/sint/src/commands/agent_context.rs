@@ -36,7 +36,7 @@
 //! regardless of what a session's own reminder asks for — repeated here so
 //! every agent sees it, not just the one that was told directly.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
 use serde::Serialize;
@@ -139,7 +139,7 @@ pub fn context(ctx: &Ctx) -> Result<AgentContext> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("~"));
-    let scratch = shared_scratch(&home, &std::env::var("USER").unwrap_or_default());
+    let scratch = sint_core::scratch::root(&home, &std::env::var("USER").unwrap_or_default());
     let scratch = scratch.display();
     let info = SessionInfo::from_row(&row, sint_core::now_epoch());
     let text = format!(
@@ -162,6 +162,10 @@ recipes; the rules in short:
   - /tmp, $TMPDIR and the scratchpad directory are this node's own disk. What
     crosses nodes (a script a job runs, inputs, output you want back) goes on
     the shared filesystem, under {scratch}/<topic>/.
+  - Working files and throwaway results: `sinteractive scratch new TOPIC` (the
+    scratch_new tool) makes {scratch}/TOPIC/ with a manifest, so it can be
+    listed and cleaned by age. Never copy pod5, bam, npy or other bulk data
+    into a worktree: reference the canonical path, or symlink it.
   - A workflow controller (snakemake, nextflow) is an `sbatch` job of its own
     with a few CPUs and a long -t, not something run here, so it outlives the
     session.
@@ -204,30 +208,4 @@ the warning clears immediately rather than up to ten minutes later.
         quota_over,
         stale_server: false,
     })
-}
-
-/// The shared-filesystem scratch the briefing names for files that have to
-/// cross between nodes: Alpine's `/scratch/alpine/$USER` where that exists,
-/// else `~/scratch` — on a one-filesystem cluster such as Bodhi, home *is*
-/// the shared filesystem, and `~/scratch/<topic>/` is where throwaway
-/// working files go.
-fn shared_scratch(home: &Path, user: &str) -> PathBuf {
-    let alpine = Path::new("/scratch/alpine").join(user);
-    if alpine.is_dir() {
-        return alpine;
-    }
-    home.join("scratch")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scratch_is_under_home_where_there_is_no_alpine_scratch() {
-        assert_eq!(
-            shared_scratch(Path::new("/beevol/home/x"), "nobody-has-this-scratch-dir"),
-            PathBuf::from("/beevol/home/x/scratch")
-        );
-    }
 }

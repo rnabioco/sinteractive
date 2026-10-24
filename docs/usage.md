@@ -29,6 +29,9 @@ A bare `sinteractive` launches; everything else is a subcommand
 | `quota [--check]` | Storage quota (Bodhi daemons) |
 | `quota --top [N]` | The N largest directories and probable duplicate files, from a cached index |
 | `quota --reindex` | Rebuild that index, as a batch job (`quota-index`); a walk of home is never run in a session |
+| `scratch new TOPIC [--keep-for AGE]` | Make (or find) `~/scratch/TOPIC/` with a manifest and print its path |
+| `scratch ls` | Scratch directories: size, age, branch (and whether it still exists) |
+| `scratch clean [--older-than AGE] [--yes]` | Remove old manifested scratch directories; lists them unless `--yes` |
 | `doctor [--nodes]` | Check this install and, optionally, every compute node |
 
 ### Driving a session from outside

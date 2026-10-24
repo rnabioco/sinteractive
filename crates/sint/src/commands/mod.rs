@@ -29,6 +29,7 @@ pub mod peek;
 pub mod popup;
 pub mod queue;
 pub mod quota;
+pub mod scratch;
 pub mod send;
 pub mod snapshot;
 pub mod status;
@@ -47,6 +48,7 @@ pub fn dispatch(command: Command) -> Result<i32> {
         Command::Queue(args) => queue::run(args),
         Command::Monitor(args) => monitor::run(args),
         Command::Quota(args) => quota::run(args),
+        Command::Scratch(args) => scratch::run(args),
         Command::Doctor(args) => doctor::run(args),
         Command::Session(c) => session(c.command),
         Command::Claude(c) => claude(c.command),

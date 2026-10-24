@@ -151,6 +151,8 @@ pub enum Command {
     Monitor(MonitorArgs),
     /// Storage quota (Bodhi quota daemons; unavailable on other clusters)
     Quota(QuotaArgs),
+    /// Scratch directories you can list and clean by age: new, ls, clean
+    Scratch(ScratchArgs),
     /// Check this install and, optionally, every compute node
     Doctor(DoctorArgs),
     /// Drive a session from outside: ensure, peek, send, events
@@ -481,6 +483,45 @@ pub struct QuotaArgs {
     /// Walk home and write the usage index here and now (run by --reindex)
     #[arg(long, hide = true, conflicts_with_all = ["check", "top", "reindex"])]
     pub reindex_run: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct ScratchArgs {
+    #[command(subcommand)]
+    pub command: ScratchCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum ScratchCommand {
+    /// Make (or find) a scratch directory for TOPIC and print its path
+    New {
+        /// Letters, digits, '.', '_' and '-'
+        topic: String,
+        /// Hold it against `clean` for this long (`30d`, `36h`, `2w`)
+        #[arg(long, value_name = "AGE")]
+        keep_for: Option<String>,
+        /// Machine-readable JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// List scratch directories: size, age, branch (and whether it still exists)
+    Ls {
+        /// Machine-readable JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove scratch directories older than AGE; lists them unless --yes
+    Clean {
+        /// Only directories created more than this long ago
+        #[arg(long, value_name = "AGE", default_value = "14d")]
+        older_than: String,
+        /// Actually delete (the default only lists what would go)
+        #[arg(long)]
+        yes: bool,
+        /// Machine-readable JSON output
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Args, Debug, Clone)]
