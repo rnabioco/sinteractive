@@ -77,6 +77,10 @@ pub struct AgentContext {
     /// The cached quota probe says the user is over; false when it is
     /// under or nothing is cached.
     pub quota_over: bool,
+    /// Only the MCP tool sets this: the binary was replaced after this
+    /// server started, so its tool list may lack newer tools the briefing
+    /// names. Restarting Claude Code starts a fresh server.
+    pub stale_server: bool,
 }
 
 /// The briefing for the session this process runs inside. Errors outside
@@ -198,6 +202,7 @@ the warning clears immediately rather than up to ten minutes later.
         remaining_seconds: info.remaining_seconds,
         scratch: scratch.to_string(),
         quota_over,
+        stale_server: false,
     })
 }
 
