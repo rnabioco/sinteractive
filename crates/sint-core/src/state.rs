@@ -71,6 +71,9 @@ impl StateDir {
     pub fn quota_file(&self) -> PathBuf {
         self.0.join("quota.json")
     }
+    pub fn usage_file(&self) -> PathBuf {
+        self.0.join("usage.json.gz")
+    }
     pub fn metrics_file(&self, job_id: u64) -> PathBuf {
         self.0.join(format!("{job_id}.metrics.json"))
     }

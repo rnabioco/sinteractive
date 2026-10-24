@@ -7,9 +7,11 @@
 //! quota is a fact to report, not an error in the check.
 
 use std::fs;
+use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use sint_core::quota::{self, kb_to_size, QuotaSnapshot};
+use sint_core::usage::{self, UsageReport};
 
 use super::common::{eprint_error, Ctx};
 use crate::cli::QuotaArgs;
@@ -31,8 +33,115 @@ pub fn quota_data(ctx: &Ctx, check: bool) -> Result<Option<QuotaSnapshot>> {
     Ok(Some(snap))
 }
 
+/// The directory the usage index covers.
+fn home_dir() -> Result<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow!("HOME is not set"))
+}
+
+/// `quota --top`: the cached usage index as a report. An error, not a scan,
+/// when there is no index yet.
+pub fn top_data(ctx: &Ctx, n: usize) -> Result<UsageReport> {
+    let index = usage::load(&ctx.state).ok_or_else(|| {
+        anyhow!("no usage index yet; build one with 'sinteractive quota --reindex' (a batch job)")
+    })?;
+    Ok(usage::report(&index, n, sint_core::now_epoch()))
+}
+
+/// Submit the walk as its own job: it is slow and must not run in a session.
+fn submit_reindex(ctx: &Ctx, json: bool) -> Result<i32> {
+    let exe = std::env::current_exe().context("cannot find the sinteractive binary")?;
+    let wrap = format!(
+        "'{}' quota --reindex-run",
+        exe.display().to_string().replace('\'', "'\\''")
+    );
+    let args = [
+        "-J".to_string(),
+        "quota-index".to_string(),
+        "--comment=quota-index".to_string(),
+        "-t".to_string(),
+        "04:00:00".to_string(),
+        "-c".to_string(),
+        "1".to_string(),
+        "--mem=4G".to_string(),
+        "--wrap".to_string(),
+        wrap,
+    ];
+    let job_id = ctx.slurm.sbatch(&args)?;
+    if json {
+        println!(r#"{{"job_id":{job_id},"name":"quota-index"}}"#);
+    } else {
+        println!(
+            "submitted job {job_id} (quota-index); 'sinteractive quota --top' reads the result"
+        );
+    }
+    Ok(0)
+}
+
+fn print_top(report: &UsageReport) {
+    let size = |b: u64| kb_to_size(b / 1024);
+    let age_h = report.age_secs / 3600;
+    println!(
+        "{} — index {}h old{}",
+        report.root,
+        age_h,
+        if report.stale { " (stale)" } else { "" }
+    );
+    for d in &report.top {
+        println!(
+            "{:>9} {:>9} files  {:<12?}  {}",
+            size(d.bytes),
+            d.files,
+            d.kind,
+            d.path
+        );
+    }
+    for g in &report.duplicates {
+        println!("\n{} each, {} copies:", size(g.bytes), g.paths.len());
+        for p in &g.paths {
+            println!("  {p}");
+        }
+    }
+}
+
 pub fn run(args: QuotaArgs) -> Result<i32> {
     let ctx = Ctx::new();
+    if args.reindex_run {
+        let index = usage::build(
+            &home_dir()?,
+            sint_core::now_epoch(),
+            usage::Params::default(),
+        );
+        usage::write(&ctx.state, &index)?;
+        return Ok(0);
+    }
+    if args.reindex {
+        return submit_reindex(&ctx, args.json);
+    }
+    if let Some(n) = args.top {
+        return match top_data(&ctx, n) {
+            Ok(report) if args.json => {
+                println!("{}", serde_json::to_string(&report)?);
+                Ok(0)
+            }
+            Ok(report) => {
+                print_top(&report);
+                Ok(0)
+            }
+            Err(e) if args.json => {
+                println!(
+                    r#"{{"error":{}}}"#,
+                    serde_json::to_string(&format!("{e:#}"))?
+                );
+                Ok(1)
+            }
+            Err(e) => {
+                eprint_error(&ctx.palette(2), &format!("{e:#}"));
+                Ok(1)
+            }
+        };
+    }
     let snap = quota_data(&ctx, args.check)?;
 
     let Some(snap) = snap else {

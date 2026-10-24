@@ -27,6 +27,8 @@ A bare `sinteractive` launches; everything else is a subcommand
 | `queue [--all] [--watch]` | Your job queue: running, pending (with reasons), and recent history |
 | `monitor [TARGET\|HOST] [--live] [--once]` | Live CPU/GPU/process view of a session's node, or any host; `--once` prints one sample of this host and exits |
 | `quota [--check]` | Storage quota (Bodhi daemons) |
+| `quota --top [N]` | The N largest directories and probable duplicate files, from a cached index |
+| `quota --reindex` | Rebuild that index, as a batch job (`quota-index`); a walk of home is never run in a session |
 | `doctor [--nodes]` | Check this install and, optionally, every compute node |
 
 ### Driving a session from outside

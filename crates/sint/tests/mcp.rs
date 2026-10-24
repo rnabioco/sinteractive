@@ -183,6 +183,7 @@ fn handshake_tools_and_the_documented_contracts() {
             "peek",
             "queue",
             "quota",
+            "quota_top",
             "run_in_session",
             "send",
             "session_status",
@@ -425,6 +426,38 @@ fn queue_quota_context_and_snapshot() {
     assert_eq!(q["user"], "tester");
     assert_eq!(q["over"], true);
     assert_eq!(q["pct"], 102);
+
+    // quota_top: no index is an error that says how to build one, not a scan.
+    let r = mcp.call("quota_top", json!({}));
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(r["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("quota --reindex"));
+    let dir = |path: &str, bytes| sint_core::usage::DirUsage {
+        path: path.into(),
+        bytes,
+        files: 3,
+        newest_epoch: 5,
+        kind: sint_core::usage::Kind::CargoTarget,
+    };
+    sint_core::usage::write(
+        &sint_core::state::StateDir(fx.cache_dir()),
+        &sint_core::usage::UsageIndex {
+            generated_epoch: sint_core::now_epoch(),
+            root: "/h".into(),
+            dirs: vec![dir("/h/a/target", 900), dir("/h/b", 100)],
+            duplicates: vec![],
+        },
+    )
+    .unwrap();
+    let r = mcp.call("quota_top", json!({"n": 1}));
+    assert_ne!(r["isError"], json!(true), "{r}");
+    let t = payload(&r);
+    assert_eq!(t["top"].as_array().unwrap().len(), 1);
+    assert_eq!(t["top"][0]["path"], "/h/a/target");
+    assert_eq!(t["top"][0]["kind"], "cargo-target");
+    assert_eq!(t["stale"], false);
 
     // agent_context, inside the seeded session.
     let r = mcp.call("agent_context", json!({}));
