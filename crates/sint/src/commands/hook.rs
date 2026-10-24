@@ -1,4 +1,4 @@
-//! `sinteractive claude hook session-start|prompt|worktree-create|worktree-remove|agent-guard`
+//! `sinteractive claude hook session-start|prompt|worktree-create|worktree-remove|agent-guard|scratch-guard`
 //! — Claude Code hook entry points.
 //!
 //! `session-start` and `prompt` are native replacements for
@@ -36,6 +36,9 @@
 //! the user to confirm rather than silently allowing it through auto mode.
 //! Anything else is silent, leaving the decision to the normal permission
 //! flow.
+//!
+//! `scratch-guard` is a `PreToolUse` hook on `Bash`, `Write` and `Edit`; see
+//! [`super::scratch_guard`].
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -56,6 +59,7 @@ pub fn run(args: HookArgs) -> Result<i32> {
         HookEvent::WorktreeCreate => worktree_create(),
         HookEvent::WorktreeRemove => worktree_remove(),
         HookEvent::AgentGuard => agent_guard(),
+        HookEvent::ScratchGuard => super::scratch_guard::run(),
     }
 }
 
@@ -198,7 +202,7 @@ fn agent_guard() -> Result<i32> {
 // ---- worktrees --------------------------------------------------------------
 
 /// The JSON Claude Code writes to the hook's stdin.
-fn hook_input() -> Result<Value> {
+pub(super) fn hook_input() -> Result<Value> {
     let mut text = String::new();
     std::io::stdin()
         .read_to_string(&mut text)
@@ -342,6 +346,15 @@ fn worktree_remove() -> Result<i32> {
         .parent()
         .map(Path::to_path_buf)
         .ok_or_else(|| anyhow!("{common} has no parent"))?;
+    // Said on stderr, so the person closing the session sees what went:
+    // a worktree that carries data (or a build tree) is the usual way the
+    // quota fills, and this is the last moment anyone looks at it.
+    let held = sint_core::scratch::dir_bytes(&path);
+    eprintln!(
+        "removing worktree {} ({})",
+        path.display(),
+        sint_core::quota::kb_to_size(held / 1024)
+    );
     git(
         &repo,
         &["worktree", "remove", "--force", &path.to_string_lossy()],

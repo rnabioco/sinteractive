@@ -284,6 +284,27 @@ a `sinteractive claude install` hint joins the session's notices — the
 appears for people who don't use Claude Code, and it clears once the hooks
 are registered.
 
+### The scratch guard
+
+`sinteractive claude hook scratch-guard` is a `PreToolUse` hook on `Bash`,
+`Write` and `Edit`. It denies four things, each with a reason that names the
+right place, and does nothing else — it never deletes, prompts or reads:
+
+- `cp`, `mv`, `rsync` or `install` of `.pod5 .fast5 .bam .cram .npz .npy
+  .parquet .fastq .fq.gz .arrow` into a worktree (`.claude/worktrees/`, or
+  the worktree scratch on Alpine), and a `tar -x` naming one. `ln -s` is the
+  sanctioned way and is never matched. The main checkout is not covered: its
+  `data/` and `results/` trees are where canonical data lives.
+- Creating a new directory under `~/.cache` (a tool cache that already exists
+  stays writable). Results go in the repo's `results/` or `sinteractive
+  scratch new TOPIC`.
+- A `Write` of 1 GiB or more into a worktree.
+- A `Write` of a `.csv` of 100 MiB or more: write `.csv.gz` or Parquet.
+
+The Bash check splits the command on `;`, `&&`, `||`, `|` and newlines and
+follows `cd`. It is a heuristic for the way agents copy data, not a sandbox.
+`worktree-remove` also reports on stderr how much the worktree held.
+
 ## MCP server
 
 `sinteractive claude mcp` is a [Model Context Protocol](https://modelcontextprotocol.io/)

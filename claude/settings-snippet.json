@@ -54,6 +54,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sinteractive claude hook scratch-guard",
+            "timeout": 5
+          }
+        ]
       }
     ]
   },

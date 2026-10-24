@@ -542,6 +542,8 @@ pub enum HookEvent {
     WorktreeRemove,
     /// PreToolUse (Agent): deny a subagent launched without a model; confirm Fable ones
     AgentGuard,
+    /// PreToolUse (Bash, Write, Edit): deny bulk data copied into a worktree and new directories under ~/.cache
+    ScratchGuard,
 }
 
 #[derive(Args, Debug, Clone, Default)]
