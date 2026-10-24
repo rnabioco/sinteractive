@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `worktree ls|prune|audit`: find worktrees whose work has landed (an
+  ancestor of `origin/HEAD`, or a merged pull request with the same head
+  commit), remove them with their branches, and keep a daily
+  `worktree-audit` batch job that writes a report of what could go.
+
 ## [1.7.0] - 2026-10-24
 
 ### Added

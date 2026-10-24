@@ -35,6 +35,7 @@ pub mod send;
 pub mod snapshot;
 pub mod status;
 pub mod statusline;
+pub mod worktree;
 
 pub fn dispatch(command: Command) -> Result<i32> {
     match command {
@@ -50,6 +51,7 @@ pub fn dispatch(command: Command) -> Result<i32> {
         Command::Monitor(args) => monitor::run(args),
         Command::Quota(args) => quota::run(args),
         Command::Scratch(args) => scratch::run(args),
+        Command::Worktree(args) => worktree::run(args),
         Command::Doctor(args) => doctor::run(args),
         Command::Session(c) => session(c.command),
         Command::Claude(c) => claude(c.command),

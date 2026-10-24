@@ -32,6 +32,9 @@ A bare `sinteractive` launches; everything else is a subcommand
 | `scratch new TOPIC [--keep-for AGE]` | Make (or find) `~/scratch/TOPIC/` with a manifest and print its path |
 | `scratch ls` | Scratch directories: size, age, branch (and whether it still exists) |
 | `scratch clean [--older-than AGE] [--yes]` | Remove old manifested scratch directories; lists them unless `--yes` |
+| `worktree ls [--repo PATH] [--no-pr]` | Worktrees: size, age, state (`merged-ancestor`, `merged-pr`, `fresh`, `open`, `local`, `detached`), and which are removable (landed, clean, unlocked, not the current directory). `--no-pr` skips the `gh` lookup that finds squash merges |
+| `worktree prune [--older-than AGE] [--yes]` | Remove the removable worktrees and their branches; lists them unless `--yes` |
+| `worktree audit [--resubmit] [--every AGE]` | Write `<scratch>/worktree-audit/latest.json` and never delete. `--resubmit` queues the next audit as a `worktree-audit` batch job, one chain at a time; start it once with `sinteractive worktree audit --resubmit` |
 | `doctor [--nodes]` | Check this install and, optionally, every compute node |
 
 ### Driving a session from outside
