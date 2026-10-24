@@ -112,6 +112,9 @@ _sinteractive() {
             sinteractive,statusline)
                 cmd="sinteractive__subcmd__statusline"
                 ;;
+            sinteractive,worktree)
+                cmd="sinteractive__subcmd__worktree"
+                ;;
             sinteractive__subcmd__claude,context)
                 cmd="sinteractive__subcmd__claude__subcmd__context"
                 ;;
@@ -328,6 +331,9 @@ _sinteractive() {
             sinteractive__subcmd__help,statusline)
                 cmd="sinteractive__subcmd__help__subcmd__statusline"
                 ;;
+            sinteractive__subcmd__help,worktree)
+                cmd="sinteractive__subcmd__help__subcmd__worktree"
+                ;;
             sinteractive__subcmd__help__subcmd__claude,context)
                 cmd="sinteractive__subcmd__help__subcmd__claude__subcmd__context"
                 ;;
@@ -414,6 +420,15 @@ _sinteractive() {
                 ;;
             sinteractive__subcmd__help__subcmd__session,send)
                 cmd="sinteractive__subcmd__help__subcmd__session__subcmd__send"
+                ;;
+            sinteractive__subcmd__help__subcmd__worktree,audit)
+                cmd="sinteractive__subcmd__help__subcmd__worktree__subcmd__audit"
+                ;;
+            sinteractive__subcmd__help__subcmd__worktree,ls)
+                cmd="sinteractive__subcmd__help__subcmd__worktree__subcmd__ls"
+                ;;
+            sinteractive__subcmd__help__subcmd__worktree,prune)
+                cmd="sinteractive__subcmd__help__subcmd__worktree__subcmd__prune"
                 ;;
             sinteractive__subcmd__hook,agent-guard)
                 cmd="sinteractive__subcmd__hook__subcmd__agent__subcmd__guard"
@@ -523,6 +538,30 @@ _sinteractive() {
             sinteractive__subcmd__session__subcmd__help,send)
                 cmd="sinteractive__subcmd__session__subcmd__help__subcmd__send"
                 ;;
+            sinteractive__subcmd__worktree,audit)
+                cmd="sinteractive__subcmd__worktree__subcmd__audit"
+                ;;
+            sinteractive__subcmd__worktree,help)
+                cmd="sinteractive__subcmd__worktree__subcmd__help"
+                ;;
+            sinteractive__subcmd__worktree,ls)
+                cmd="sinteractive__subcmd__worktree__subcmd__ls"
+                ;;
+            sinteractive__subcmd__worktree,prune)
+                cmd="sinteractive__subcmd__worktree__subcmd__prune"
+                ;;
+            sinteractive__subcmd__worktree__subcmd__help,audit)
+                cmd="sinteractive__subcmd__worktree__subcmd__help__subcmd__audit"
+                ;;
+            sinteractive__subcmd__worktree__subcmd__help,help)
+                cmd="sinteractive__subcmd__worktree__subcmd__help__subcmd__help"
+                ;;
+            sinteractive__subcmd__worktree__subcmd__help,ls)
+                cmd="sinteractive__subcmd__worktree__subcmd__help__subcmd__ls"
+                ;;
+            sinteractive__subcmd__worktree__subcmd__help,prune)
+                cmd="sinteractive__subcmd__worktree__subcmd__help__subcmd__prune"
+                ;;
             *)
                 ;;
         esac
@@ -530,7 +569,7 @@ _sinteractive() {
 
     case "${cmd}" in
         sinteractive)
-            opts="-p -t -j -m -n -l -a -h -V --node --partition --time --threads --mem --name --mouse --no-mouse --detach --json --status --refresh --list --ensure --attach --cancel --check-quota --agent-context --install-claude --help --version launch attach list status cancel queue monitor quota scratch doctor session claude gen ensure peek send events refresh snapshot agent-context hook statusline mcp install-claude completions man schema __job __attach __popup __pane-cwd help"
+            opts="-p -t -j -m -n -l -a -h -V --node --partition --time --threads --mem --name --mouse --no-mouse --detach --json --status --refresh --list --ensure --attach --cancel --check-quota --agent-context --install-claude --help --version launch attach list status cancel queue monitor quota scratch worktree doctor session claude gen ensure peek send events refresh snapshot agent-context hook statusline mcp install-claude completions man schema __job __attach __popup __pane-cwd help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1410,7 +1449,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__help)
-            opts="launch attach list status cancel queue monitor quota scratch doctor session claude gen ensure peek send events refresh snapshot agent-context hook statusline mcp install-claude completions man schema __job __attach __popup __pane-cwd help"
+            opts="launch attach list status cancel queue monitor quota scratch worktree doctor session claude gen ensure peek send events refresh snapshot agent-context hook statusline mcp install-claude completions man schema __job __attach __popup __pane-cwd help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2266,6 +2305,62 @@ _sinteractive() {
         sinteractive__subcmd__help__subcmd__statusline)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__worktree)
+            opts="ls prune audit"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__worktree__subcmd__audit)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__worktree__subcmd__ls)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__worktree__subcmd__prune)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -3178,6 +3273,152 @@ _sinteractive() {
                 return 0
             fi
             case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__worktree)
+            opts="-h --help ls prune audit help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__worktree__subcmd__audit)
+            opts="-h --repo --resubmit --every --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --repo)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --every)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__worktree__subcmd__help)
+            opts="ls prune audit help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__worktree__subcmd__help__subcmd__audit)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__worktree__subcmd__help__subcmd__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__worktree__subcmd__help__subcmd__ls)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__worktree__subcmd__help__subcmd__prune)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__worktree__subcmd__ls)
+            opts="-h --repo --no-pr --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --repo)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__worktree__subcmd__prune)
+            opts="-h --repo --older-than --no-pr --yes --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --repo)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --older-than)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;

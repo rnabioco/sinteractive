@@ -214,6 +214,85 @@ esac
     ;;
 esac
 ;;
+(worktree)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_sinteractive__subcmd__worktree_commands" \
+"*::: :->worktree" \
+&& ret=0
+
+    case $state in
+    (worktree)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sinteractive-worktree-command-$line[1]:"
+        case $line[1] in
+            (ls)
+_arguments "${_arguments_options[@]}" : \
+'--repo=[Only the linked worktrees of this repository]:PATH:_files' \
+'--no-pr[Do not ask \`gh\` whether a pull request merged (squash merges then go unseen)]' \
+'--json[Machine-readable JSON output]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(prune)
+_arguments "${_arguments_options[@]}" : \
+'--repo=[Only the linked worktrees of this repository]:PATH:_files' \
+'--older-than=[Only worktrees made more than this long ago (\`14d\`, \`36h\`, \`2w\`)]:AGE:_default' \
+'--no-pr[Do not ask \`gh\` whether a pull request merged]' \
+'--yes[Actually remove (the default only lists what would go)]' \
+'--json[Machine-readable JSON output]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(audit)
+_arguments "${_arguments_options[@]}" : \
+'--repo=[Only the linked worktrees of this repository]:PATH:_files' \
+'--every=[How long until the next audit (\`1d\`, \`12h\`, \`1w\`)]:AGE:_default' \
+'--resubmit[Submit the next audit as a Slurm job (one chain at a time)]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sinteractive__subcmd__worktree__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sinteractive-worktree-help-command-$line[1]:"
+        case $line[1] in
+            (ls)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(prune)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(audit)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (doctor)
 _arguments "${_arguments_options[@]}" : \
 '--nodes[Sweep every node from sinfo over ssh]' \
@@ -950,6 +1029,34 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(worktree)
+_arguments "${_arguments_options[@]}" : \
+":: :_sinteractive__subcmd__help__subcmd__worktree_commands" \
+"*::: :->worktree" \
+&& ret=0
+
+    case $state in
+    (worktree)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sinteractive-help-worktree-command-$line[1]:"
+        case $line[1] in
+            (ls)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(prune)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(audit)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (doctor)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1227,6 +1334,7 @@ _sinteractive_commands() {
 'monitor:Live CPU/GPU/process view of a session'\''s node, or any host' \
 'quota:Storage quota (Bodhi quota daemons; unavailable on other clusters)' \
 'scratch:Scratch directories you can list and clean by age\: new, ls, clean' \
+'worktree:Worktrees whose work has landed\: ls, prune, audit' \
 'doctor:Check this install and, optionally, every compute node' \
 'session:Drive a session from outside\: ensure, peek, send, events' \
 'claude:Claude Code integration\: install, context, hook, statusline, mcp' \
@@ -1577,6 +1685,7 @@ _sinteractive__subcmd__help_commands() {
 'monitor:Live CPU/GPU/process view of a session'\''s node, or any host' \
 'quota:Storage quota (Bodhi quota daemons; unavailable on other clusters)' \
 'scratch:Scratch directories you can list and clean by age\: new, ls, clean' \
+'worktree:Worktrees whose work has landed\: ls, prune, audit' \
 'doctor:Check this install and, optionally, every compute node' \
 'session:Drive a session from outside\: ensure, peek, send, events' \
 'claude:Claude Code integration\: install, context, hook, statusline, mcp' \
@@ -1943,6 +2052,30 @@ _sinteractive__subcmd__help__subcmd__statusline_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive help statusline commands' commands "$@"
 }
+(( $+functions[_sinteractive__subcmd__help__subcmd__worktree_commands] )) ||
+_sinteractive__subcmd__help__subcmd__worktree_commands() {
+    local commands; commands=(
+'ls:List worktrees\: size, age, state (merged, open, local, ...), and which are removable' \
+'prune:Remove worktrees whose work has landed; lists them unless --yes' \
+'audit:Write a report of removable worktrees to scratch; never deletes' \
+    )
+    _describe -t commands 'sinteractive help worktree commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__worktree__subcmd__audit_commands] )) ||
+_sinteractive__subcmd__help__subcmd__worktree__subcmd__audit_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help worktree audit commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__worktree__subcmd__ls_commands] )) ||
+_sinteractive__subcmd__help__subcmd__worktree__subcmd__ls_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help worktree ls commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__worktree__subcmd__prune_commands] )) ||
+_sinteractive__subcmd__help__subcmd__worktree__subcmd__prune_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help worktree prune commands' commands "$@"
+}
 (( $+functions[_sinteractive__subcmd__hook_commands] )) ||
 _sinteractive__subcmd__hook_commands() {
     local commands; commands=(
@@ -2254,6 +2387,61 @@ _sinteractive__subcmd__status_commands() {
 _sinteractive__subcmd__statusline_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive statusline commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__worktree_commands] )) ||
+_sinteractive__subcmd__worktree_commands() {
+    local commands; commands=(
+'ls:List worktrees\: size, age, state (merged, open, local, ...), and which are removable' \
+'prune:Remove worktrees whose work has landed; lists them unless --yes' \
+'audit:Write a report of removable worktrees to scratch; never deletes' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sinteractive worktree commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__worktree__subcmd__audit_commands] )) ||
+_sinteractive__subcmd__worktree__subcmd__audit_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive worktree audit commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__worktree__subcmd__help_commands] )) ||
+_sinteractive__subcmd__worktree__subcmd__help_commands() {
+    local commands; commands=(
+'ls:List worktrees\: size, age, state (merged, open, local, ...), and which are removable' \
+'prune:Remove worktrees whose work has landed; lists them unless --yes' \
+'audit:Write a report of removable worktrees to scratch; never deletes' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sinteractive worktree help commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__worktree__subcmd__help__subcmd__audit_commands] )) ||
+_sinteractive__subcmd__worktree__subcmd__help__subcmd__audit_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive worktree help audit commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__worktree__subcmd__help__subcmd__help_commands] )) ||
+_sinteractive__subcmd__worktree__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive worktree help help commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__worktree__subcmd__help__subcmd__ls_commands] )) ||
+_sinteractive__subcmd__worktree__subcmd__help__subcmd__ls_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive worktree help ls commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__worktree__subcmd__help__subcmd__prune_commands] )) ||
+_sinteractive__subcmd__worktree__subcmd__help__subcmd__prune_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive worktree help prune commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__worktree__subcmd__ls_commands] )) ||
+_sinteractive__subcmd__worktree__subcmd__ls_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive worktree ls commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__worktree__subcmd__prune_commands] )) ||
+_sinteractive__subcmd__worktree__subcmd__prune_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive worktree prune commands' commands "$@"
 }
 
 if [ "$funcstack[1]" = "_sinteractive" ]; then

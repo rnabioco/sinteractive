@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-24
+
 ### Added
 
 - `worktree ls|prune|audit`: find worktrees whose work has landed (an
@@ -1083,7 +1085,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/rnabioco/sinteractive/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/rnabioco/sinteractive/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/rnabioco/sinteractive/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/rnabioco/sinteractive/compare/v1.4.0...v1.5.0
