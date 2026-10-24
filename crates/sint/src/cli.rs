@@ -153,6 +153,8 @@ pub enum Command {
     Quota(QuotaArgs),
     /// Scratch directories you can list and clean by age: new, ls, clean
     Scratch(ScratchArgs),
+    /// Worktrees whose work has landed: ls, prune, audit
+    Worktree(WorktreeArgs),
     /// Check this install and, optionally, every compute node
     Doctor(DoctorArgs),
     /// Drive a session from outside: ensure, peek, send, events
@@ -521,6 +523,58 @@ pub enum ScratchCommand {
         /// Machine-readable JSON output
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct WorktreeArgs {
+    #[command(subcommand)]
+    pub command: WorktreeCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum WorktreeCommand {
+    /// List worktrees: size, age, state (merged, open, local, ...), and which are removable
+    Ls {
+        /// Only the linked worktrees of this repository
+        #[arg(long, value_name = "PATH")]
+        repo: Option<std::path::PathBuf>,
+        /// Do not ask `gh` whether a pull request merged (squash merges then go unseen)
+        #[arg(long)]
+        no_pr: bool,
+        /// Machine-readable JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove worktrees whose work has landed; lists them unless --yes
+    Prune {
+        /// Only the linked worktrees of this repository
+        #[arg(long, value_name = "PATH")]
+        repo: Option<std::path::PathBuf>,
+        /// Only worktrees made more than this long ago (`14d`, `36h`, `2w`)
+        #[arg(long, value_name = "AGE", default_value = "0h")]
+        older_than: String,
+        /// Do not ask `gh` whether a pull request merged
+        #[arg(long)]
+        no_pr: bool,
+        /// Actually remove (the default only lists what would go)
+        #[arg(long)]
+        yes: bool,
+        /// Machine-readable JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Write a report of removable worktrees to scratch; never deletes
+    Audit {
+        /// Only the linked worktrees of this repository
+        #[arg(long, value_name = "PATH")]
+        repo: Option<std::path::PathBuf>,
+        /// Submit the next audit as a Slurm job (one chain at a time)
+        #[arg(long)]
+        resubmit: bool,
+        /// How long until the next audit (`1d`, `12h`, `1w`)
+        #[arg(long, value_name = "AGE", default_value = "1d")]
+        every: String,
     },
 }
 

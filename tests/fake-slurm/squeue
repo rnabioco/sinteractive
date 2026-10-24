@@ -73,7 +73,7 @@ function fld(c,   v) {
   if (c == "r" || c == "R") return $12
   if (c == "S") return $13
   if (c == "D") return 1
-  if (c == "j") return ($2 ~ /^sinteractive:/) ? "sint-" substr($2, 14) : "sinteractive"
+  if (c == "j") return ($2 ~ /^sinteractive:/) ? "sint-" substr($2, 14) : ($2 == "worktree-audit") ? $2 : "sinteractive"
   if (c == "u") return user
   # Where a job was submitted from. Real squeue has no % code for these, so
   # they are reachable through --Format only (see render()).

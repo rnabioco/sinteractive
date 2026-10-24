@@ -14,6 +14,7 @@
 //! - [`quota`]    — Bodhi quota daemons and `quota.json`
 //! - [`usage`]    — the cached index of what is using the quota
 //! - [`scratch`]  — manifested scratch directories, listed and cleaned by age
+//! - [`worktree`] — linked worktrees whose work has landed: listed, pruned, audited
 //! - [`maint`]    — maintenance reservations and fitting a request before one
 //! - [`metrics`]  — host snapshots: CPU, memory, GPUs, processes, cgroup-scoped
 //! - [`joblimit`] — per-QOS concurrent job cap check
@@ -39,6 +40,7 @@ pub mod state;
 pub mod theme;
 pub mod time;
 pub mod usage;
+pub mod worktree;
 
 /// Current Unix time in seconds.
 pub fn now_epoch() -> i64 {
