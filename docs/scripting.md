@@ -348,6 +348,3 @@ yields a synthetic `walltime_warn` / `walltime_red` event, and the state file
 disappearing yields `ended`; those carry `"synthetic": true`. `session_ended` is accepted in `kinds` as an alias of `ended`. Use it
 in place of polling `session_status`.
 
-The server also exposes read-only resources: `sinteractive://sessions` (the
-list) and, per session, `sinteractive://sessions/JOBID/status`, `.../notices`
-and `.../metrics`, each `application/json`.

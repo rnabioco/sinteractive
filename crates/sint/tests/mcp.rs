@@ -153,7 +153,7 @@ fn handshake_tools_and_the_documented_contracts() {
     assert_eq!(init["serverInfo"]["name"], "sinteractive");
     assert_eq!(init["serverInfo"]["version"], env!("CARGO_PKG_VERSION"));
     assert!(init["capabilities"]["tools"].is_object());
-    assert!(init["capabilities"]["resources"].is_object());
+    assert!(init["capabilities"]["resources"].is_null());
     let instructions = init["instructions"].as_str().unwrap();
     assert!(
         instructions.contains("not a compute target"),
@@ -334,6 +334,7 @@ fn handshake_tools_and_the_documented_contracts() {
     assert_eq!(info["name"], "web");
     assert_eq!(info["state"], "RUNNING");
     assert!(info.get("cwd").is_none(), "status carries no cwd: {info}");
+    assert_eq!(info["notices"], json!([]), "no notices seeded: {info}");
     // The text block carries the same JSON for clients without structured
     // content support.
     let text: Value = serde_json::from_str(r["content"][0]["text"].as_str().unwrap()).unwrap();
@@ -509,47 +510,6 @@ fn queue_quota_context_and_snapshot() {
     );
     let r = mcp.call("wait_for_event", json!({"timeout_secs": 0}));
     assert_eq!(payload(&r), json!({"timed_out": true}));
-
-    // Resources: the list and the per-session trio.
-    let r = mcp.request("resources/list", json!({}));
-    let uris: Vec<&str> = r["resources"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|x| x["uri"].as_str().unwrap())
-        .collect();
-    assert!(uris.contains(&"sinteractive://sessions"), "{uris:?}");
-    assert!(
-        uris.contains(&"sinteractive://sessions/147845/status"),
-        "{uris:?}"
-    );
-    assert!(
-        uris.contains(&"sinteractive://sessions/147845/notices"),
-        "{uris:?}"
-    );
-    assert!(
-        uris.contains(&"sinteractive://sessions/147845/metrics"),
-        "{uris:?}"
-    );
-    let r = mcp.request("resources/templates/list", json!({}));
-    assert_eq!(r["resourceTemplates"].as_array().unwrap().len(), 3);
-    let r = mcp.request(
-        "resources/read",
-        json!({"uri": "sinteractive://sessions/147845/status"}),
-    );
-    let text: Value = serde_json::from_str(r["contents"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(text["job_id"], 147845);
-    assert_eq!(r["contents"][0]["mimeType"], "application/json");
-    let r = mcp.request("resources/read", json!({"uri": "sinteractive://sessions"}));
-    let text: Value = serde_json::from_str(r["contents"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(text.as_array().unwrap().len(), 1);
-    let r = mcp.request(
-        "resources/read",
-        json!({"uri": "sinteractive://sessions/147845/metrics"}),
-    );
-    let text: Value = serde_json::from_str(r["contents"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(text["cpu"]["pct"], 12.5);
-    assert_eq!(text["stale"], false);
 
     mcp.finish();
 }
