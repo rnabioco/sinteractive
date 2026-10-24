@@ -3773,6 +3773,7 @@ name = "sint-core"
 version = "1.6.0"
 dependencies = [
  "anyhow",
+ "flate2",
  "libc",
  "nvml-wrapper",
  "procfs",

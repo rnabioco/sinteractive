@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `quota --top [N]` and the MCP `quota_top` tool say what is using the quota:
+  the largest directories, each marked `worktree`, `cargo-target`, `cache` or
+  `other`, and files over 1 GiB that share size and head/tail checksum. They
+  read a cached index (`usage.json.gz`, stale after 24 h) and never scan.
+  `quota --reindex` builds it, as a `quota-index` batch job.
+
 ### Changed
 
 - The MCP `session_status` tool also returns the session's active `notices`,

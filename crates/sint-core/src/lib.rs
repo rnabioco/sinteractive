@@ -12,6 +12,7 @@
 //! - [`notices`]  — `<jobid>.notices` (TSV `kind\ttext`) and its producers
 //! - [`events`]   — `<jobid>.events.ndjson`, the per-session event log
 //! - [`quota`]    — Bodhi quota daemons and `quota.json`
+//! - [`usage`]    — the cached index of what is using the quota
 //! - [`maint`]    — maintenance reservations and fitting a request before one
 //! - [`metrics`]  — host snapshots: CPU, memory, GPUs, processes, cgroup-scoped
 //! - [`joblimit`] — per-QOS concurrent job cap check
@@ -35,6 +36,7 @@ pub mod slurm;
 pub mod state;
 pub mod theme;
 pub mod time;
+pub mod usage;
 
 /// Current Unix time in seconds.
 pub fn now_epoch() -> i64 {

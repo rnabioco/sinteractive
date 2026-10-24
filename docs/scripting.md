@@ -331,6 +331,7 @@ but JSON-RPC ever goes to stdout.
 | `send` | `target`, `command` | `{"job_id", "sent": true}` — the user's live shell, so only when asked |
 | `agent_context` | — | `{"text": ...}`, the `claude context` briefing |
 | `quota` | `check?` | the `quota --json` object; `{"error": "quota unavailable"}` as an error |
+| `quota_top` | `n?` | the `quota --top --json` report: `top` directories (`path`, `bytes`, `files`, `newest_epoch`, `kind`), `duplicates`, `age_secs`, `stale`; an error naming `quota --reindex` when there is no index |
 | `wait_for_event` | `target?`, `kinds?`, `timeout_secs?` | the next matching event, or `{"timed_out": true}` |
 
 `target` is a JOBID or session NAME; omitted, it is the session the server

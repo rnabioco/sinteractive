@@ -470,6 +470,17 @@ pub struct QuotaArgs {
     /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
+    /// What is using the quota: the N largest directories (default 15) and
+    /// probable duplicate files, from the usage index
+    #[arg(long, value_name = "N", num_args = 0..=1, default_missing_value = "15",
+          conflicts_with_all = ["check", "reindex"])]
+    pub top: Option<usize>,
+    /// Rebuild the usage index, as a batch job (a walk of home takes a while)
+    #[arg(long, conflicts_with = "check")]
+    pub reindex: bool,
+    /// Walk home and write the usage index here and now (run by --reindex)
+    #[arg(long, hide = true, conflicts_with_all = ["check", "top", "reindex"])]
+    pub reindex_run: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -564,7 +575,11 @@ impl Cli {
                 json,
             })
         } else if c.compat_check_quota {
-            Command::Quota(QuotaArgs { check: true, json })
+            Command::Quota(QuotaArgs {
+                check: true,
+                json,
+                ..QuotaArgs::default()
+            })
         } else if c.compat_agent_context {
             Command::AgentContext
         } else if c.compat_install_claude {

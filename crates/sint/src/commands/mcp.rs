@@ -38,6 +38,7 @@ use sint_core::now_epoch;
 use sint_core::quota::QuotaSnapshot;
 use sint_core::session::SessionInfo;
 use sint_core::state::StateDir;
+use sint_core::usage::UsageReport;
 
 use super::agent_context::{context, AgentContext};
 use super::cancel::{cancel_job, CancelResult};
@@ -49,7 +50,7 @@ use super::list::{list_data, ListRow};
 use super::pane::{list_panes, PaneInfo};
 use super::peek::{dump_screen, tail_lines};
 use super::queue::{queue_data, QueueReport};
-use super::quota::quota_data;
+use super::quota::{quota_data, top_data};
 use super::send::send_command;
 use crate::cli::LaunchArgs;
 
@@ -222,6 +223,12 @@ pub struct JobLogParams {
 pub struct QuotaParams {
     /// Probe the quota daemons now instead of reading the cache.
     pub check: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct QuotaTopParams {
+    /// How many directories to list (default 15).
+    pub n: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -670,6 +677,20 @@ impl SintServer {
             })
             .await?;
         Ok(Json(snap))
+    }
+
+    #[tool(
+        name = "quota_top",
+        annotations(read_only_hint = true),
+        description = "What is using the storage quota (`sinteractive quota --top --json`): the largest directories with size, file count, newest file and kind (worktree, cargo-target, cache, other), and files over 1 GiB that are probable copies of each other. Reads a cached index (`age_secs`, `stale` after 24 h); errors, without scanning, when there is none. Build it with `sinteractive quota --reindex`, which submits a batch job."
+    )]
+    async fn quota_top(
+        &self,
+        Parameters(p): Parameters<QuotaTopParams>,
+    ) -> Result<Json<UsageReport>, ToolError> {
+        let n = p.n.unwrap_or(15);
+        let report = self.blocking(move |ctx| Ok(top_data(ctx, n)?)).await?;
+        Ok(Json(report))
     }
 
     #[tool(
@@ -1316,6 +1337,7 @@ mod tests {
             "session_status",
             "queue",
             "quota",
+            "quota_top",
             "monitor_snapshot",
             "peek",
             "wait_for_event",
