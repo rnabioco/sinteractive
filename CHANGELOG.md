@@ -8,6 +8,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The MCP `session_status` tool also returns the session's active `notices`,
+  which were only readable through the `.../notices` resource.
+
+### Removed
+
+- The MCP server no longer exposes resources (`sinteractive://sessions…`).
+  Every one of them duplicated a tool: `list_sessions`, `session_status`
+  (now with notices) and `monitor_snapshot`.
+
 ## [1.6.0] - 2026-10-23
 
 ### Added

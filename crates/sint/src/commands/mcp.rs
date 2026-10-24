@@ -26,16 +26,14 @@ use anyhow::{anyhow, Result};
 use rmcp::handler::server::tool::{IntoCallToolResult, ToolRouter};
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::{
-    CallToolResponse, CallToolResult, ContentBlock, ErrorData, Implementation,
-    ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams,
-    ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
-    ResourceContents, ResourceTemplate, ServerCapabilities, ServerConfig,
+    CallToolResponse, CallToolResult, ContentBlock, ErrorData, Implementation, ServerCapabilities,
+    ServerConfig,
 };
-use rmcp::service::RequestContext;
-use rmcp::{tool, tool_handler, tool_router, RoleServer, ServerHandler, ServiceExt};
+use rmcp::{tool, tool_handler, tool_router, ServerHandler, ServiceExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sint_core::metrics::Snapshot;
+use sint_core::notices::Notice;
 use sint_core::now_epoch;
 use sint_core::quota::QuotaSnapshot;
 use sint_core::session::SessionInfo;
@@ -75,9 +73,6 @@ const WAIT_DEFAULT_SECS: u64 = 300;
 const WAIT_MAX_SECS: u64 = 3600;
 /// How often the event tail looks again.
 const WAIT_POLL: Duration = Duration::from_secs(1);
-
-/// The URI scheme the resources live under.
-const URI_SESSIONS: &str = "sinteractive://sessions";
 
 pub fn run() -> Result<i32> {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -269,6 +264,15 @@ pub struct SendResult {
     pub sent: bool,
 }
 
+/// `session_status`: the `status --json` object, plus the session's active
+/// notices (what the status line's "N notices" counter stands for).
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct StatusReport {
+    #[serde(flatten)]
+    pub info: SessionInfo,
+    pub notices: Vec<Notice>,
+}
+
 /// `monitor_snapshot`: the sampler's snapshot, plus how old it is.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct SnapshotReport {
@@ -372,19 +376,21 @@ impl SintServer {
     #[tool(
         name = "session_status",
         annotations(read_only_hint = true),
-        description = "One session's status, including remaining walltime (`sinteractive status --json`). Errors with {\"job_id\",\"state\":\"NOT_FOUND\"} when Slurm no longer knows the job."
+        description = "One session's status, including remaining walltime, and its active notices (`sinteractive status --json`). Errors with {\"job_id\",\"state\":\"NOT_FOUND\"} when Slurm no longer knows the job."
     )]
     async fn session_status(
         &self,
         Parameters(p): Parameters<TargetParams>,
-    ) -> Result<Json<SessionInfo>, ToolError> {
-        let info = self
+    ) -> Result<Json<StatusReport>, ToolError> {
+        let report = self
             .blocking(move |ctx| {
                 let job_id = resolve(ctx, p.target.as_deref())?;
-                session_or_not_found(ctx, job_id)
+                let info = session_or_not_found(ctx, job_id)?;
+                let notices = sint_core::notices::read(&ctx.state, job_id);
+                Ok(StatusReport { info, notices })
             })
             .await?;
-        Ok(Json(info))
+        Ok(Json(report))
     }
 
     #[tool(
@@ -700,172 +706,13 @@ impl SintServer {
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for SintServer {
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(
-            ServerCapabilities::builder()
-                .enable_tools()
-                .enable_resources()
-                .build(),
-        )
-        .with_server_info(Implementation::new(
-            "sinteractive",
-            env!("CARGO_PKG_VERSION"),
-        ))
-        .with_instructions(INSTRUCTIONS)
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new(
+                "sinteractive",
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .with_instructions(INSTRUCTIONS)
     }
-
-    async fn list_resources(
-        &self,
-        _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
-    ) -> Result<ListResourcesResult, ErrorData> {
-        // squeue rows only: the cwd `list` shows costs an ssh per node.
-        let rows = self
-            .blocking(|ctx| {
-                let now = now_epoch();
-                Ok(ctx
-                    .running_sessions()?
-                    .iter()
-                    .map(|row| SessionInfo::from_row(row, now))
-                    .collect::<Vec<_>>())
-            })
-            .await
-            .map_err(internal)?;
-        let mut resources = vec![Resource::new(URI_SESSIONS, "sessions")
-            .with_description("The user's running sessions (`sinteractive list --json`)")
-            .with_mime_type("application/json")];
-        for row in &rows {
-            let id = row.job_id;
-            let label = match &row.name {
-                Some(name) => format!("{id} ({name})"),
-                None => id.to_string(),
-            };
-            for (kind, what) in [
-                ("status", "status and remaining walltime"),
-                ("notices", "active notices"),
-                ("metrics", "latest resource snapshot"),
-            ] {
-                resources.push(
-                    Resource::new(
-                        format!("{URI_SESSIONS}/{id}/{kind}"),
-                        format!("{label} {kind}"),
-                    )
-                    .with_description(format!("Session {label}: {what}"))
-                    .with_mime_type("application/json"),
-                );
-            }
-        }
-        Ok(ListResourcesResult::with_all_items(resources))
-    }
-
-    async fn list_resource_templates(
-        &self,
-        _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
-    ) -> Result<ListResourceTemplatesResult, ErrorData> {
-        let templates = [
-            ("status", "One session's status object"),
-            ("notices", "One session's active notices"),
-            ("metrics", "One session's latest resource snapshot"),
-        ]
-        .into_iter()
-        .map(|(kind, what)| {
-            ResourceTemplate::new(
-                format!("{URI_SESSIONS}/{{job_id}}/{kind}"),
-                format!("session {kind}"),
-            )
-            .with_description(what)
-            .with_mime_type("application/json")
-        })
-        .collect();
-        Ok(ListResourceTemplatesResult::with_all_items(templates))
-    }
-
-    async fn read_resource(
-        &self,
-        request: ReadResourceRequestParams,
-        _context: RequestContext<RoleServer>,
-    ) -> Result<ReadResourceResponse, ErrorData> {
-        let uri = request.uri.clone();
-        let Some(target) = parse_resource_uri(&uri) else {
-            return Err(ErrorData::resource_not_found(
-                format!("no such resource: {uri}"),
-                None,
-            ));
-        };
-        let text = self
-            .blocking(move |ctx| read_resource_text(ctx, target))
-            .await
-            .map_err(internal)?;
-        Ok(ReadResourceResult::new(vec![
-            ResourceContents::text(text, uri).with_mime_type("application/json")
-        ])
-        .into())
-    }
-}
-
-/// A tool-shaped failure as a protocol error, for the resource methods.
-fn internal(e: ToolError) -> ErrorData {
-    let msg =
-        e.0.content
-            .iter()
-            .filter_map(|c| c.as_text().map(|t| t.text.clone()))
-            .collect::<Vec<_>>()
-            .join("\n");
-    ErrorData::internal_error(msg, None)
-}
-
-/// What a `sinteractive://` URI names.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ResourceTarget {
-    Sessions,
-    Session(u64, SessionResource),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SessionResource {
-    Status,
-    Notices,
-    Metrics,
-}
-
-fn parse_resource_uri(uri: &str) -> Option<ResourceTarget> {
-    let rest = uri.strip_prefix(URI_SESSIONS)?;
-    if rest.is_empty() || rest == "/" {
-        return Some(ResourceTarget::Sessions);
-    }
-    let mut parts = rest.strip_prefix('/')?.split('/');
-    let job_id: u64 = parts.next()?.parse().ok()?;
-    let kind = match parts.next()? {
-        "status" => SessionResource::Status,
-        "notices" => SessionResource::Notices,
-        "metrics" => SessionResource::Metrics,
-        _ => return None,
-    };
-    if parts.next().is_some() {
-        return None;
-    }
-    Some(ResourceTarget::Session(job_id, kind))
-}
-
-fn read_resource_text(ctx: &Ctx, target: ResourceTarget) -> ToolResult<String> {
-    let value = match target {
-        ResourceTarget::Sessions => serde_json::to_value(list_data(ctx)?),
-        ResourceTarget::Session(job_id, SessionResource::Status) => {
-            match ctx.session_info(job_id)? {
-                Some(info) => serde_json::to_value(info),
-                None => Ok(SessionInfo::not_found(job_id)),
-            }
-        }
-        ResourceTarget::Session(job_id, SessionResource::Notices) => {
-            serde_json::to_value(sint_core::notices::read(&ctx.state, job_id))
-        }
-        ResourceTarget::Session(job_id, SessionResource::Metrics) => {
-            serde_json::to_value(snapshot_report(&ctx.state, job_id, now_epoch())?)
-        }
-    };
-    value
-        .map(|v| v.to_string())
-        .map_err(|e| ToolError::msg(format!("could not serialise the resource: {e}")))
 }
 
 /// `<jobid>.metrics.json` from the cache, parsed. The sampler that writes
@@ -1418,41 +1265,6 @@ mod tests {
         write_state(&state, 7, Some(10));
         let got = wait_for_event(&state, 7, &[], T, Duration::from_millis(40), FAST);
         assert_eq!(got, json!({"timed_out": true}));
-    }
-
-    #[test]
-    fn resource_uris() {
-        assert_eq!(
-            parse_resource_uri("sinteractive://sessions"),
-            Some(ResourceTarget::Sessions)
-        );
-        assert_eq!(
-            parse_resource_uri("sinteractive://sessions/"),
-            Some(ResourceTarget::Sessions)
-        );
-        assert_eq!(
-            parse_resource_uri("sinteractive://sessions/42/status"),
-            Some(ResourceTarget::Session(42, SessionResource::Status))
-        );
-        assert_eq!(
-            parse_resource_uri("sinteractive://sessions/42/notices"),
-            Some(ResourceTarget::Session(42, SessionResource::Notices))
-        );
-        assert_eq!(
-            parse_resource_uri("sinteractive://sessions/42/metrics"),
-            Some(ResourceTarget::Session(42, SessionResource::Metrics))
-        );
-        assert_eq!(
-            parse_resource_uri("sinteractive://sessions/web/status"),
-            None
-        );
-        assert_eq!(parse_resource_uri("sinteractive://sessions/42/nope"), None);
-        assert_eq!(
-            parse_resource_uri("sinteractive://sessions/42/status/x"),
-            None
-        );
-        assert_eq!(parse_resource_uri("sinteractive://sessions/42"), None);
-        assert_eq!(parse_resource_uri("file:///etc/passwd"), None);
     }
 
     #[test]
