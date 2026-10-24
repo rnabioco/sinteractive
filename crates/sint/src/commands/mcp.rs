@@ -18,7 +18,7 @@
 
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -284,6 +284,7 @@ pub struct SnapshotReport {
 
 pub struct SintServer {
     ctx: Arc<Ctx>,
+    launch: Option<Launch>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -291,6 +292,7 @@ impl SintServer {
     pub fn new() -> Self {
         SintServer {
             ctx: Arc::new(Ctx::new()),
+            launch: Launch::capture(),
             tool_router: Self::tool_router(),
         }
     }
@@ -307,6 +309,36 @@ impl SintServer {
             .map_err(|e| ToolError::msg(format!("tool task failed: {e}")))?
     }
 }
+
+/// The binary this server started from: the path it was launched by and
+/// what that path resolved to then. `sinteractive` upgrades replace the
+/// file behind the path, but a running server keeps the old image and its
+/// old tool list.
+#[derive(Debug, Clone)]
+struct Launch {
+    path: PathBuf,
+    resolved: PathBuf,
+}
+
+impl Launch {
+    fn capture() -> Option<Self> {
+        let path = PathBuf::from(std::env::args_os().next()?);
+        if !path.is_absolute() {
+            return None;
+        }
+        let resolved = fs::canonicalize(&path).ok()?;
+        Some(Launch { path, resolved })
+    }
+
+    /// The path now resolves elsewhere, or nowhere.
+    fn is_stale(&self) -> bool {
+        fs::canonicalize(&self.path).map_or(true, |now| now != self.resolved)
+    }
+}
+
+const STALE_NOTE: &str = "NOTE: sinteractive was upgraded after this MCP server started, so its \
+tool list may lack tools named below (run_in_session, list_panes, wait_for_jobs, job_log). Use the \
+CLI equivalents, or restart Claude Code to pick up the new server.\n\n";
 
 impl Default for SintServer {
     fn default() -> Self {
@@ -607,7 +639,11 @@ impl SintServer {
         description = "The briefing for an agent running inside a session: job, node, allocation, remaining walltime and the rules of the road (`sinteractive claude context`). Errors outside a session."
     )]
     async fn agent_context(&self) -> Result<Json<AgentContext>, ToolError> {
-        let context = self.blocking(|ctx| Ok(context(ctx)?)).await?;
+        let mut context = self.blocking(|ctx| Ok(context(ctx)?)).await?;
+        if self.launch.as_ref().is_some_and(Launch::is_stale) {
+            context.stale_server = true;
+            context.text.insert_str(0, STALE_NOTE);
+        }
         Ok(Json(context))
     }
 
@@ -1479,6 +1515,29 @@ mod tests {
             assert_eq!(hints(d).destructive_hint, Some(true), "{d}");
         }
         assert_eq!(hints("ensure_session").idempotent_hint, Some(true));
+    }
+
+    #[test]
+    fn a_launch_goes_stale_when_its_path_is_repointed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (old, new, link) = (
+            tmp.path().join("old"),
+            tmp.path().join("new"),
+            tmp.path().join("sinteractive"),
+        );
+        fs::write(&old, "1").unwrap();
+        fs::write(&new, "2").unwrap();
+        std::os::unix::fs::symlink(&old, &link).unwrap();
+        let launch = Launch {
+            resolved: fs::canonicalize(&link).unwrap(),
+            path: link.clone(),
+        };
+        assert!(!launch.is_stale());
+        fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(&new, &link).unwrap();
+        assert!(launch.is_stale());
+        fs::remove_file(&link).unwrap();
+        assert!(launch.is_stale(), "a path that no longer resolves");
     }
 
     #[test]
