@@ -539,7 +539,7 @@ fn hook_scripts(v: &Value, out: &mut BTreeSet<String>) {
 /// Which sinteractive hook a `command` string is, if any: the current form
 /// (`sinteractive claude hook session-start` / `… hook prompt` /
 /// `… hook worktree-create` / `… hook worktree-remove` / `… hook
-/// agent-guard`), the ungrouped spelling an earlier install wrote
+/// agent-guard` / `… hook scratch-guard`), the ungrouped spelling an earlier install wrote
 /// (`sinteractive hook …`) and the 0.x scripts
 /// (`…/sinteractive-session-context.sh`, `…/sinteractive-walltime-guard.sh`)
 /// all map to the same identity, so an upgrade replaces the old entry
@@ -550,7 +550,7 @@ fn hook_identity(command: &str) -> Option<&'static str> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| {
         regex::Regex::new(
-            r"sinteractive(?:-[0-9a-f]{6,})?(?:-session-context\.sh|-walltime-guard\.sh|\s+(?:claude\s+)?hook\s+(session-start|prompt|worktree-create|worktree-remove|agent-guard))\b",
+            r"sinteractive(?:-[0-9a-f]{6,})?(?:-session-context\.sh|-walltime-guard\.sh|\s+(?:claude\s+)?hook\s+(session-start|prompt|worktree-create|worktree-remove|agent-guard|scratch-guard))\b",
         )
         .unwrap()
     });
@@ -561,6 +561,7 @@ fn hook_identity(command: &str) -> Option<&'static str> {
         Some("worktree-create") => "worktree-create",
         Some("worktree-remove") => "worktree-remove",
         Some("agent-guard") => "agent-guard",
+        Some("scratch-guard") => "scratch-guard",
         Some(_) => return None,
         None if m.get(0).unwrap().as_str().contains("session-context") => "session-start",
         None => "prompt",
@@ -578,7 +579,7 @@ fn renamed_command(command: &str, exe: &str) -> Option<String> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| {
         regex::Regex::new(
-            r"^\s*(?:\S*/)?\.?sinteractive(?:-[0-9a-f]{6,})?\s+(?:claude\s+)?(?<verb>hook\s+(?:session-start|prompt|worktree-create|worktree-remove|agent-guard)|statusline)\s*$",
+            r"^\s*(?:\S*/)?\.?sinteractive(?:-[0-9a-f]{6,})?\s+(?:claude\s+)?(?<verb>hook\s+(?:session-start|prompt|worktree-create|worktree-remove|agent-guard|scratch-guard)|statusline)\s*$",
         )
         .unwrap()
     });
@@ -1004,7 +1005,8 @@ mod tests {
             "UserPromptSubmit":[{"hooks":[{"type":"command","command":"sinteractive claude hook prompt","timeout":10}]}],
             "WorktreeCreate":[{"hooks":[{"type":"command","command":"sinteractive claude hook worktree-create","timeout":30}]}],
             "WorktreeRemove":[{"hooks":[{"type":"command","command":"sinteractive claude hook worktree-remove","timeout":30}]}],
-            "PreToolUse":[{"matcher":"Agent","hooks":[{"type":"command","command":"sinteractive claude hook agent-guard","timeout":5}]}]
+            "PreToolUse":[{"matcher":"Agent","hooks":[{"type":"command","command":"sinteractive claude hook agent-guard","timeout":5}]},
+                          {"matcher":"Bash|Write|Edit","hooks":[{"type":"command","command":"sinteractive claude hook scratch-guard","timeout":5}]}]
         }}"#)
     }
 
@@ -1034,6 +1036,10 @@ mod tests {
         assert_eq!(
             hook_identity("sinteractive claude hook agent-guard"),
             Some("agent-guard")
+        );
+        assert_eq!(
+            hook_identity("sinteractive claude hook scratch-guard"),
+            Some("scratch-guard")
         );
         // A build's own name, which an install between 1.0.0 and 1.1.0 wrote.
         assert_eq!(

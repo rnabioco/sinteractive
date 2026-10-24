@@ -10,6 +10,30 @@ and this project adheres to
 
 ### Added
 
+- `quota --top [N]` and the MCP `quota_top` tool say what is using the quota:
+  the largest directories, each marked `worktree`, `cargo-target`, `cache` or
+  `other`, and files over 1 GiB that share size and head/tail checksum. They
+  read a cached index (`usage.json.gz`, stale after 24 h) and never scan.
+  `quota --reindex` builds it, as a `quota-index` batch job.
+- `scratch new|ls|clean` and the MCP `scratch_new` tool: scratch directories
+  (`~/scratch/TOPIC/`, or `/scratch/alpine/$USER/TOPIC/` on Alpine) with a
+  `.sint-scratch.json` manifest recording owner, git branch, session and
+  creation time. `ls` shows size, age and whether the branch still exists;
+  `clean --older-than 14d` lists what it would remove and deletes only with
+  `--yes`, and only directories that carry a manifest. On Bodhi the scratch
+  shares the home quota, so this makes cleanup easy; it does not add space.
+  The session briefing names it and says not to copy bulk data into a worktree.
+- `claude hook scratch-guard`, registered by `claude install` as a
+  `PreToolUse` hook on `Bash`, `Write` and `Edit`. It denies bulk data
+  (`.pod5 .bam .npy .parquet` …) copied into a worktree, a new directory
+  under `~/.cache`, a 1 GiB write into a worktree and a 100 MiB `.csv`, with
+  a reason that points at the canonical path or `scratch new`. Symlinks are
+  allowed. The `worktree-remove` hook reports how much the worktree held.
+- The MCP server warns, in the `agent_context` briefing, when sinteractive was
+  upgraded after the server started and its tool list may be out of date.
+- The `/session-limit` skill raises or lowers a session's time limit with
+  `scontrol`, after checking the partition's `MaxTime`.
+
 ### Changed
 
 - The MCP `session_status` tool also returns the session's active `notices`,

@@ -30,6 +30,7 @@ pub mod popup;
 pub mod queue;
 pub mod quota;
 pub mod scratch;
+pub mod scratch_guard;
 pub mod send;
 pub mod snapshot;
 pub mod status;
