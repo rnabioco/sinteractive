@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-24
+
 ### Added
 
 - `quota --top [N]` and the MCP `quota_top` tool say what is using the quota:
@@ -1074,7 +1076,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/rnabioco/sinteractive/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/rnabioco/sinteractive/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/rnabioco/sinteractive/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/rnabioco/sinteractive/compare/v1.3.0...v1.4.0
