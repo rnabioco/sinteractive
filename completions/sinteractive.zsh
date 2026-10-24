@@ -130,11 +130,89 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (quota)
 _arguments "${_arguments_options[@]}" : \
+'(--check --reindex)--top=[What is using the quota\: the N largest directories (default 15) and probable duplicate files, from the usage index]::N:_default' \
 '--check[Probe now instead of reading the cache, and poke every running session]' \
+'--json[Machine-readable JSON output]' \
+'(--check)--reindex[Rebuild the usage index, as a batch job (a walk of home takes a while)]' \
+'(--check --top --reindex)--reindex-run[Walk home and write the usage index here and now (run by --reindex)]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(scratch)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_sinteractive__subcmd__scratch_commands" \
+"*::: :->scratch" \
+&& ret=0
+
+    case $state in
+    (scratch)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sinteractive-scratch-command-$line[1]:"
+        case $line[1] in
+            (new)
+_arguments "${_arguments_options[@]}" : \
+'--keep-for=[Hold it against \`clean\` for this long (\`30d\`, \`36h\`, \`2w\`)]:AGE:_default' \
+'--json[Machine-readable JSON output]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':topic -- Letters, digits, '\''.'\'', '\''_'\'' and '\''-'\'':_default' \
+&& ret=0
+;;
+(ls)
+_arguments "${_arguments_options[@]}" : \
 '--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
+;;
+(clean)
+_arguments "${_arguments_options[@]}" : \
+'--older-than=[Only directories created more than this long ago]:AGE:_default' \
+'--yes[Actually delete (the default only lists what would go)]' \
+'--json[Machine-readable JSON output]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sinteractive__subcmd__scratch__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sinteractive-scratch-help-command-$line[1]:"
+        case $line[1] in
+            (new)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(ls)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(clean)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
 ;;
 (doctor)
 _arguments "${_arguments_options[@]}" : \
@@ -346,6 +424,12 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(scratch-guard)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sinteractive__subcmd__claude__subcmd__hook__subcmd__help_commands" \
@@ -375,6 +459,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (agent-guard)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(scratch-guard)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -451,6 +539,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (agent-guard)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(scratch-guard)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -664,6 +756,12 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(scratch-guard)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sinteractive__subcmd__hook__subcmd__help_commands" \
@@ -693,6 +791,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (agent-guard)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(scratch-guard)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -820,6 +922,34 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(scratch)
+_arguments "${_arguments_options[@]}" : \
+":: :_sinteractive__subcmd__help__subcmd__scratch_commands" \
+"*::: :->scratch" \
+&& ret=0
+
+    case $state in
+    (scratch)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sinteractive-help-scratch-command-$line[1]:"
+        case $line[1] in
+            (new)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(ls)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(clean)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (doctor)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -913,6 +1043,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (agent-guard)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(scratch-guard)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1020,6 +1154,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(scratch-guard)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -1088,6 +1226,7 @@ _sinteractive_commands() {
 'queue:Your job queue\: running, pending (with reasons), and recent history' \
 'monitor:Live CPU/GPU/process view of a session'\''s node, or any host' \
 'quota:Storage quota (Bodhi quota daemons; unavailable on other clusters)' \
+'scratch:Scratch directories you can list and clean by age\: new, ls, clean' \
 'doctor:Check this install and, optionally, every compute node' \
 'session:Drive a session from outside\: ensure, peek, send, events' \
 'claude:Claude Code integration\: install, context, hook, statusline, mcp' \
@@ -1196,6 +1335,7 @@ _sinteractive__subcmd__claude__subcmd__help__subcmd__hook_commands() {
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
 'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
+'scratch-guard:PreToolUse (Bash, Write, Edit)\: deny bulk data copied into a worktree and new directories under ~/.cache' \
     )
     _describe -t commands 'sinteractive claude help hook commands' commands "$@"
 }
@@ -1208,6 +1348,11 @@ _sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__agent-guard_c
 _sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__prompt_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive claude help hook prompt commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__scratch-guard_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__scratch-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude help hook scratch-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__session-start_commands] )) ||
 _sinteractive__subcmd__claude__subcmd__help__subcmd__hook__subcmd__session-start_commands() {
@@ -1247,6 +1392,7 @@ _sinteractive__subcmd__claude__subcmd__hook_commands() {
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
 'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
+'scratch-guard:PreToolUse (Bash, Write, Edit)\: deny bulk data copied into a worktree and new directories under ~/.cache' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive claude hook commands' commands "$@"
@@ -1264,6 +1410,7 @@ _sinteractive__subcmd__claude__subcmd__hook__subcmd__help_commands() {
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
 'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
+'scratch-guard:PreToolUse (Bash, Write, Edit)\: deny bulk data copied into a worktree and new directories under ~/.cache' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive claude hook help commands' commands "$@"
@@ -1282,6 +1429,11 @@ _sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__help_commands
 _sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__prompt_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive claude hook help prompt commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__scratch-guard_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__scratch-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude hook help scratch-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__session-start_commands] )) ||
 _sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__session-start_commands() {
@@ -1302,6 +1454,11 @@ _sinteractive__subcmd__claude__subcmd__hook__subcmd__help__subcmd__worktree-remo
 _sinteractive__subcmd__claude__subcmd__hook__subcmd__prompt_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive claude hook prompt commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__scratch-guard_commands] )) ||
+_sinteractive__subcmd__claude__subcmd__hook__subcmd__scratch-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive claude hook scratch-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__claude__subcmd__hook__subcmd__session-start_commands] )) ||
 _sinteractive__subcmd__claude__subcmd__hook__subcmd__session-start_commands() {
@@ -1419,6 +1576,7 @@ _sinteractive__subcmd__help_commands() {
 'queue:Your job queue\: running, pending (with reasons), and recent history' \
 'monitor:Live CPU/GPU/process view of a session'\''s node, or any host' \
 'quota:Storage quota (Bodhi quota daemons; unavailable on other clusters)' \
+'scratch:Scratch directories you can list and clean by age\: new, ls, clean' \
 'doctor:Check this install and, optionally, every compute node' \
 'session:Drive a session from outside\: ensure, peek, send, events' \
 'claude:Claude Code integration\: install, context, hook, statusline, mcp' \
@@ -1504,6 +1662,7 @@ _sinteractive__subcmd__help__subcmd__claude__subcmd__hook_commands() {
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
 'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
+'scratch-guard:PreToolUse (Bash, Write, Edit)\: deny bulk data copied into a worktree and new directories under ~/.cache' \
     )
     _describe -t commands 'sinteractive help claude hook commands' commands "$@"
 }
@@ -1516,6 +1675,11 @@ _sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__agent-guard_c
 _sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__prompt_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive help claude hook prompt commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__scratch-guard_commands] )) ||
+_sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__scratch-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help claude hook scratch-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__session-start_commands] )) ||
 _sinteractive__subcmd__help__subcmd__claude__subcmd__hook__subcmd__session-start_commands() {
@@ -1604,6 +1768,7 @@ _sinteractive__subcmd__help__subcmd__hook_commands() {
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
 'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
+'scratch-guard:PreToolUse (Bash, Write, Edit)\: deny bulk data copied into a worktree and new directories under ~/.cache' \
     )
     _describe -t commands 'sinteractive help hook commands' commands "$@"
 }
@@ -1616,6 +1781,11 @@ _sinteractive__subcmd__help__subcmd__hook__subcmd__agent-guard_commands() {
 _sinteractive__subcmd__help__subcmd__hook__subcmd__prompt_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive help hook prompt commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__hook__subcmd__scratch-guard_commands] )) ||
+_sinteractive__subcmd__help__subcmd__hook__subcmd__scratch-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help hook scratch-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__help__subcmd__hook__subcmd__session-start_commands] )) ||
 _sinteractive__subcmd__help__subcmd__hook__subcmd__session-start_commands() {
@@ -1687,6 +1857,30 @@ _sinteractive__subcmd__help__subcmd__schema_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive help schema commands' commands "$@"
 }
+(( $+functions[_sinteractive__subcmd__help__subcmd__scratch_commands] )) ||
+_sinteractive__subcmd__help__subcmd__scratch_commands() {
+    local commands; commands=(
+'new:Make (or find) a scratch directory for TOPIC and print its path' \
+'ls:List scratch directories\: size, age, branch (and whether it still exists)' \
+'clean:Remove scratch directories older than AGE; lists them unless --yes' \
+    )
+    _describe -t commands 'sinteractive help scratch commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__scratch__subcmd__clean_commands] )) ||
+_sinteractive__subcmd__help__subcmd__scratch__subcmd__clean_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help scratch clean commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__scratch__subcmd__ls_commands] )) ||
+_sinteractive__subcmd__help__subcmd__scratch__subcmd__ls_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help scratch ls commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__scratch__subcmd__new_commands] )) ||
+_sinteractive__subcmd__help__subcmd__scratch__subcmd__new_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help scratch new commands' commands "$@"
+}
 (( $+functions[_sinteractive__subcmd__help__subcmd__send_commands] )) ||
 _sinteractive__subcmd__help__subcmd__send_commands() {
     local commands; commands=()
@@ -1757,6 +1951,7 @@ _sinteractive__subcmd__hook_commands() {
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
 'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
+'scratch-guard:PreToolUse (Bash, Write, Edit)\: deny bulk data copied into a worktree and new directories under ~/.cache' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive hook commands' commands "$@"
@@ -1774,6 +1969,7 @@ _sinteractive__subcmd__hook__subcmd__help_commands() {
 'worktree-create:WorktreeCreate\: make the worktree on the cluster'\''s scratch filesystem' \
 'worktree-remove:WorktreeRemove\: remove a worktree the create hook made' \
 'agent-guard:PreToolUse (Agent)\: deny a subagent launched without a model; confirm Fable ones' \
+'scratch-guard:PreToolUse (Bash, Write, Edit)\: deny bulk data copied into a worktree and new directories under ~/.cache' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sinteractive hook help commands' commands "$@"
@@ -1792,6 +1988,11 @@ _sinteractive__subcmd__hook__subcmd__help__subcmd__help_commands() {
 _sinteractive__subcmd__hook__subcmd__help__subcmd__prompt_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive hook help prompt commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__hook__subcmd__help__subcmd__scratch-guard_commands] )) ||
+_sinteractive__subcmd__hook__subcmd__help__subcmd__scratch-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive hook help scratch-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__hook__subcmd__help__subcmd__session-start_commands] )) ||
 _sinteractive__subcmd__hook__subcmd__help__subcmd__session-start_commands() {
@@ -1812,6 +2013,11 @@ _sinteractive__subcmd__hook__subcmd__help__subcmd__worktree-remove_commands() {
 _sinteractive__subcmd__hook__subcmd__prompt_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive hook prompt commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__hook__subcmd__scratch-guard_commands] )) ||
+_sinteractive__subcmd__hook__subcmd__scratch-guard_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive hook scratch-guard commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__hook__subcmd__session-start_commands] )) ||
 _sinteractive__subcmd__hook__subcmd__session-start_commands() {
@@ -1882,6 +2088,61 @@ _sinteractive__subcmd__refresh_commands() {
 _sinteractive__subcmd__schema_commands() {
     local commands; commands=()
     _describe -t commands 'sinteractive schema commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__scratch_commands] )) ||
+_sinteractive__subcmd__scratch_commands() {
+    local commands; commands=(
+'new:Make (or find) a scratch directory for TOPIC and print its path' \
+'ls:List scratch directories\: size, age, branch (and whether it still exists)' \
+'clean:Remove scratch directories older than AGE; lists them unless --yes' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sinteractive scratch commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__scratch__subcmd__clean_commands] )) ||
+_sinteractive__subcmd__scratch__subcmd__clean_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive scratch clean commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__scratch__subcmd__help_commands] )) ||
+_sinteractive__subcmd__scratch__subcmd__help_commands() {
+    local commands; commands=(
+'new:Make (or find) a scratch directory for TOPIC and print its path' \
+'ls:List scratch directories\: size, age, branch (and whether it still exists)' \
+'clean:Remove scratch directories older than AGE; lists them unless --yes' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sinteractive scratch help commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__scratch__subcmd__help__subcmd__clean_commands] )) ||
+_sinteractive__subcmd__scratch__subcmd__help__subcmd__clean_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive scratch help clean commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__scratch__subcmd__help__subcmd__help_commands] )) ||
+_sinteractive__subcmd__scratch__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive scratch help help commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__scratch__subcmd__help__subcmd__ls_commands] )) ||
+_sinteractive__subcmd__scratch__subcmd__help__subcmd__ls_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive scratch help ls commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__scratch__subcmd__help__subcmd__new_commands] )) ||
+_sinteractive__subcmd__scratch__subcmd__help__subcmd__new_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive scratch help new commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__scratch__subcmd__ls_commands] )) ||
+_sinteractive__subcmd__scratch__subcmd__ls_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive scratch ls commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__scratch__subcmd__new_commands] )) ||
+_sinteractive__subcmd__scratch__subcmd__new_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive scratch new commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__send_commands] )) ||
 _sinteractive__subcmd__send_commands() {
