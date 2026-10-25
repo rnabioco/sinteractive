@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-25
+
 ### Added
 
 - Status bar: the monitorable, notices and help segments are clickable
