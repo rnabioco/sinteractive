@@ -99,6 +99,8 @@ impl ZellijPlugin for Plugin {
         if self.is_panel {
             events.push(EventType::Key);
             events.push(EventType::CommandPaneExited);
+        } else {
+            events.push(EventType::Mouse);
         }
         subscribe(&events);
         request_permission(&[
@@ -151,6 +153,20 @@ impl ZellijPlugin for Plugin {
                 true
             }
             Event::PaneUpdate(manifest) => self.on_panes(manifest),
+            // The status line is row 1 when the bar has room for the rule
+            // above it, else row 0; a click anywhere else is not ours.
+            Event::Mouse(Mouse::LeftClick(row, col)) => {
+                let line = if self.st.rows > 1 { 1 } else { 0 };
+                if row < 0 || row as usize != line {
+                    return false;
+                }
+                let Some(a) = render::click_action(&self.st, self.st.cols, col) else {
+                    return false;
+                };
+                let effect = self.st.apply_action(a);
+                self.run(effect);
+                true
+            }
             Event::Key(key) => {
                 let Some(k) = key_name(&key).as_deref().and_then(PanelKey::from_name) else {
                     return false;
