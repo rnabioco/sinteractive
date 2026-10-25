@@ -3,7 +3,7 @@
 //!
 //! Walking a home directory of ten million files on BeeGFS takes a long
 //! time, so nothing here runs from a session or the MCP server. [`build`] is
-//! run by an `sbatch` job (`sinteractive quota --reindex`) and writes
+//! run by an `sbatch` job (`sinteractive quota reindex`) and writes
 //! `usage.json.gz` into the cache; [`load`] and [`report`] only read it.
 //!
 //! Sizes are allocated bytes (`st_blocks * 512`), which is what the quota

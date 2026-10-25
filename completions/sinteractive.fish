@@ -92,7 +92,7 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand launch" -s h -
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand attach" -l ssh -d 'Attach over ssh -X (X11 forwarding) instead of srun --overlap'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand attach" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand list" -l full -d 'Also show partition and elapsed/limit'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand list" -l json -d 'Machine-readable JSON output Machine-readable JSON output'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand list" -l json -d 'Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand list" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand status" -l refresh -d 'Re-check the time budget against Slurm now and update the cache'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand status" -l json -d 'Machine-readable JSON output'
@@ -108,12 +108,26 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand monitor" -l li
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand monitor" -l once -d 'Print one sample and exit instead of opening the live view'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand monitor" -l json -d 'Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand monitor" -s h -l help -d 'Print help'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota" -l top -d 'What is using the quota: the N largest directories (default 15) and probable duplicate files, from the usage index' -r
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota" -l check -d 'Probe now instead of reading the cache, and poke every running session'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota" -l json -d 'Machine-readable JSON output'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota" -l reindex -d 'Rebuild the usage index, as a batch job (a walk of home takes a while)'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota" -l reindex-run -d 'Walk home and write the usage index here and now (run by --reindex)'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota" -s h -l help -d 'Print help'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and not __fish_seen_subcommand_from check top reindex help" -l top -r
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and not __fish_seen_subcommand_from check top reindex help" -l json -d 'Machine-readable JSON output'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and not __fish_seen_subcommand_from check top reindex help" -l check
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and not __fish_seen_subcommand_from check top reindex help" -l reindex
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and not __fish_seen_subcommand_from check top reindex help" -l reindex-run -d 'Walk home and write the usage index here and now (what the `reindex` job runs)'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and not __fish_seen_subcommand_from check top reindex help" -s h -l help -d 'Print help'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and not __fish_seen_subcommand_from check top reindex help" -f -a "check" -d 'Probe now instead of reading the cache, and poke every running session'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and not __fish_seen_subcommand_from check top reindex help" -f -a "top" -d 'What is using the quota: the largest directories and probable duplicate files'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and not __fish_seen_subcommand_from check top reindex help" -f -a "reindex" -d 'Rebuild the usage index, as a batch job (a walk of home takes a while)'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and not __fish_seen_subcommand_from check top reindex help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and __fish_seen_subcommand_from check" -l json -d 'Machine-readable JSON output'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and __fish_seen_subcommand_from check" -s h -l help -d 'Print help'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and __fish_seen_subcommand_from top" -l json -d 'Machine-readable JSON output'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and __fish_seen_subcommand_from top" -s h -l help -d 'Print help'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and __fish_seen_subcommand_from reindex" -l json -d 'Machine-readable JSON output'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and __fish_seen_subcommand_from reindex" -s h -l help -d 'Print help'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and __fish_seen_subcommand_from help" -f -a "check" -d 'Probe now instead of reading the cache, and poke every running session'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and __fish_seen_subcommand_from help" -f -a "top" -d 'What is using the quota: the largest directories and probable duplicate files'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and __fish_seen_subcommand_from help" -f -a "reindex" -d 'Rebuild the usage index, as a batch job (a walk of home takes a while)'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand quota; and __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand scratch; and not __fish_seen_subcommand_from new ls clean help" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand scratch; and not __fish_seen_subcommand_from new ls clean help" -f -a "new" -d 'Make (or find) a scratch directory for TOPIC and print its path'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand scratch; and not __fish_seen_subcommand_from new ls clean help" -f -a "ls" -d 'List scratch directories: size, age, branch (and whether it still exists)'
@@ -177,7 +191,7 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and _
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from ensure" -l detach -d 'Launch without attaching; print connection info and return'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from ensure" -l json -d 'Machine-readable JSON output (with `--detach`)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from ensure" -s h -l help -d 'Print help'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from peek" -s n -l lines -d 'How many lines from the bottom of the screen' -r
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from peek" -s l -l lines -d 'How many lines from the bottom of the screen' -r
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from peek" -l pane -d 'Pane to read: an id (`terminal_3` or `3`), a pane name, or `focused` (default `terminal_0`, the session\'s shell)' -r
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from peek" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand session; and __fish_seen_subcommand_from send" -l pane -d 'Pane to type into: an id (`terminal_3` or `3`), a pane name, or `focused` (default `terminal_0`, the session\'s shell)' -r
@@ -247,7 +261,7 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand ensure" -l no-
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand ensure" -l detach -d 'Launch without attaching; print connection info and return'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand ensure" -l json -d 'Machine-readable JSON output (with `--detach`)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand ensure" -s h -l help -d 'Print help'
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand peek" -s n -l lines -d 'How many lines from the bottom of the screen' -r
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand peek" -s l -l lines -d 'How many lines from the bottom of the screen' -r
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand peek" -l pane -d 'Pane to read: an id (`terminal_3` or `3`), a pane name, or `focused` (default `terminal_0`, the session\'s shell)' -r
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand peek" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand send" -l pane -d 'Pane to type into: an id (`terminal_3` or `3`), a pane name, or `focused` (default `terminal_0`, the session\'s shell)' -r
@@ -259,7 +273,7 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand refresh" -l re
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand refresh" -l json -d 'Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand refresh" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand snapshot" -l job -d 'Scope to this job\'s cgroup on this host instead of the job this process runs in (what `__job` asks other nodes over ssh)' -r
-complete -c sinteractive -n "__fish_sinteractive_using_subcommand snapshot" -l json -d 'Machine-readable JSON output Machine-readable JSON output'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand snapshot" -l json -d 'Machine-readable JSON output'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand snapshot" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand agent-context" -s h -l help -d 'Print help'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand hook; and not __fish_seen_subcommand_from session-start prompt worktree-create worktree-remove agent-guard scratch-guard help" -s h -l help -d 'Print help'
@@ -329,6 +343,9 @@ complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and not 
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and not __fish_seen_subcommand_from launch attach list status cancel queue monitor quota scratch worktree doctor session claude gen ensure peek send events refresh snapshot agent-context hook statusline mcp install-claude completions man schema __job __attach __popup __pane-cwd help" -f -a "__popup" -d 'In-session floating views'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and not __fish_seen_subcommand_from launch attach list status cancel queue monitor quota scratch worktree doctor session claude gen ensure peek send events refresh snapshot agent-context hook statusline mcp install-claude completions man schema __job __attach __popup __pane-cwd help" -f -a "__pane-cwd" -d 'Runs on the node over ssh: the pane\'s live working directory'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and not __fish_seen_subcommand_from launch attach list status cancel queue monitor quota scratch worktree doctor session claude gen ensure peek send events refresh snapshot agent-context hook statusline mcp install-claude completions man schema __job __attach __popup __pane-cwd help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from quota" -f -a "check" -d 'Probe now instead of reading the cache, and poke every running session'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from quota" -f -a "top" -d 'What is using the quota: the largest directories and probable duplicate files'
+complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from quota" -f -a "reindex" -d 'Rebuild the usage index, as a batch job (a walk of home takes a while)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from scratch" -f -a "new" -d 'Make (or find) a scratch directory for TOPIC and print its path'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from scratch" -f -a "ls" -d 'List scratch directories: size, age, branch (and whether it still exists)'
 complete -c sinteractive -n "__fish_sinteractive_using_subcommand help; and __fish_seen_subcommand_from scratch" -f -a "clean" -d 'Remove scratch directories older than AGE; lists them unless --yes'

@@ -37,7 +37,11 @@ fn main() {
     full.extend(ours);
     // `SINTERACTIVE_COLOR` governs the help and usage colours too, not just
     // the palette the subcommands print with.
+    // The launch flags belong to bare `sinteractive` but would crowd the root
+    // `--help` above the subcommands; they are listed under `launch --help`.
     let matches = Cli::command()
+        .mut_args(|a| a.hide(true))
+        .after_help("Bare `sinteractive` launches a session; its options are listed by `sinteractive launch --help`.")
         .color(match ColorMode::from_env() {
             ColorMode::Always => ColorChoice::Always,
             ColorMode::Never => ColorChoice::Never,

@@ -24,7 +24,7 @@ sinteractive status mywork --refresh --json
 #  "remaining_seconds":28757}
 
 # Read the session's screen, or type into it
-sinteractive session peek mywork -n 40
+sinteractive session peek mywork -l 40
 sinteractive session send mywork 'make test'
 
 # Everything else that reports has --json too
@@ -353,7 +353,7 @@ but JSON-RPC ever goes to stdout.
 | `agent_context` | — | `{"text": ...}`, the `claude context` briefing |
 | `scratch_new` | `topic`, `keep_for?` | `{topic, path, created}`; makes `<scratch>/TOPIC/` with a `.sint-scratch.json` manifest, or finds it |
 | `quota` | `check?` | the `quota --json` object; `{"error": "quota unavailable"}` as an error |
-| `quota_top` | `n?` | the `quota --top --json` report: `top` directories (`path`, `bytes`, `files`, `newest_epoch`, `kind`), `duplicates`, `age_secs`, `stale`; an error naming `quota --reindex` when there is no index |
+| `quota_top` | `n?` | the `quota top --json` report: `top` directories (`path`, `bytes`, `files`, `newest_epoch`, `kind`), `duplicates`, `age_secs`, `stale`; an error naming `quota reindex` when there is no index |
 | `wait_for_event` | `target?`, `kinds?`, `timeout_secs?` | the next matching event, or `{"timed_out": true}` |
 
 `target` is a JOBID or session NAME; omitted, it is the session the server

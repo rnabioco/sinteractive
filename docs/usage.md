@@ -26,9 +26,9 @@ A bare `sinteractive` launches; everything else is a subcommand
 |---|---|
 | `queue [--all] [--watch]` | Your job queue: running, pending (with reasons), and recent history |
 | `monitor [TARGET\|HOST] [--live] [--once]` | Live CPU/GPU/process view of a session's node, or any host; `--once` prints one sample of this host and exits |
-| `quota [--check]` | Storage quota (Bodhi daemons) |
-| `quota --top [N]` | The N largest directories and probable duplicate files, from a cached index |
-| `quota --reindex` | Rebuild that index, as a batch job (`quota-index`); a walk of home is never run in a session |
+| `quota [check]` | Storage quota (Bodhi daemons) |
+| `quota top [N]` | The N largest directories and probable duplicate files, from a cached index |
+| `quota reindex` | Rebuild that index, as a batch job (`quota-index`); a walk of home is never run in a session |
 | `scratch new TOPIC [--keep-for AGE]` | Make (or find) `~/scratch/TOPIC/` with a manifest and print its path |
 | `scratch ls` | Scratch directories: size, age, branch (and whether it still exists) |
 | `scratch clean [--older-than AGE] [--yes]` | Remove old manifested scratch directories; lists them unless `--yes` |
@@ -131,7 +131,7 @@ sinteractive queue --watch
 sinteractive monitor build
 
 # Read the last 40 lines of a session's screen
-sinteractive session peek build -n 40
+sinteractive session peek build -l 40
 ```
 
 ## Inside a session
@@ -429,7 +429,7 @@ not per session, so six open sessions do not mean six times the polling.
 After deleting something, don't wait out the interval:
 
 ```bash
-sinteractive quota --check      # re-checks now, updates every open session
+sinteractive quota check      # re-checks now, updates every open session
 # OVER QUOTA: 30.2T of 30T used (100.7%), over by 204.8G
 # Quota OK: 24.1T of 30T used (80.3%)
 ```

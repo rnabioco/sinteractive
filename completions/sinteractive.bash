@@ -394,6 +394,15 @@ _sinteractive() {
             sinteractive__subcmd__help__subcmd__hook,worktree-remove)
                 cmd="sinteractive__subcmd__help__subcmd__hook__subcmd__worktree__subcmd__remove"
                 ;;
+            sinteractive__subcmd__help__subcmd__quota,check)
+                cmd="sinteractive__subcmd__help__subcmd__quota__subcmd__check"
+                ;;
+            sinteractive__subcmd__help__subcmd__quota,reindex)
+                cmd="sinteractive__subcmd__help__subcmd__quota__subcmd__reindex"
+                ;;
+            sinteractive__subcmd__help__subcmd__quota,top)
+                cmd="sinteractive__subcmd__help__subcmd__quota__subcmd__top"
+                ;;
             sinteractive__subcmd__help__subcmd__scratch,clean)
                 cmd="sinteractive__subcmd__help__subcmd__scratch__subcmd__clean"
                 ;;
@@ -471,6 +480,30 @@ _sinteractive() {
                 ;;
             sinteractive__subcmd__hook__subcmd__help,worktree-remove)
                 cmd="sinteractive__subcmd__hook__subcmd__help__subcmd__worktree__subcmd__remove"
+                ;;
+            sinteractive__subcmd__quota,check)
+                cmd="sinteractive__subcmd__quota__subcmd__check"
+                ;;
+            sinteractive__subcmd__quota,help)
+                cmd="sinteractive__subcmd__quota__subcmd__help"
+                ;;
+            sinteractive__subcmd__quota,reindex)
+                cmd="sinteractive__subcmd__quota__subcmd__reindex"
+                ;;
+            sinteractive__subcmd__quota,top)
+                cmd="sinteractive__subcmd__quota__subcmd__top"
+                ;;
+            sinteractive__subcmd__quota__subcmd__help,check)
+                cmd="sinteractive__subcmd__quota__subcmd__help__subcmd__check"
+                ;;
+            sinteractive__subcmd__quota__subcmd__help,help)
+                cmd="sinteractive__subcmd__quota__subcmd__help__subcmd__help"
+                ;;
+            sinteractive__subcmd__quota__subcmd__help,reindex)
+                cmd="sinteractive__subcmd__quota__subcmd__help__subcmd__reindex"
+                ;;
+            sinteractive__subcmd__quota__subcmd__help,top)
+                cmd="sinteractive__subcmd__quota__subcmd__help__subcmd__top"
                 ;;
             sinteractive__subcmd__scratch,clean)
                 cmd="sinteractive__subcmd__scratch__subcmd__clean"
@@ -2065,8 +2098,50 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__help__subcmd__quota)
-            opts=""
+            opts="check top reindex"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__quota__subcmd__check)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__quota__subcmd__reindex)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__help__subcmd__quota__subcmd__top)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -2715,7 +2790,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__peek)
-            opts="-n -h --lines --pane --help"
+            opts="-l -h --lines --pane --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2725,7 +2800,7 @@ _sinteractive() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                -n)
+                -l)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2755,7 +2830,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__quota)
-            opts="-h --check --json --top --reindex --reindex-run --help"
+            opts="-h --json --check --top --reindex --reindex-run --help check top reindex help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2765,6 +2840,118 @@ _sinteractive() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__quota__subcmd__check)
+            opts="-h --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__quota__subcmd__help)
+            opts="check top reindex help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__quota__subcmd__help__subcmd__check)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__quota__subcmd__help__subcmd__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__quota__subcmd__help__subcmd__reindex)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__quota__subcmd__help__subcmd__top)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__quota__subcmd__reindex)
+            opts="-h --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sinteractive__subcmd__quota__subcmd__top)
+            opts="-h --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
                 *)
                     COMPREPLY=()
                     ;;
@@ -3191,7 +3378,7 @@ _sinteractive() {
             return 0
             ;;
         sinteractive__subcmd__session__subcmd__peek)
-            opts="-n -h --lines --pane --help"
+            opts="-l -h --lines --pane --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3201,7 +3388,7 @@ _sinteractive() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                -n)
+                -l)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

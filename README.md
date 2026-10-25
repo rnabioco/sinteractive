@@ -123,7 +123,7 @@ A bare `sinteractive` launches; everything else is a subcommand
 |---|---|
 | `queue [--all] [--watch]` | Your job queue: running, pending (with reasons), and recent history |
 | `monitor [TARGET\|HOST] [--live] [--once]` | Live CPU/GPU/process view of a session's node, or any host; `--once` prints one sample of this host and exits |
-| `quota [--check]` | Storage quota (Bodhi daemons) |
+| `quota [check]` | Storage quota (Bodhi daemons) |
 | `doctor [--nodes]` | Check this install and, optionally, every compute node |
 
 ### Driving a session from outside
@@ -209,7 +209,7 @@ sinteractive list
 sinteractive status build
 
 # Read the last 40 lines of a session's screen from the login node
-sinteractive session peek build -n 40
+sinteractive session peek build -l 40
 ```
 
 ### Inside a session
@@ -331,7 +331,7 @@ no QOS, the quota daemons and `/cluster/scripts/quota_current.txt`). Longer
 sessions go to the `normal` partition (`sinteractive -t 1-12:00:00 -p
 normal`), GPU work to `gpu` (`-p gpu --gres=gpu:1`). Over-quota sessions carry
 a red `QUOTA over by …` notice, re-checked every ten minutes; after freeing
-space, `sinteractive quota --check` re-checks now and updates every open
+space, `sinteractive quota check` re-checks now and updates every open
 session.
 
 ## How it works
@@ -403,7 +403,7 @@ exactly what the agent is told.
 - **Subcommands.** `--status`, `--list`, `--attach`, `--ensure`, `--cancel`,
   `--refresh`, `--check-quota`, `--agent-context` and `--install-claude` are
   now `status`, `list`, `attach`, `session ensure`, `cancel`, `status --refresh`,
-  `quota --check`, `claude context` and `claude install`. The old flags are
+  `quota check`, `claude context` and `claude install`. The old flags are
   accepted for one release and warn on stderr.
 - **Grouped.** Everything that wires sinteractive into Claude Code lives under
   `claude` (`install`, `context`, `hook`, `statusline`, `mcp`), and the

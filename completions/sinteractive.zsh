@@ -86,7 +86,7 @@ _arguments "${_arguments_options[@]}" : \
 (list)
 _arguments "${_arguments_options[@]}" : \
 '--full[Also show partition and elapsed/limit]' \
-'--json[Machine-readable JSON output Machine-readable JSON output]' \
+'--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -130,14 +130,80 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (quota)
 _arguments "${_arguments_options[@]}" : \
-'(--check --reindex)--top=[What is using the quota\: the N largest directories (default 15) and probable duplicate files, from the usage index]::N:_default' \
-'--check[Probe now instead of reading the cache, and poke every running session]' \
+'(--check --reindex)--top=[]::N:_default' \
 '--json[Machine-readable JSON output]' \
-'(--check)--reindex[Rebuild the usage index, as a batch job (a walk of home takes a while)]' \
-'(--check --top --reindex)--reindex-run[Walk home and write the usage index here and now (run by --reindex)]' \
+'--check[]' \
+'(--check)--reindex[]' \
+'(--check --top --reindex)--reindex-run[Walk home and write the usage index here and now (what the \`reindex\` job runs)]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_sinteractive__subcmd__quota_commands" \
+"*::: :->quota" \
+&& ret=0
+
+    case $state in
+    (quota)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sinteractive-quota-command-$line[1]:"
+        case $line[1] in
+            (check)
+_arguments "${_arguments_options[@]}" : \
+'--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
+;;
+(top)
+_arguments "${_arguments_options[@]}" : \
+'--json[Machine-readable JSON output]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'::n -- How many directories to list:_default' \
+&& ret=0
+;;
+(reindex)
+_arguments "${_arguments_options[@]}" : \
+'--json[Machine-readable JSON output]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sinteractive__subcmd__quota__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sinteractive-quota-help-command-$line[1]:"
+        case $line[1] in
+            (check)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(top)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(reindex)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
 ;;
 (scratch)
 _arguments "${_arguments_options[@]}" : \
@@ -339,7 +405,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (peek)
 _arguments "${_arguments_options[@]}" : \
-'-n+[How many lines from the bottom of the screen]:LINES:_default' \
+'-l+[How many lines from the bottom of the screen]:LINES:_default' \
 '--lines=[How many lines from the bottom of the screen]:LINES:_default' \
 '--pane=[Pane to read\: an id (\`terminal_3\` or \`3\`), a pane name, or \`focused\` (default \`terminal_0\`, the session'\''s shell)]:ID|NAME|focused:_default' \
 '-h[Print help]' \
@@ -742,7 +808,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (peek)
 _arguments "${_arguments_options[@]}" : \
-'-n+[How many lines from the bottom of the screen]:LINES:_default' \
+'-l+[How many lines from the bottom of the screen]:LINES:_default' \
 '--lines=[How many lines from the bottom of the screen]:LINES:_default' \
 '--pane=[Pane to read\: an id (\`terminal_3\` or \`3\`), a pane name, or \`focused\` (default \`terminal_0\`, the session'\''s shell)]:ID|NAME|focused:_default' \
 '-h[Print help]' \
@@ -780,7 +846,7 @@ _arguments "${_arguments_options[@]}" : \
 (snapshot)
 _arguments "${_arguments_options[@]}" : \
 '--job=[Scope to this job'\''s cgroup on this host instead of the job this process runs in (what \`__job\` asks other nodes over ssh)]:JOBID:_default' \
-'--json[Machine-readable JSON output Machine-readable JSON output]' \
+'--json[Machine-readable JSON output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -999,7 +1065,31 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (quota)
 _arguments "${_arguments_options[@]}" : \
+":: :_sinteractive__subcmd__help__subcmd__quota_commands" \
+"*::: :->quota" \
 && ret=0
+
+    case $state in
+    (quota)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sinteractive-help-quota-command-$line[1]:"
+        case $line[1] in
+            (check)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(top)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(reindex)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
 ;;
 (scratch)
 _arguments "${_arguments_options[@]}" : \
@@ -1953,8 +2043,27 @@ _sinteractive__subcmd__help__subcmd__queue_commands() {
 }
 (( $+functions[_sinteractive__subcmd__help__subcmd__quota_commands] )) ||
 _sinteractive__subcmd__help__subcmd__quota_commands() {
-    local commands; commands=()
+    local commands; commands=(
+'check:Probe now instead of reading the cache, and poke every running session' \
+'top:What is using the quota\: the largest directories and probable duplicate files' \
+'reindex:Rebuild the usage index, as a batch job (a walk of home takes a while)' \
+    )
     _describe -t commands 'sinteractive help quota commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__quota__subcmd__check_commands] )) ||
+_sinteractive__subcmd__help__subcmd__quota__subcmd__check_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help quota check commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__quota__subcmd__reindex_commands] )) ||
+_sinteractive__subcmd__help__subcmd__quota__subcmd__reindex_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help quota reindex commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__help__subcmd__quota__subcmd__top_commands] )) ||
+_sinteractive__subcmd__help__subcmd__quota__subcmd__top_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive help quota top commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__help__subcmd__refresh_commands] )) ||
 _sinteractive__subcmd__help__subcmd__refresh_commands() {
@@ -2209,8 +2318,58 @@ _sinteractive__subcmd__queue_commands() {
 }
 (( $+functions[_sinteractive__subcmd__quota_commands] )) ||
 _sinteractive__subcmd__quota_commands() {
-    local commands; commands=()
+    local commands; commands=(
+'check:Probe now instead of reading the cache, and poke every running session' \
+'top:What is using the quota\: the largest directories and probable duplicate files' \
+'reindex:Rebuild the usage index, as a batch job (a walk of home takes a while)' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
     _describe -t commands 'sinteractive quota commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__quota__subcmd__check_commands] )) ||
+_sinteractive__subcmd__quota__subcmd__check_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive quota check commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__quota__subcmd__help_commands] )) ||
+_sinteractive__subcmd__quota__subcmd__help_commands() {
+    local commands; commands=(
+'check:Probe now instead of reading the cache, and poke every running session' \
+'top:What is using the quota\: the largest directories and probable duplicate files' \
+'reindex:Rebuild the usage index, as a batch job (a walk of home takes a while)' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sinteractive quota help commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__quota__subcmd__help__subcmd__check_commands] )) ||
+_sinteractive__subcmd__quota__subcmd__help__subcmd__check_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive quota help check commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__quota__subcmd__help__subcmd__help_commands] )) ||
+_sinteractive__subcmd__quota__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive quota help help commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__quota__subcmd__help__subcmd__reindex_commands] )) ||
+_sinteractive__subcmd__quota__subcmd__help__subcmd__reindex_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive quota help reindex commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__quota__subcmd__help__subcmd__top_commands] )) ||
+_sinteractive__subcmd__quota__subcmd__help__subcmd__top_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive quota help top commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__quota__subcmd__reindex_commands] )) ||
+_sinteractive__subcmd__quota__subcmd__reindex_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive quota reindex commands' commands "$@"
+}
+(( $+functions[_sinteractive__subcmd__quota__subcmd__top_commands] )) ||
+_sinteractive__subcmd__quota__subcmd__top_commands() {
+    local commands; commands=()
+    _describe -t commands 'sinteractive quota top commands' commands "$@"
 }
 (( $+functions[_sinteractive__subcmd__refresh_commands] )) ||
 _sinteractive__subcmd__refresh_commands() {

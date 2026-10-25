@@ -788,7 +788,7 @@ impl JobLoop {
         // A poke makes a write due on this tick instead of waiting out the
         // poll interval — and because a write is only made from a freshly
         // confirmed end time, a poke re-checks the deadline too. It also
-        // means "re-read the quota cache now" (`quota --check` pokes every
+        // means "re-read the quota cache now" (`quota check` pokes every
         // session after writing a fresh one).
         if deps.take_poke() {
             self.state_written = 0;
