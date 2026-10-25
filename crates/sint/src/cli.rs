@@ -303,7 +303,6 @@ pub enum GenCommand {
 #[derive(Args, Debug, Clone, Default)]
 pub struct JsonFlag {
     /// Machine-readable JSON output
-    /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
 }
@@ -313,7 +312,6 @@ pub struct ListArgs {
     /// Also show partition and elapsed/limit
     #[arg(long)]
     pub full: bool,
-    /// Machine-readable JSON output
     /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
@@ -393,7 +391,6 @@ pub struct MonitorArgs {
 #[derive(Args, Debug, Clone, Default)]
 pub struct SnapshotArgs {
     /// Machine-readable JSON output
-    /// Machine-readable JSON output
     #[arg(long)]
     pub json: bool,
     /// Scope to this job's cgroup on this host instead of the job this
@@ -419,7 +416,7 @@ pub struct PeekArgs {
     /// JOBID, NAME, or list's #; must be RUNNING
     pub target: String,
     /// How many lines from the bottom of the screen
-    #[arg(short = 'n', long, default_value_t = 100)]
+    #[arg(short = 'l', short_alias = 'n', long, default_value_t = 100)]
     pub lines: usize,
     /// Pane to read: an id (`terminal_3` or `3`), a pane name, or `focused`
     /// (default `terminal_0`, the session's shell)
@@ -468,23 +465,51 @@ pub struct ExecArgs {
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct QuotaArgs {
-    /// Probe now instead of reading the cache, and poke every running session
-    #[arg(long)]
-    pub check: bool,
+    #[command(subcommand)]
+    pub command: Option<QuotaCommand>,
     /// Machine-readable JSON output
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub json: bool,
-    /// What is using the quota: the N largest directories (default 15) and
-    /// probable duplicate files, from the usage index
+    // The action flags of earlier releases, kept hidden: each is the
+    // subcommand of the same name. Bare `quota` reports the cache.
+    #[arg(long, hide = true)]
+    pub check: bool,
     #[arg(long, value_name = "N", num_args = 0..=1, default_missing_value = "15",
-          conflicts_with_all = ["check", "reindex"])]
+          hide = true, conflicts_with_all = ["check", "reindex"])]
     pub top: Option<usize>,
-    /// Rebuild the usage index, as a batch job (a walk of home takes a while)
-    #[arg(long, conflicts_with = "check")]
+    #[arg(long, hide = true, conflicts_with = "check")]
     pub reindex: bool,
-    /// Walk home and write the usage index here and now (run by --reindex)
+    /// Walk home and write the usage index here and now (what the `reindex` job runs)
     #[arg(long, hide = true, conflicts_with_all = ["check", "top", "reindex"])]
     pub reindex_run: bool,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum QuotaCommand {
+    /// Probe now instead of reading the cache, and poke every running session
+    Check,
+    /// What is using the quota: the largest directories and probable duplicate files
+    Top {
+        /// How many directories to list
+        #[arg(value_name = "N", default_value_t = 15)]
+        n: usize,
+    },
+    /// Rebuild the usage index, as a batch job (a walk of home takes a while)
+    Reindex,
+}
+
+impl QuotaArgs {
+    /// Fold the subcommand into the flag fields, so `quota check` and
+    /// `quota --check` run the same code.
+    pub fn normalized(mut self) -> Self {
+        match self.command.take() {
+            Some(QuotaCommand::Check) => self.check = true,
+            Some(QuotaCommand::Top { n }) => self.top = Some(n),
+            Some(QuotaCommand::Reindex) => self.reindex = true,
+            None => {}
+        }
+        self
+    }
 }
 
 #[derive(Args, Debug, Clone)]
@@ -1328,6 +1353,39 @@ mod tests {
         let (l, _) = launch(&["--mouse", "--no-mouse"]);
         assert!(!l.mouse);
         assert!(l.no_mouse);
+    }
+
+    #[test]
+    fn quota_subcommands_and_flags_agree() {
+        let q = |args: &[&str]| match parse(args).0 {
+            Command::Quota(q) => q.normalized(),
+            other => panic!("expected quota, got {other:?}"),
+        };
+        assert!(q(&["quota", "check"]).check);
+        assert!(q(&["quota", "--check"]).check);
+        assert_eq!(q(&["quota", "top"]).top, Some(15));
+        assert_eq!(q(&["quota", "top", "5"]).top, Some(5));
+        assert_eq!(q(&["quota", "--top", "5"]).top, Some(5));
+        assert!(q(&["quota", "reindex"]).reindex);
+        assert!(q(&["quota", "reindex", "--json"]).json);
+        assert!(q(&["quota", "--json", "check"]).json);
+        let bare = q(&["quota"]);
+        assert!(!bare.check && bare.top.is_none() && !bare.reindex);
+    }
+
+    #[test]
+    fn peek_lines_keeps_the_old_short_flag() {
+        for flag in ["-l", "-n"] {
+            match parse(&["session", "peek", "web", flag, "5"]) {
+                (Command::Session(s), _, false) => {
+                    let SessionCommand::Peek(p) = s.command else {
+                        panic!("expected peek");
+                    };
+                    assert_eq!(p.lines, 5);
+                }
+                other => panic!("expected session peek, got {other:?}"),
+            }
+        }
     }
 
     #[test]

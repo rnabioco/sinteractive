@@ -691,7 +691,7 @@ impl SintServer {
     #[tool(
         name = "quota_top",
         annotations(read_only_hint = true),
-        description = "What is using the storage quota (`sinteractive quota --top --json`): the largest directories with size, file count, newest file and kind (worktree, cargo-target, cache, other), and files over 1 GiB that are probable copies of each other. Reads a cached index (`age_secs`, `stale` after 24 h); errors, without scanning, when there is none. Build it with `sinteractive quota --reindex`, which submits a batch job."
+        description = "What is using the storage quota (`sinteractive quota top --json`): the largest directories with size, file count, newest file and kind (worktree, cargo-target, cache, other), and files over 1 GiB that are probable copies of each other. Reads a cached index (`age_secs`, `stale` after 24 h); errors, without scanning, when there is none. Build it with `sinteractive quota reindex`, which submits a batch job."
     )]
     async fn quota_top(
         &self,

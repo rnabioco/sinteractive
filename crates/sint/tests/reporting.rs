@@ -538,7 +538,7 @@ fn agent_context_briefing() {
         "`--comment=NAME`",
         "`sinteractive status --json`",
         "(shown in full by `sinteractive status`)",
-        "`sinteractive quota --check`",
+        "`sinteractive quota check`",
         "be changed underneath you.\n\nStorage quota, while exceeded,",
         "are this node's own disk",
         "is an `sbatch` job of its own",

@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `quota` takes subcommands: `quota check`, `quota top [N]`, `quota reindex`.
+  `--check`, `--top` and `--reindex` still work as hidden aliases.
+- `session peek` reads `-l/--lines`, so `-n` means a name everywhere else;
+  `-n` still works there.
+- The root `--help` lists the subcommands only; the launch options are under
+  `launch --help`.
+
 ## [1.8.0] - 2026-10-24
 
 ### Added

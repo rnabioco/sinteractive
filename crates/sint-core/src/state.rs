@@ -101,7 +101,7 @@ impl StateDir {
     pub fn take_poke(&self, job_id: u64) -> bool {
         fs::remove_file(self.poke_file(job_id)).is_ok()
     }
-    /// Poke every `<jobid>.json` present (skips `quota`). Used by `quota --check`.
+    /// Poke every `<jobid>.json` present (skips `quota`). Used by `quota check`.
     pub fn poke_all(&self) -> io::Result<()> {
         for id in self.known_job_ids() {
             self.poke(id)?;

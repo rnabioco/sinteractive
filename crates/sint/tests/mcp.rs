@@ -434,7 +434,7 @@ fn queue_quota_context_and_snapshot() {
     assert!(r["content"][0]["text"]
         .as_str()
         .unwrap()
-        .contains("quota --reindex"));
+        .contains("quota reindex"));
     let dir = |path: &str, bytes| sint_core::usage::DirUsage {
         path: path.into(),
         bytes,

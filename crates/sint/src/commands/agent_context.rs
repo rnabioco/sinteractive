@@ -191,7 +191,7 @@ be changed underneath you.
 {quota_line}
 Storage quota, while exceeded, is a red notice behind the "N notices" counter
 on the status line (shown in full by `sinteractive status`).
-Check it with `sinteractive quota --check`, and run that again after
+Check it with `sinteractive quota check`, and run that again after
 deleting anything on the user's behalf — it refreshes every open session, so
 the warning clears immediately rather than up to ten minutes later.
 "#

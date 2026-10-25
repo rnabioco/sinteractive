@@ -1,6 +1,6 @@
-//! `sinteractive quota [--check] [--json]` — storage quota (Bodhi).
+//! `sinteractive quota [check|top|reindex] [--json]` — storage quota (Bodhi).
 //!
-//! `quota` reports the cached probe; `quota --check` probes now, rewrites
+//! `quota` reports the cached probe; `quota check` probes now, rewrites
 //! the cache, pokes every live session so the fresh answer reaches their
 //! notices on the next tick, and reports. Ports `check_quota_cmd` (script
 //! lines 1437-1476). Exits 0 whether or not the user is over — being over
@@ -40,11 +40,11 @@ fn home_dir() -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("HOME is not set"))
 }
 
-/// `quota --top`: the cached usage index as a report. An error, not a scan,
+/// `quota top`: the cached usage index as a report. An error, not a scan,
 /// when there is no index yet.
 pub fn top_data(ctx: &Ctx, n: usize) -> Result<UsageReport> {
     let index = usage::load(&ctx.state).ok_or_else(|| {
-        anyhow!("no usage index yet; build one with 'sinteractive quota --reindex' (a batch job)")
+        anyhow!("no usage index yet; build one with 'sinteractive quota reindex' (a batch job)")
     })?;
     Ok(usage::report(&index, n, sint_core::now_epoch()))
 }
@@ -72,9 +72,7 @@ fn submit_reindex(ctx: &Ctx, json: bool) -> Result<i32> {
     if json {
         println!(r#"{{"job_id":{job_id},"name":"quota-index"}}"#);
     } else {
-        println!(
-            "submitted job {job_id} (quota-index); 'sinteractive quota --top' reads the result"
-        );
+        println!("submitted job {job_id} (quota-index); 'sinteractive quota top' reads the result");
     }
     Ok(0)
 }
@@ -106,6 +104,7 @@ fn print_top(report: &UsageReport) {
 }
 
 pub fn run(args: QuotaArgs) -> Result<i32> {
+    let args = args.normalized();
     let ctx = Ctx::new();
     if args.reindex_run {
         let index = usage::build(
@@ -169,7 +168,7 @@ pub fn run(args: QuotaArgs) -> Result<i32> {
                 eprintln!("{}SINTERACTIVE_QUOTA_PORT.{}", p.dim, p.reset);
             } else {
                 eprintln!(
-                    "{}No cached probe yet; run 'sinteractive quota --check'.{}",
+                    "{}No cached probe yet; run 'sinteractive quota check'.{}",
                     p.dim, p.reset
                 );
             }
