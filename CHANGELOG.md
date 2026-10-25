@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-25
+
 ### Changed
 
 - `quota` takes subcommands: `quota check`, `quota top [N]`, `quota reindex`.
