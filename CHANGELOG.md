@@ -8,6 +8,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Status bar: the monitorable, notices and help segments are clickable
+  (same as `^b m`, `^b n`, `^b h`); a click in notices or help mode pages on.
+
+### Changed
+
+- Status bar: on a narrow terminal the session name is kept longest after the
+  job id (cut at 16 columns), then time left, notices, monitorable, host,
+  load, gpu, launched and help.
+
 ## [1.9.0] - 2026-10-25
 
 ### Changed

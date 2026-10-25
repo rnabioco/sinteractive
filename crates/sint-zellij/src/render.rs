@@ -7,7 +7,7 @@
 use unicode_width::UnicodeWidthStr;
 
 use crate::state::{BarMode, State, ThemeMode};
-use sint_proto::Severity;
+use sint_proto::{Severity, UiAction};
 
 #[derive(Clone, Copy)]
 pub struct Colors {
@@ -135,14 +135,51 @@ pub fn glyph(sev: Severity, frame: u64, c: &Colors) -> String {
 }
 
 /// One segment of the status line: text plus the priority at which it is
-/// dropped when the line is too wide (higher = dropped first).
+/// dropped when the line is too wide (higher = dropped first), and the
+/// action a click on it runs.
 struct Seg {
     text: String,
     drop_prio: u8,
+    action: Option<UiAction>,
 }
+
+/// A kept segment's columns on the status line (`start..end`, relative to
+/// the line, before the bar's `PAD`) and what a click there does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+    pub action: UiAction,
+}
+
+/// The longest a session name may run before it is cut with `…`: it is the
+/// last thing the bar gives up, so it must not crowd out the rest first.
+const NAME_MAX: usize = 16;
 
 /// Build the status-mode line for `cols` columns.
 pub fn status_line(st: &State, cols: usize) -> String {
+    status_layout(st, cols).0
+}
+
+/// The action for a click at `col` (0-based, in the bar pane's columns).
+/// In notices and help mode the whole line is one target: a click pages on,
+/// as the chord does.
+pub fn click_action(st: &State, cols: usize, col: usize) -> Option<UiAction> {
+    let inner = cols.saturating_sub(PAD.len());
+    let col = col.checked_sub(PAD.len())?;
+    match st.mode {
+        BarMode::Notices { .. } => Some(UiAction::Notices),
+        BarMode::Help { .. } => Some(UiAction::Help),
+        BarMode::Status => status_layout(st, inner)
+            .1
+            .iter()
+            .find(|s| (s.start..s.end).contains(&col))
+            .map(|s| s.action),
+    }
+}
+
+/// The status line and the clickable spans of the segments it kept.
+fn status_layout(st: &State, cols: usize) -> (String, Vec<Span>) {
     let c = colors(st.theme);
     let m = &st.msg;
     let sep = format!(" {}·{RESET} ", fg(c.dim));
@@ -156,17 +193,25 @@ pub fn status_line(st: &State, cols: usize) -> String {
     segs.push(Seg {
         text: format!("{} {id}", glyph(m.severity, st.frame, &c)),
         drop_prio: 0,
+        action: None,
     });
     if let Some(n) = &m.name {
+        let n: String = if n.chars().count() > NAME_MAX {
+            n.chars().take(NAME_MAX - 1).chain(['…']).collect()
+        } else {
+            n.clone()
+        };
         segs.push(Seg {
             text: format!("{}{n}{RESET}", fg(c.accent)),
-            drop_prio: 5,
+            drop_prio: 1,
+            action: None,
         });
     }
     if !m.host.is_empty() {
         segs.push(Seg {
             text: format!("{}{}{RESET}", fg(c.text), m.host),
-            drop_prio: 4,
+            drop_prio: 5,
+            action: None,
         });
     }
     if !m.remaining.is_empty() {
@@ -179,19 +224,22 @@ pub fn status_line(st: &State, cols: usize) -> String {
         };
         segs.push(Seg {
             text: format!("{value} {}left{RESET}", fg(c.dim)),
-            drop_prio: 1,
+            drop_prio: 2,
+            action: None,
         });
     }
     if !m.load.is_empty() {
         segs.push(Seg {
             text: format!("{}{}{RESET}", fg(c.text), m.load),
-            drop_prio: 3,
+            drop_prio: 6,
+            action: None,
         });
     }
     if !m.gpu.is_empty() {
         segs.push(Seg {
             text: format!("{}{}{RESET}", fg(c.text), m.gpu),
-            drop_prio: 3,
+            drop_prio: 7,
+            action: None,
         });
     }
     if !m.jobs.is_empty() {
@@ -202,7 +250,8 @@ pub fn status_line(st: &State, cols: usize) -> String {
                 m.jobs,
                 fg(c.dim)
             ),
-            drop_prio: 4,
+            drop_prio: 8,
+            action: None,
         });
     }
     if !m.hosts.is_empty() && !st.panel_open {
@@ -214,7 +263,8 @@ pub fn status_line(st: &State, cols: usize) -> String {
                 if n == 1 { "" } else { "s" },
                 fg(c.dim)
             ),
-            drop_prio: 6,
+            drop_prio: 4,
+            action: Some(UiAction::Monitor),
         });
     }
     if !m.notices.is_empty() {
@@ -229,12 +279,14 @@ pub fn status_line(st: &State, cols: usize) -> String {
         };
         segs.push(Seg {
             text: format!("{}⚠ {RESET}{label} {}^b n{RESET}", fg(col), fg(c.dim)),
-            drop_prio: 2,
+            drop_prio: 3,
+            action: Some(UiAction::Notices),
         });
     }
     segs.push(Seg {
         text: format!("{}^b h help{RESET}", fg(c.dim)),
-        drop_prio: 7,
+        drop_prio: 9,
+        action: Some(UiAction::Help),
     });
 
     // Drop segments from the highest priority down until it fits.
@@ -248,7 +300,20 @@ pub fn status_line(st: &State, cols: usize) -> String {
             .collect();
         let joined = line.join(&sep);
         if visible_width(&joined) <= cols || line.len() <= 1 {
-            return joined;
+            let (mut at, mut spans) = (0, Vec::new());
+            let sep_w = visible_width(&sep);
+            for (s, _) in segs.iter().zip(&keep).filter(|(_, k)| **k) {
+                let w = visible_width(&s.text);
+                if let Some(action) = s.action {
+                    spans.push(Span {
+                        start: at,
+                        end: at + w,
+                        action,
+                    });
+                }
+                at += w + sep_w;
+            }
+            return (joined, spans);
         }
         let (i, _) = segs
             .iter()
@@ -805,6 +870,86 @@ mod tests {
         let narrow = status_line(&st, 40);
         assert!(!narrow.contains("help"), "help hint dropped first");
         assert!(narrow.contains("left"), "remaining kept: {narrow}");
+    }
+
+    #[test]
+    fn drop_order_matches_spec() {
+        let st = state();
+        let full = strip_ansi(&status_line(&st, 400));
+        let mut prev = full.clone();
+        let mut gone: Vec<&str> = Vec::new();
+        for cols in (1..visible_width(&full)).rev() {
+            let l = strip_ansi(&status_line(&st, cols));
+            for w in ["help", "mywork"] {
+                if prev.contains(w) && !l.contains(w) {
+                    gone.push(w);
+                }
+            }
+            prev = l;
+        }
+        assert_eq!(gone, ["help", "mywork"], "help first, name later");
+    }
+
+    #[test]
+    fn name_outlives_host_load_gpu_and_launched() {
+        let mut st = state();
+        st.msg.jobs = "3".into();
+        st.msg.load = "load 1.2".into();
+        st.msg.gpu = "gpu 80%".into();
+        for cols in 30..200 {
+            let l = strip_ansi(&status_line(&st, cols));
+            for w in [&st.msg.host, &st.msg.load, &st.msg.gpu] {
+                if l.contains(w.as_str()) {
+                    assert!(
+                        l.contains("mywork"),
+                        "{w} kept without the name at {cols}: {l}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn long_name_is_truncated_not_dropped() {
+        let mut st = state();
+        st.msg.name = Some("a-very-long-session-name-indeed".into());
+        let l = strip_ansi(&status_line(&st, 60));
+        assert!(l.contains("a-very-long-ses…"), "{l}");
+        assert!(!l.contains("indeed"), "{l}");
+    }
+
+    fn col_of(st: &State, cols: usize, word: &str) -> usize {
+        let plain = strip_ansi(&status_line(st, cols - PAD.len()));
+        PAD.len() + plain[..plain.find(word).unwrap()].chars().count()
+    }
+
+    #[test]
+    fn click_on_monitorable_span_returns_monitor() {
+        let st = state();
+        let col = col_of(&st, 200, "monitorable");
+        assert_eq!(click_action(&st, 200, col), Some(UiAction::Monitor));
+        let help = col_of(&st, 200, "help");
+        assert_eq!(click_action(&st, 200, help), Some(UiAction::Help));
+        let n = col_of(&st, 200, "notice");
+        assert_eq!(click_action(&st, 200, n), Some(UiAction::Notices));
+    }
+
+    #[test]
+    fn click_on_separator_or_pad_is_none() {
+        let st = state();
+        assert_eq!(click_action(&st, 200, 0), None, "pad");
+        let name = col_of(&st, 200, "mywork");
+        assert_eq!(click_action(&st, 200, name), None, "plain text");
+        assert_eq!(click_action(&st, 200, 199), None, "past the line");
+    }
+
+    #[test]
+    fn click_in_notices_mode_advances() {
+        let mut st = state();
+        st.mode = BarMode::Notices { idx: 0 };
+        assert_eq!(click_action(&st, 80, 10), Some(UiAction::Notices));
+        st.mode = BarMode::Help { page: 0 };
+        assert_eq!(click_action(&st, 80, 10), Some(UiAction::Help));
     }
 
     #[test]
