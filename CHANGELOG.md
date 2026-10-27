@@ -8,6 +8,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-10-27
+
+### Fixed
+
+- Attach: a zellij client that falls behind the server's output (a slow
+  ssh or terminal path) is reattached once automatically, and a short
+  settle after detaching other clients keeps the old client's teardown
+  from overlapping the new one's redraw.
+- Status plugin: pipes back off (4s up to 30s) after a timeout instead of
+  queueing a new `zellij pipe` every second behind a plugin that is slow
+  to answer.
+
 ## [1.10.0] - 2026-10-25
 
 ### Added
