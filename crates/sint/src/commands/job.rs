@@ -1353,6 +1353,18 @@ struct NodeDeps<'a> {
     claude_dir: std::path::PathBuf,
     sampler: Sampler,
     remote: RemotePoller,
+    /// Pipes to the plugin are skipped until this instant, after one timed
+    /// out: a plugin that cannot answer in two seconds is not helped by a
+    /// fresh `zellij pipe` every second queued behind it.
+    pipe_resume: Option<Instant>,
+    /// Consecutive timed-out pipes; sets the length of the pause.
+    pipe_timeouts: u32,
+}
+
+/// How long to leave the plugin alone after its `n`th timed-out pipe in a
+/// row: 4s, 8s, 16s, then 30s at most.
+fn pipe_backoff(n: u32) -> Duration {
+    Duration::from_secs((2u64 << n.clamp(1, 4)).min(30))
 }
 
 impl Deps for NodeDeps<'_> {
@@ -1476,6 +1488,9 @@ impl Deps for NodeDeps<'_> {
     /// plugins only when a client first renders them — before anyone attaches
     /// the pipe would block the loop forever. Kill it after two seconds.
     fn send_status(&mut self, msg: &StatusMsg) {
+        if self.pipe_resume.is_some_and(|t| Instant::now() < t) {
+            return;
+        }
         let Ok(json) = serde_json::to_string(msg) else {
             return;
         };
@@ -1493,13 +1508,19 @@ impl Deps for NodeDeps<'_> {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             match child.try_wait() {
-                Ok(Some(_)) => return,
+                Ok(Some(_)) => {
+                    self.pipe_timeouts = 0;
+                    self.pipe_resume = None;
+                    return;
+                }
                 Ok(None) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(50));
                 }
                 _ => {
                     let _ = child.kill();
                     let _ = child.wait();
+                    self.pipe_timeouts += 1;
+                    self.pipe_resume = Some(Instant::now() + pipe_backoff(self.pipe_timeouts));
                     return;
                 }
             }
@@ -1645,6 +1666,8 @@ pub fn run(args: JobArgs) -> Result<i32> {
         claude_dir,
         sampler: Sampler::for_current_job(),
         remote: RemotePoller::start(ctx.state.clone(), exe, lcfg.host.clone()),
+        pipe_resume: None,
+        pipe_timeouts: 0,
     };
     let mut lp = JobLoop::new(lcfg);
     let mut ended_by_us = false;
@@ -2154,6 +2177,15 @@ mod tests {
         lp.step(T0 + 30, &mut f);
         let kinds: Vec<&str> = f.notices[2].iter().map(|n| n.kind.as_str()).collect();
         assert_eq!(kinds, ["maint"]);
+    }
+
+    #[test]
+    fn a_plugin_that_times_out_is_left_alone_for_longer_each_time() {
+        assert_eq!(pipe_backoff(1), Duration::from_secs(4));
+        assert_eq!(pipe_backoff(2), Duration::from_secs(8));
+        assert_eq!(pipe_backoff(3), Duration::from_secs(16));
+        assert_eq!(pipe_backoff(4), Duration::from_secs(30));
+        assert_eq!(pipe_backoff(40), Duration::from_secs(30));
     }
 
     #[test]

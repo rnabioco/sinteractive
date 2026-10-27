@@ -18,9 +18,9 @@
 //! and zellij has no session-environment store to update for new ones.
 //! Users who need X11 in a pane can `export DISPLAY=…` there themselves.
 
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use sint_core::color::Palette;
@@ -116,15 +116,7 @@ pub fn run(session: &str) -> Result<i32> {
     let zellij = ZellijEnv::new(&cfg, job_id)?;
 
     // Is the server up? (0.x: tmux has-session via the exec's own failure.)
-    let listed = zellij
-        .command(["list-sessions", "--no-formatting"])
-        .stdin(Stdio::null())
-        .output()
-        .map(|o| {
-            o.status.success()
-                && super::job::session_listed(&String::from_utf8_lossy(&o.stdout), session)
-        })
-        .unwrap_or(false);
+    let listed = session_alive(&zellij, session);
     if !listed {
         eprintln!("sinteractive: session {session} not found on this node");
         return Ok(1);
@@ -152,12 +144,50 @@ pub fn run(session: &str) -> Result<i32> {
         );
     }
 
-    let mut cmd = zellij.command(["--config", &config.to_string_lossy(), "attach", session]);
-    // zellij refuses to `attach` when ZELLIJ_SESSION_NAME names the target.
-    cmd.env_remove("ZELLIJ_SESSION_NAME");
-    // exec only returns on failure.
-    let e = cmd.exec();
-    Err(anyhow!("could not exec {:?}: {e}", cmd.get_program()))
+    if detached > 0 {
+        // The kicked client is still tearing down its terminal; starting the
+        // new one's full-screen redraw on top of that is the burst that
+        // overruns a slow pty (see `Your zellij client lost connection`).
+        std::thread::sleep(SETTLE_AFTER_DETACH);
+    }
+
+    let mut retried = false;
+    loop {
+        let mut cmd = zellij.command(["--config", &config.to_string_lossy(), "attach", session]);
+        // zellij refuses to `attach` when ZELLIJ_SESSION_NAME names the target.
+        cmd.env_remove("ZELLIJ_SESSION_NAME");
+        let status = cmd
+            .status()
+            .map_err(|e| anyhow!("could not run {:?}: {e}", cmd.get_program()))?;
+        let code = status.code().unwrap_or(1);
+        // A client that fell behind the server's output is dropped with a
+        // non-zero exit while the session itself is untouched, so one more
+        // attach is what the user would type next. Once only: a second drop
+        // means the terminal path, not the moment, is the problem.
+        if code != 0 && !retried && session_alive(&zellij, session) {
+            retried = true;
+            eprintln!("sinteractive: zellij client dropped; reattaching to {session}...");
+            std::thread::sleep(SETTLE_AFTER_DETACH);
+            continue;
+        }
+        return Ok(code);
+    }
+}
+
+/// How long to let a detached client finish before attaching the next.
+const SETTLE_AFTER_DETACH: Duration = Duration::from_millis(500);
+
+/// Whether `list-sessions` still shows `session` live.
+fn session_alive(zellij: &ZellijEnv, session: &str) -> bool {
+    zellij
+        .command(["list-sessions", "--no-formatting"])
+        .stdin(Stdio::null())
+        .output()
+        .map(|o| {
+            o.status.success()
+                && super::job::session_listed(&String::from_utf8_lossy(&o.stdout), session)
+        })
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
