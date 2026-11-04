@@ -109,6 +109,8 @@ pub struct State {
     pub mode_ttl: u32,
     pub cols: usize,
     pub rows: usize,
+    /// Column of the mouse pointer while it is over the status line.
+    pub hover: Option<usize>,
 }
 
 /// Auto-advance notices every N ticks (ticks are ~0.5 s).

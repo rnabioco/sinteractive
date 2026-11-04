@@ -65,6 +65,7 @@ const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
 /// Back to normal intensity without dropping the colour (`RESET` would).
 const NOBOLD: &str = "\x1b[22m";
+const UNDERLINE: &str = "\x1b[4m";
 
 /// The bar line's left inset. The rule spans the pane edge to edge, but the
 /// words sit one column in: hard against the terminal's left edge they read
@@ -302,18 +303,31 @@ fn status_layout(st: &State, cols: usize) -> (String, Vec<Span>) {
         if visible_width(&joined) <= cols || line.len() <= 1 {
             let (mut at, mut spans) = (0, Vec::new());
             let sep_w = visible_width(&sep);
+            let hover = st.hover.and_then(|h| h.checked_sub(PAD.len()));
+            let mut texts: Vec<String> = Vec::new();
             for (s, _) in segs.iter().zip(&keep).filter(|(_, k)| **k) {
                 let w = visible_width(&s.text);
+                let mut text = s.text.clone();
                 if let Some(action) = s.action {
                     spans.push(Span {
                         start: at,
                         end: at + w,
                         action,
                     });
+                    // Under the pointer: the same words, one colour,
+                    // bold and underlined, so it reads as a link.
+                    if hover.is_some_and(|h| (at..at + w).contains(&h)) {
+                        text = format!(
+                            "{}{BOLD}{UNDERLINE}{}{RESET}",
+                            fg(c.accent),
+                            strip_ansi(&s.text)
+                        );
+                    }
                 }
+                texts.push(text);
                 at += w + sep_w;
             }
-            return (joined, spans);
+            return (texts.join(&sep), spans);
         }
         let (i, _) = segs
             .iter()
@@ -932,6 +946,23 @@ mod tests {
         assert_eq!(click_action(&st, 200, help), Some(UiAction::Help));
         let n = col_of(&st, 200, "notice");
         assert_eq!(click_action(&st, 200, n), Some(UiAction::Notices));
+    }
+
+    #[test]
+    fn hovering_a_clickable_span_underlines_it() {
+        let mut st = state();
+        let plain = status_line(&st, 200);
+        assert!(!plain.contains(UNDERLINE));
+        st.hover = Some(col_of(&st, 200, "monitorable"));
+        let hot = status_line(&st, 200);
+        assert!(hot.contains(UNDERLINE), "{hot:?}");
+        assert_eq!(
+            strip_ansi(&hot),
+            strip_ansi(&plain),
+            "width must not change"
+        );
+        st.hover = Some(col_of(&st, 200, "mywork"));
+        assert!(!status_line(&st, 200).contains(UNDERLINE), "plain text");
     }
 
     #[test]

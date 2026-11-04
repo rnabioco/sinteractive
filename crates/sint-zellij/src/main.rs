@@ -155,6 +155,15 @@ impl ZellijPlugin for Plugin {
             Event::PaneUpdate(manifest) => self.on_panes(manifest),
             // The status line is row 1 when the bar has room for the rule
             // above it, else row 0; a click anywhere else is not ours.
+            Event::Mouse(Mouse::Hover(row, col)) => {
+                let line = if self.st.rows > 1 { 1 } else { 0 };
+                let over = (row >= 0 && row as usize == line).then_some(col);
+                if over == self.st.hover {
+                    return false;
+                }
+                self.st.hover = over;
+                true
+            }
             Event::Mouse(Mouse::LeftClick(row, col)) => {
                 let line = if self.st.rows > 1 { 1 } else { 0 };
                 if row < 0 || row as usize != line {
