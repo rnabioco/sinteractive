@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Status bar: hovering a clickable segment underlines and highlights it.
+- Man page: an ADVANCED section listing the `SINTERACTIVE_*` environment
+  variables.
+
 ## [1.10.1] - 2026-10-27
 
 ### Fixed

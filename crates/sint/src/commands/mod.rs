@@ -2,6 +2,7 @@
 //!
 //! Exit codes follow 0.x: 0 success, 1 not found / failure, 2 usage.
 
+use std::io::Write;
 use anyhow::Result;
 
 use crate::cli::{ClaudeCommand, Command, GenCommand, SessionCommand};
@@ -109,6 +110,106 @@ fn claude(command: ClaudeCommand) -> Result<i32> {
     }
 }
 
+/// The "advanced" section appended to the generated man page: the
+/// `SINTERACTIVE_*` environment variables. Explicit flags win over these;
+/// these win over the built-in defaults.
+const MAN_ADVANCED: &str = r#".SH ADVANCED
+Defaults can be changed with environment variables, usually set in a shell
+profile\&. An explicit command\-line flag always wins over the environment,
+and the environment wins over the built\-in defaults\&. Unset and empty
+variables are treated alike\&. Boolean variables accept
+\fBon\fR, \fB1\fR, \fBtrue\fR or \fByes\fR to enable and
+\fBoff\fR, \fB0\fR, \fBfalse\fR or \fBno\fR to disable\&.
+.SS "Session requests"
+.TP
+\fBSINTERACTIVE_TIME\fR
+Default walltime, in Slurm form (\fB24:00:00\fR) or a human form such as
+\fB8h\fR\&. Default \fB24:00:00\fR\&.
+.TP
+\fBSINTERACTIVE_PARTITION\fR
+Default partition\&. Default \fBinteractive\fR\&. On Alpine, set this in your
+profile\&.
+.TP
+\fBSINTERACTIVE_QOS\fR
+QOS passed as \fB\-\-qos\fR\&. Only added when set\&.
+.TP
+\fBSINTERACTIVE_CPUS\fR
+Default \fB\-\-cpus\-per\-task\fR\&. Default \fB2\fR\&.
+.TP
+\fBSINTERACTIVE_MEM\fR
+Default \fB\-\-mem\fR\&. Default \fB8G\fR\&.
+.SS "Appearance"
+.TP
+\fBSINTERACTIVE_MOUSE\fR
+Mouse mode in the session (clicking the status bar)\&. Default \fBon\fR\&.
+.TP
+\fBSINTERACTIVE_THEME\fR
+\fBdark\fR or \fBlight\fR forces a palette; \fBauto\fR (or unset) asks the
+terminal\&.
+.TP
+\fBSINTERACTIVE_COLOR\fR
+\fBauto\fR (default), \fBalways\fR or \fBnever\fR\&. \fBNO_COLOR\fR is
+honoured\&.
+.TP
+\fBSINTERACTIVE_MONITOR_SESSIONS\fR
+When on, your other sinteractive sessions are listed in the monitor panel
+alongside your jobs\&. Default \fBoff\fR\&.
+.SS "Walltime warnings and polling"
+.TP
+\fBSINTERACTIVE_WARN_YELLOW\fR
+Seconds remaining at which the status bar turns yellow\&. Default
+\fB3600\fR\&.
+.TP
+\fBSINTERACTIVE_WARN_RED\fR
+Seconds remaining at which the status bar turns red\&. Default \fB600\fR\&.
+.TP
+\fBSINTERACTIVE_GRACE\fR
+Seconds before the limit at which the session ends itself\&. Default
+\fB10\fR\&.
+.TP
+\fBSINTERACTIVE_POLL\fR
+Seconds between status refreshes\&. Default \fB30\fR, minimum \fB5\fR\&.
+.TP
+\fBSINTERACTIVE_AGENT_WARN\fR
+Seconds remaining below which the Claude Code walltime\-guard hook warns\&.
+Default \fB1800\fR\&.
+.SS "Storage quota"
+.TP
+\fBSINTERACTIVE_QUOTA_POLL\fR
+Seconds between quota checks\&. Default \fB600\fR, minimum \fB30\fR\&.
+.TP
+\fBSINTERACTIVE_QUOTA_FILE\fR
+Quota file to read\&. Default \fB/cluster/scripts/quota_current\&.txt\fR
+(Bodhi)\&.
+.TP
+\fBSINTERACTIVE_QUOTA_HOSTS\fR
+Quota daemon hosts to query\&. Default the Bodhi daemons\&.
+.TP
+\fBSINTERACTIVE_QUOTA_PORT\fR
+Quota daemon port\&. Default \fB9878\fR\&.
+.TP
+\fBSINTERACTIVE_QUOTA_TIMEOUT\fR
+Seconds to wait for the quota daemon\&. Default \fB5\fR\&.
+.SS "Paths"
+.TP
+\fBSINTERACTIVE_CACHE\fR
+State directory\&. Default \fB$XDG_CACHE_HOME/sinteractive\fR, else
+\fB~/.cache/sinteractive\fR\&.
+.TP
+\fBSINTERACTIVE_SHARE\fR
+Asset root used by \fBclaude install\fR, overriding the installed location\&.
+.TP
+\fBSINTERACTIVE_WORKTREES\fR
+Where the Claude Code worktree hook creates worktrees
+(\fI<here>/<repo>/<name>\fR)\&. Unset: \fB/scratch/alpine/$USER/worktrees\fR
+where that exists, else \fB<repo>/\&.claude/worktrees\fR\&.
+.SS "Set inside a session"
+.TP
+\fBSINTERACTIVE_JOB_ID\fR, \fBSINTERACTIVE_NAME\fR
+The Slurm job id and session name\&. Set by sinteractive; do not set them
+yourself\&.
+"#;
+
 /// `sinteractive gen …`
 fn generate(command: GenCommand) -> Result<i32> {
     match command {
@@ -121,7 +222,10 @@ fn generate(command: GenCommand) -> Result<i32> {
         GenCommand::Man => {
             use clap::CommandFactory;
             let cmd = crate::cli::Cli::command();
-            clap_mangen::Man::new(cmd).render(&mut std::io::stdout())?;
+            let mut buf: Vec<u8> = Vec::new();
+            clap_mangen::Man::new(cmd).render(&mut buf)?;
+            buf.extend_from_slice(MAN_ADVANCED.as_bytes());
+            std::io::stdout().write_all(&buf)?;
             Ok(0)
         }
         GenCommand::Schema => {
