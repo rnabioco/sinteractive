@@ -956,7 +956,11 @@ mod tests {
         st.hover = Some(col_of(&st, 200, "monitorable"));
         let hot = status_line(&st, 200);
         assert!(hot.contains(UNDERLINE), "{hot:?}");
-        assert_eq!(strip_ansi(&hot), strip_ansi(&plain), "width must not change");
+        assert_eq!(
+            strip_ansi(&hot),
+            strip_ansi(&plain),
+            "width must not change"
+        );
         st.hover = Some(col_of(&st, 200, "mywork"));
         assert!(!status_line(&st, 200).contains(UNDERLINE), "plain text");
     }

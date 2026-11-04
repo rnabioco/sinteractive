@@ -2,8 +2,8 @@
 //!
 //! Exit codes follow 0.x: 0 success, 1 not found / failure, 2 usage.
 
-use std::io::Write;
 use anyhow::Result;
+use std::io::Write;
 
 use crate::cli::{ClaudeCommand, Command, GenCommand, SessionCommand};
 
