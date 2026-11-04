@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-04
+
 ### Added
 
 - Status bar: hovering a clickable segment underlines and highlights it.
@@ -1127,7 +1129,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/rnabioco/sinteractive/compare/v1.10.1...v1.11.0
 [1.8.0]: https://github.com/rnabioco/sinteractive/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/rnabioco/sinteractive/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/rnabioco/sinteractive/compare/v1.5.0...v1.6.0
