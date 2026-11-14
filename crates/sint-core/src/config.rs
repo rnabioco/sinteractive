@@ -4,7 +4,7 @@
 //! defaults. Defaults match Bodhi (the origin cluster); Alpine users override
 //! `partition`/`qos` in their shell profile as documented in the README.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 /// Resolved configuration. Build with [`Config::from_env`].
@@ -110,13 +110,20 @@ pub fn parse_hosts(value: &str) -> Vec<String> {
 /// `~/.cache/sinteractive`.
 fn cache_dir_from_env() -> PathBuf {
     if let Some(dir) = env_str("SINTERACTIVE_CACHE") {
-        return PathBuf::from(dir);
+        return normalize(&dir);
     }
     if let Some(xdg) = env_str("XDG_CACHE_HOME") {
-        return PathBuf::from(xdg).join("sinteractive");
+        return normalize(&xdg).join("sinteractive");
     }
     let home = env_str("HOME").map(PathBuf::from).unwrap_or_default();
     home.join(".cache").join("sinteractive")
+}
+
+/// Collapse repeated and trailing slashes. A leading `//scratch/...` would
+/// otherwise reach the zellij layout as `file://scratch/...`, which zellij
+/// reads as host `scratch` and fails to load the plugin.
+fn normalize(path: &str) -> PathBuf {
+    Path::new(path).components().collect()
 }
 
 impl Config {
@@ -428,6 +435,19 @@ mod tests {
         );
         std::env::set_var("SINTERACTIVE_CACHE", "/explicit");
         assert_eq!(Config::from_env().cache_dir, PathBuf::from("/explicit"));
+    }
+
+    /// `//scratch/...` must not survive: spliced after `file:` in a layout it
+    /// becomes `file://scratch/...` and zellij fails to load the plugin.
+    #[test]
+    fn cache_dir_collapses_a_leading_double_slash() {
+        let _g = lock();
+        let _r = EnvRestore::clean();
+        std::env::set_var("SINTERACTIVE_CACHE", "//scratch/u/.sinteractive/");
+        assert_eq!(
+            Config::from_env().cache_dir,
+            PathBuf::from("/scratch/u/.sinteractive")
+        );
     }
 
     /// A session exports `XDG_CACHE_HOME=<cache>/xdg` for zellij, so the
