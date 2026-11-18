@@ -78,8 +78,17 @@ pub fn ensure(cfg: &Config, mouse: bool) -> Result<Bundle> {
         layouts: dir.join("layouts"),
         dir: dir.clone(),
     };
-    if dir.join(".complete").exists() {
-        return Ok(bundle);
+    // The marker records the plugin path the config and layouts were
+    // written with. A bundle extracted under a different spelling of the
+    // cache dir (`//scratch/...`, a symlinked mount) has paths zellij cannot
+    // load, and the id does not cover the cache dir, so it is re-extracted.
+    let marker = format!("{ZELLIJ_VERSION}\n{}", bundle.plugin.display());
+    match fs::read_to_string(dir.join(".complete")) {
+        Ok(m) if m == marker => return Ok(bundle),
+        Ok(_) => {
+            let _ = fs::remove_dir_all(&dir);
+        }
+        Err(_) => {}
     }
     fs::create_dir_all(dir.parent().unwrap())?;
     let tmp = tempfile::Builder::new()
@@ -98,12 +107,12 @@ pub fn ensure(cfg: &Config, mouse: bool) -> Result<Bundle> {
     fs::write(t.join("config.kdl"), sub(CONFIG_KDL))?;
     fs::write(t.join("layouts/sint.kdl"), sub(LAYOUT_KDL))?;
     fs::write(t.join("layouts/sint-panel.kdl"), sub(PANEL_LAYOUT_KDL))?;
-    fs::write(t.join(".complete"), ZELLIJ_VERSION)?;
+    fs::write(t.join(".complete"), &marker)?;
     match fs::rename(t, &dir) {
         Ok(()) => {
             std::mem::forget(tmp);
         }
-        Err(_) if dir.join(".complete").exists() => {
+        Err(_) if fs::read_to_string(dir.join(".complete")).is_ok_and(|m| m == marker) => {
             // Another process won the race; ours is discarded by `tmp`.
         }
         Err(e) => return Err(e).context("install extracted bundle"),
@@ -135,6 +144,12 @@ mod tests {
         // Second call is a no-op returning the same paths.
         let b2 = ensure(&cfg, true).unwrap();
         assert_eq!(b2.dir, b.dir);
+        // A bundle extracted under another spelling of the path is redone.
+        fs::write(b.dir.join(".complete"), "0\n//stale/sint-zellij.wasm").unwrap();
+        fs::write(&b.config, "stale").unwrap();
+        let b4 = ensure(&cfg, true).unwrap();
+        let conf = fs::read_to_string(&b4.config).unwrap();
+        assert!(conf.contains(&b4.layouts.display().to_string()));
         // Mouse off is a different bundle id.
         let b3 = ensure(&cfg, false).unwrap();
         assert_ne!(b3.dir, b.dir);
