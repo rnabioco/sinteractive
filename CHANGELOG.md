@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-11-18
+
+### Fixed
+
+- Bundle: an extracted bundle written under another spelling of the cache
+  path (`//scratch/...`) is re-extracted, not reused. Zellij read the doubled
+  slash as a URL host and the status bar failed with "failed to load plugin
+  from disk".
+
 ## [1.11.0] - 2026-11-04
 
 ### Added
@@ -1129,7 +1138,8 @@ First tagged release.
   installers (user, system-wide, and per-node fan-out), and a
   `bodhi-compute` Claude Code skill.
 
-[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/rnabioco/sinteractive/compare/v1.11.1...HEAD
+[1.11.1]: https://github.com/rnabioco/sinteractive/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/rnabioco/sinteractive/compare/v1.10.1...v1.11.0
 [1.8.0]: https://github.com/rnabioco/sinteractive/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/rnabioco/sinteractive/compare/v1.6.0...v1.7.0
