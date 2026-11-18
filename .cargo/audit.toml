@@ -1,0 +1,8 @@
+[advisories]
+ignore = [
+    # libsqlite3-sys 0.27 comes in through zellij-utils 0.45 -> rusqlite 0.30,
+    # which zellij uses for its own session-resurrection cache. sinteractive
+    # never opens an untrusted SQLite file. Drop this when the embedded zellij
+    # moves to a release that bumps rusqlite.
+    "RUSTSEC-2026-0459",
+]
