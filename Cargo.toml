@@ -32,7 +32,7 @@ nvml-wrapper = "0.13"
 kdl = "6"
 regex = "1"
 tempfile = "3"
-sha2 = "0.10"
+sha2 = "0.11"
 flate2 = "1"
 tar = "0.4"
 rmcp = { version = "3", default-features = false, features = ["server", "macros", "transport-io"] }
