@@ -29,7 +29,7 @@ sint-proto.workspace = true
 anyhow.workspace = true
 sha2.workspace = true
 # zellij, compiled in (see src/zellij_embed/). Versions must match each other.
-zellij-client = "=0.45.1"
+zellij-client = "=0.46.0"
 zellij-server = "=0.45.1"
 zellij-utils = "=0.45.1"
 dialoguer = { version = "0.12", default-features = false, features = ["password", "completion"] }
