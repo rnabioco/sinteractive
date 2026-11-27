@@ -31,7 +31,7 @@ sha2.workspace = true
 # zellij, compiled in (see src/zellij_embed/). Versions must match each other.
 zellij-client = "=0.45.1"
 zellij-server = "=0.45.1"
-zellij-utils = "=0.45.1"
+zellij-utils = "=0.46.0"
 dialoguer = { version = "0.12", default-features = false, features = ["password", "completion"] }
 miette = { version = "7", default-features = false, features = ["derive", "fancy"] }
 log = "0.4"
