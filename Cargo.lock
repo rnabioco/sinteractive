@@ -3775,7 +3775,7 @@ dependencies = [
  "tokio",
  "zellij-client",
  "zellij-server",
- "zellij-utils",
+ "zellij-utils 0.45.1",
 ]
 
 [[package]]
@@ -5315,9 +5315,9 @@ dependencies = [
 
 [[package]]
 name = "zellij-client"
-version = "0.45.1"
+version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ba0a528469541cac9ebe22321d6f6a048d88b902103e248c5ffb3f8820308f9"
+checksum = "80f5d163238005d4afe926f3cb38b12efee377988b18b2260aeed771fdae3650"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5354,7 +5354,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "windows-sys 0.59.0",
- "zellij-utils",
+ "zellij-utils 0.46.1",
 ]
 
 [[package]]
@@ -5405,7 +5405,7 @@ dependencies = [
  "wasmi",
  "wasmi_wasi",
  "windows-sys 0.59.0",
- "zellij-utils",
+ "zellij-utils 0.45.1",
 ]
 
 [[package]]
@@ -5419,7 +5419,7 @@ dependencies = [
  "serde_json",
  "strum",
  "strum_macros",
- "zellij-utils",
+ "zellij-utils 0.45.1",
 ]
 
 [[package]]
@@ -5473,6 +5473,63 @@ dependencies = [
  "url",
  "uuid",
  "winapi",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "zellij-utils"
+version = "0.46.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "473374cf1f9e70102a514594c3e581a5e60594933a7dda323e66036bbefffc73"
+dependencies = [
+ "anyhow",
+ "backtrace",
+ "base64",
+ "bitflags 2.13.1",
+ "clap",
+ "clap_complete",
+ "colored",
+ "colorsys",
+ "crossbeam",
+ "crossterm",
+ "directories",
+ "dunce",
+ "humantime",
+ "include_dir",
+ "interprocess",
+ "isahc 1.8.3",
+ "kdl",
+ "lazy_static",
+ "libc",
+ "log",
+ "log4rs",
+ "miette 7.6.0",
+ "names",
+ "nix 0.30.1",
+ "notify",
+ "percent-encoding",
+ "prost",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "shellexpand",
+ "strip-ansi-escapes",
+ "strum",
+ "strum_macros",
+ "suggest",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "unicode-segmentation",
+ "unicode-width 0.2.3",
+ "url",
+ "uuid",
+ "winapi",
+ "windows",
  "windows-sys 0.59.0",
 ]
 
